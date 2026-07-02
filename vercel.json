@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/web-nfc-timing-test.html"
+    }
+  ]
+}

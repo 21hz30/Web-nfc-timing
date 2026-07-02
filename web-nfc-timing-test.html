@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HYROX Web NFC Timing Test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6f8;
+      color: #101820;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f4f6f8;
+    }
+
+    main {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.5;
+      color: #4a5563;
+    }
+
+    .panel {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: #303946;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid #c8d1dc;
+      border-radius: 6px;
+      padding: 11px 12px;
+      font: inherit;
+      color: #101820;
+      background: #ffffff;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 12px 14px;
+      font: inherit;
+      font-weight: 700;
+      color: #ffffff;
+      background: #0f766e;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      color: #101820;
+      background: #e5e9ef;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .status {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 6px;
+      background: #eef7f6;
+      color: #0f4f49;
+      font-weight: 700;
+    }
+
+    .status.error {
+      background: #fff1f0;
+      color: #a21616;
+    }
+
+    .last-card {
+      display: grid;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 8px;
+      background: #101820;
+      color: #ffffff;
+    }
+
+    .last-card strong {
+      font-size: 28px;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      overflow: hidden;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e1e7ef;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      color: #303946;
+      background: #edf1f5;
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    @media (max-width: 720px) {
+      main {
+        padding: 14px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .last-card strong {
+        font-size: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>HYROX Web NFC Timing Test</h1>
+    <p>用于验证 NFC tag 读取、站点时间记录和可选上传。请用支持 Web NFC 的 Android Chrome 打开 HTTPS 页面。</p>
+
+    <section class="panel">
+      <div class="grid">
+        <label>
+          Race ID
+          <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+        </label>
+        <label>
+          Device ID
+          <input id="deviceId" value="mate40-001" autocomplete="off">
+        </label>
+        <label>
+          Station
+          <select id="stationId">
+            <option value="START">START</option>
+            <option value="SKI_IN">SKI_IN</option>
+            <option value="SKI_OUT">SKI_OUT</option>
+            <option value="SLED_PUSH_IN">SLED_PUSH_IN</option>
+            <option value="SLED_PUSH_OUT">SLED_PUSH_OUT</option>
+            <option value="FINISH">FINISH</option>
+          </select>
+        </label>
+        <label>
+          Upload API URL
+          <input id="apiUrl" placeholder="https://your-domain.com/api/timing-events" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="startButton">开始扫描 NFC</button>
+        <button id="stopButton" class="secondary" disabled>停止扫描</button>
+        <button id="clearButton" class="secondary">清空本地记录</button>
+      </div>
+
+      <div id="status" class="status">等待开始扫描。</div>
+
+      <div class="last-card">
+        <span>Last Scan</span>
+        <strong id="lastCard">-</strong>
+        <span id="lastMeta">还没有记录</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 style="margin: 0; font-size: 18px;">本地事件记录</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>站点</th>
+            <th>卡号</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const startButton = document.querySelector("#startButton");
+    const stopButton = document.querySelector("#stopButton");
+    const clearButton = document.querySelector("#clearButton");
+    const statusBox = document.querySelector("#status");
+    const lastCard = document.querySelector("#lastCard");
+    const lastMeta = document.querySelector("#lastMeta");
+    const eventsBody = document.querySelector("#eventsBody");
+
+    let abortController = null;
+    let recentScans = new Map();
+    const duplicateWindowMs = 2500;
+
+    function setStatus(message, isError = false) {
+      statusBox.textContent = message;
+      statusBox.classList.toggle("error", isError);
+    }
+
+    function decodeRecord(record) {
+      if (!record.data) return "";
+
+      if (record.recordType === "text") {
+        return new TextDecoder(record.encoding || "utf-8").decode(record.data);
+      }
+
+      if (record.recordType === "url") {
+        return new TextDecoder("utf-8").decode(record.data);
+      }
+
+      return new TextDecoder("utf-8").decode(record.data);
+    }
+
+    function readCardCode(message) {
+      for (const record of message.records) {
+        const value = decodeRecord(record).trim();
+        if (value) return value;
+      }
+      return "";
+    }
+
+    function getPayload(cardCode, serialNumber) {
+      return {
+        eventId: `${document.querySelector("#deviceId").value}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        raceId: document.querySelector("#raceId").value.trim(),
+        deviceId: document.querySelector("#deviceId").value.trim(),
+        stationId: document.querySelector("#stationId").value,
+        cardCode,
+        serialNumber: serialNumber || "",
+        eventTime: new Date().toISOString(),
+        source: "web-nfc-test"
+      };
+    }
+
+    async function uploadEvent(payload) {
+      const apiUrl = document.querySelector("#apiUrl").value.trim();
+      if (!apiUrl) return "local-only";
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return "uploaded";
+    }
+
+    function addRow(payload, result) {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td class="mono">${new Date(payload.eventTime).toLocaleTimeString()}</td>
+        <td class="mono">${payload.stationId}</td>
+        <td class="mono">${payload.cardCode}</td>
+        <td>${result}</td>
+      `;
+      eventsBody.prepend(row);
+    }
+
+    async function handleReading(event) {
+      const cardCode = readCardCode(event.message);
+      if (!cardCode) {
+        setStatus("读到了 NFC，但没有找到文本卡号。", true);
+        return;
+      }
+
+      const duplicateKey = `${document.querySelector("#stationId").value}:${cardCode}`;
+      const now = Date.now();
+      const previous = recentScans.get(duplicateKey) || 0;
+      if (now - previous < duplicateWindowMs) {
+        setStatus(`忽略重复刷卡：${cardCode}`);
+        return;
+      }
+      recentScans.set(duplicateKey, now);
+
+      const payload = getPayload(cardCode, event.serialNumber);
+      lastCard.textContent = cardCode;
+      lastMeta.textContent = `${payload.stationId} · ${new Date(payload.eventTime).toLocaleString()}`;
+
+      try {
+        const result = await uploadEvent(payload);
+        addRow(payload, result === "uploaded" ? "已上传" : "仅本地记录");
+        setStatus(`记录成功：${cardCode}`);
+      } catch (error) {
+        addRow(payload, `上传失败：${error.message}`);
+        setStatus(`本地已记录，但上传失败：${error.message}`, true);
+      }
+    }
+
+    startButton.addEventListener("click", async () => {
+      if (!("NDEFReader" in window)) {
+        setStatus("当前浏览器不支持 Web NFC。请在 Android Chrome 中打开 HTTPS 页面。", true);
+        return;
+      }
+
+      try {
+        abortController = new AbortController();
+        const ndef = new NDEFReader();
+        await ndef.scan({ signal: abortController.signal });
+        ndef.addEventListener("reading", handleReading);
+        ndef.addEventListener("readingerror", () => {
+          setStatus("NFC 读取失败，请重新贴卡。", true);
+        });
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        setStatus("扫描已开始。保持页面在前台，然后贴 NFC 卡。");
+      } catch (error) {
+        setStatus(`无法开始扫描：${error.message}`, true);
+      }
+    });
+
+    stopButton.addEventListener("click", () => {
+      if (abortController) {
+        abortController.abort();
+      }
+      abortController = null;
+      startButton.disabled = false;
+      stopButton.disabled = true;
+      setStatus("扫描已停止。");
+    });
+
+    clearButton.addEventListener("click", () => {
+      eventsBody.innerHTML = "";
+      recentScans = new Map();
+      lastCard.textContent = "-";
+      lastMeta.textContent = "还没有记录";
+      setStatus("本地记录已清空。");
+    });
+  </script>
+</body>
+</html>
