@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HYROX Live Timing</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #090d10;
+      color: #f4f7fb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #090d10;
+      color: #f4f7fb;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: end;
+      padding: 18px 22px;
+      border-bottom: 1px solid #202a33;
+      background: #0f151a;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .sub {
+      margin-top: 5px;
+      color: #a8b4c2;
+      font-size: 14px;
+    }
+
+    .meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+      color: #a8b4c2;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #32d583;
+      font-weight: 900;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #32d583;
+      box-shadow: 0 0 12px #32d583;
+    }
+
+    main {
+      width: 100%;
+      padding: 14px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 260px) 1fr;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: #a8b4c2;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid #344250;
+      border-radius: 6px;
+      padding: 10px 11px;
+      font: inherit;
+      background: #121a20;
+      color: #ffffff;
+    }
+
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .metric {
+      min-width: 130px;
+      padding: 10px 12px;
+      border: 1px solid #26323d;
+      border-radius: 8px;
+      background: #11181e;
+    }
+
+    .metric span {
+      display: block;
+      color: #93a1b1;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 20px;
+      line-height: 1.1;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid #26323d;
+      border-radius: 8px;
+      background: #0d1217;
+    }
+
+    table {
+      width: 100%;
+      min-width: 1240px;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #202a33;
+      padding: 9px 10px;
+      text-align: left;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #151d24;
+      color: #9fafbf;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    tbody tr {
+      background: #0d1217;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #10171d;
+    }
+
+    tbody tr.leader {
+      background: #13251f;
+    }
+
+    .rank {
+      width: 52px;
+      color: #ffffff;
+      font-size: 21px;
+      font-weight: 950;
+      text-align: center;
+    }
+
+    .athlete {
+      display: grid;
+      gap: 2px;
+    }
+
+    .athlete strong {
+      font-size: 15px;
+    }
+
+    .athlete span {
+      color: #9fafbf;
+      font-size: 12px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .elapsed {
+      color: #f8d66d;
+      font-size: 17px;
+      font-weight: 950;
+    }
+
+    .gap {
+      color: #a8b4c2;
+      font-weight: 800;
+    }
+
+    .current {
+      color: #60a5fa;
+      font-weight: 900;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #26323d;
+      color: #d6e0ea;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .status.finished {
+      background: #194d33;
+      color: #9ff0bf;
+    }
+
+    .status.racing {
+      background: #163c5c;
+      color: #9ed5ff;
+    }
+
+    .status.not_started {
+      background: #342f25;
+      color: #f8d66d;
+    }
+
+    .split {
+      color: #dbe5ef;
+      font-weight: 800;
+    }
+
+    .empty {
+      padding: 28px;
+      color: #a8b4c2;
+      text-align: center;
+    }
+
+    @media (max-width: 820px) {
+      header,
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .meta,
+      .summary {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>HYROX Live Timing</h1>
+      <div class="sub">实时排名、进度、Gap、Station split。</div>
+    </div>
+    <div class="meta">
+      <span class="live"><span class="dot"></span>LIVE</span>
+      <span id="updatedAt">-</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <label>
+        Race ID
+        <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+      </label>
+      <div class="summary">
+        <div class="metric">
+          <span>Total</span>
+          <strong id="totalCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>Racing</span>
+          <strong id="racingCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>Finished</span>
+          <strong id="finishedCount">0</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Pos</th>
+            <th>Athlete</th>
+            <th>Status</th>
+            <th>Current</th>
+            <th>Elapsed</th>
+            <th>Gap</th>
+            <th>S1</th>
+            <th>S2</th>
+            <th>S3</th>
+            <th>S4</th>
+            <th>S5</th>
+            <th>S6</th>
+            <th>S7</th>
+            <th>S8</th>
+            <th>Card</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboardBody">
+          <tr><td class="empty" colspan="15">Waiting for timing data...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    const leaderboardBody = document.querySelector("#leaderboardBody");
+    const raceIdInput = document.querySelector("#raceId");
+    const updatedAt = document.querySelector("#updatedAt");
+    const totalCount = document.querySelector("#totalCount");
+    const racingCount = document.querySelector("#racingCount");
+    const finishedCount = document.querySelector("#finishedCount");
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    function formatDuration(ms) {
+      if (ms === null || ms === undefined) return "-";
+      const totalSeconds = Math.floor(ms / 1000);
+      const tenths = Math.floor((ms % 1000) / 100);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
+      }
+      return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
+    }
+
+    function formatGap(ms, rank) {
+      if (ms === null || ms === undefined) return "-";
+      if (rank === 1) return "Leader";
+      return `+${formatDuration(ms)}`;
+    }
+
+    function splitCells(splits) {
+      let html = "";
+      for (let stationNumber = 1; stationNumber <= 8; stationNumber += 1) {
+        html += `<td class="split mono">${formatDuration(splits[`station${stationNumber}Ms`])}</td>`;
+      }
+      return html;
+    }
+
+    async function loadLeaderboard() {
+      const raceId = raceIdInput.value.trim() || "hyrox-sim-001";
+      const response = await fetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+
+      const rows = payload.leaderboard || [];
+      totalCount.textContent = rows.length;
+      racingCount.textContent = rows.filter((row) => row.status === "racing").length;
+      finishedCount.textContent = rows.filter((row) => row.status === "finished").length;
+      updatedAt.textContent = new Date(payload.generatedAt).toLocaleTimeString();
+
+      if (rows.length === 0) {
+        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="15">No participants yet.</td></tr>`;
+        return;
+      }
+
+      leaderboardBody.innerHTML = rows.map((row) => `
+        <tr class="${row.rank === 1 ? "leader" : ""}">
+          <td class="rank">${row.rank}</td>
+          <td>
+            <div class="athlete">
+              <strong>${escapeHtml(row.athleteName)}</strong>
+              <span>Bib ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}</span>
+            </div>
+          </td>
+          <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(row.status)}</span></td>
+          <td class="current">${escapeHtml(row.current)}</td>
+          <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
+          <td class="gap mono">${formatGap(row.gapMs, row.rank)}</td>
+          ${splitCells(row.stationSplits)}
+          <td class="mono">${escapeHtml(row.cardCode)}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function refreshLoop() {
+      try {
+        await loadLeaderboard();
+      } catch (error) {
+        updatedAt.textContent = `Error: ${error.message}`;
+      }
+    }
+
+    refreshLoop();
+    setInterval(refreshLoop, 1000);
+  </script>
+</body>
+</html>

@@ -6,7 +6,9 @@ It contains:
 
 - `web-nfc-timing-test.html`: Android Chrome Web NFC station scanner.
 - `server.py`: local Python + SQLite API for timing events.
-- `local-dashboard.html`: local admin page for card bindings and event checks.
+- `admin.html`: race admin page for athlete info, check-in, and NFC card binding.
+- `leaderboard.html`: live timing board with rank, current checkpoint, gap, and station splits.
+- `local-dashboard.html`: older local debug page for quick card bindings and event checks.
 
 ## Run Local SQLite API
 
@@ -17,6 +19,15 @@ python3 server.py
 Open:
 
 ```text
+http://localhost:8787/
+```
+
+Useful pages:
+
+```text
+http://localhost:8787/admin.html
+http://localhost:8787/web-nfc-timing-test.html
+http://localhost:8787/leaderboard.html
 http://localhost:8787/local-dashboard.html
 ```
 
@@ -24,6 +35,12 @@ API endpoint:
 
 ```text
 http://localhost:8787/api/timing-events
+```
+
+Leaderboard endpoint:
+
+```text
+http://localhost:8787/api/leaderboard?raceId=hyrox-sim-001
 ```
 
 SQLite database path:

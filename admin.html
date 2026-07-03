@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HYROX Race Admin</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f5f7;
+      color: #121820;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f3f5f7;
+    }
+
+    header {
+      background: #121820;
+      color: #ffffff;
+      padding: 18px 22px;
+    }
+
+    main {
+      width: min(1280px, 100%);
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: 24px;
+    }
+
+    h2 {
+      font-size: 18px;
+    }
+
+    p {
+      margin: 6px 0 0;
+      color: #647181;
+      line-height: 1.5;
+    }
+
+    header p {
+      color: #b6c2cf;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    nav a {
+      color: #ffffff;
+      text-decoration: none;
+      border: 1px solid #405060;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-weight: 700;
+    }
+
+    section {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #344052;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid #c8d1dc;
+      border-radius: 6px;
+      padding: 10px 11px;
+      font: inherit;
+      background: #ffffff;
+      color: #121820;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 11px 14px;
+      font: inherit;
+      font-weight: 800;
+      color: #ffffff;
+      background: #0f766e;
+      cursor: pointer;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #eef7f6;
+      color: #0f4f49;
+      font-weight: 800;
+    }
+
+    .status.error {
+      background: #fff1f0;
+      color: #a21616;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e3e9f1;
+      padding: 9px;
+      text-align: left;
+      font-size: 13px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf2f7;
+      color: #344052;
+      font-weight: 900;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .pill {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e8eef5;
+      color: #344052;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pill.checked_in,
+    .pill.accepted {
+      background: #def7ec;
+      color: #03543f;
+    }
+
+    .pill.not_checked_in,
+    .pill.unbound_card {
+      background: #ffe4e1;
+      color: #9b1c1c;
+    }
+
+    @media (max-width: 920px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HYROX Race Admin</h1>
+    <p>前台登记、选手资料核实、NFC 卡绑定、实时事件检查。</p>
+    <nav>
+      <a href="./web-nfc-timing-test.html">站点计时页</a>
+      <a href="./leaderboard.html">实时排名大屏</a>
+      <a href="./local-dashboard.html">旧测试后台</a>
+    </nav>
+  </header>
+
+  <main>
+    <section>
+      <h2>选手登记 / NFC 绑定</h2>
+      <p>NFC tag 只写卡号，例如 SIM-001；姓名、手机、性别和组别只存后台。</p>
+      <form id="participantForm" class="grid">
+        <label>
+          Race ID
+          <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+        </label>
+        <label>
+          Card Code
+          <input id="cardCode" placeholder="SIM-001" autocomplete="off">
+        </label>
+        <label>
+          Bib
+          <input id="bibNumber" placeholder="001" autocomplete="off">
+        </label>
+        <label>
+          Name
+          <input id="athleteName" placeholder="Peter Zhang" autocomplete="off">
+        </label>
+        <label>
+          Phone
+          <input id="phone" placeholder="13800000000" autocomplete="off">
+        </label>
+        <label>
+          Gender
+          <select id="gender">
+            <option value="">-</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="mixed">Mixed</option>
+          </select>
+        </label>
+        <label>
+          Division
+          <select id="division">
+            <option value="">-</option>
+            <option value="Men Open">Men Open</option>
+            <option value="Women Open">Women Open</option>
+            <option value="Men Pro">Men Pro</option>
+            <option value="Women Pro">Women Pro</option>
+            <option value="Doubles">Doubles</option>
+            <option value="Relay">Relay</option>
+          </select>
+        </label>
+        <label>
+          Check-in
+          <select id="checkInStatus">
+            <option value="checked_in">Checked In</option>
+            <option value="not_checked_in">Not Checked In</option>
+          </select>
+        </label>
+        <div class="actions">
+          <button type="submit">保存 / 绑定</button>
+        </div>
+      </form>
+      <div id="formStatus" class="status">等待操作。</div>
+    </section>
+
+    <section>
+      <h2>选手与卡绑定</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Bib</th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Gender</th>
+            <th>Division</th>
+            <th>Card</th>
+            <th>Check-in</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody id="participantsBody"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>最新刷卡事件</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Received</th>
+            <th>Status</th>
+            <th>Card</th>
+            <th>Athlete</th>
+            <th>Station</th>
+            <th>Device</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const form = document.querySelector("#participantForm");
+    const formStatus = document.querySelector("#formStatus");
+    const participantsBody = document.querySelector("#participantsBody");
+    const eventsBody = document.querySelector("#eventsBody");
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    function formatTime(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleTimeString();
+    }
+
+    function setStatus(message, isError = false) {
+      formStatus.textContent = message;
+      formStatus.classList.toggle("error", isError);
+    }
+
+    async function requestJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      return payload;
+    }
+
+    async function loadParticipants() {
+      const raceId = document.querySelector("#raceId").value.trim() || "hyrox-sim-001";
+      const payload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
+      participantsBody.innerHTML = payload.participants.map((participant) => `
+        <tr>
+          <td class="mono">${escapeHtml(participant.bib_number || "-")}</td>
+          <td>${escapeHtml(participant.athlete_name)}</td>
+          <td class="mono">${escapeHtml(participant.phone || "-")}</td>
+          <td>${escapeHtml(participant.gender || "-")}</td>
+          <td>${escapeHtml(participant.division || "-")}</td>
+          <td class="mono">${escapeHtml(participant.card_code)}</td>
+          <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
+          <td class="mono">${formatTime(participant.updated_at)}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadEvents() {
+      const raceId = document.querySelector("#raceId").value.trim() || "hyrox-sim-001";
+      const payload = await requestJson(`/api/timing-events?raceId=${encodeURIComponent(raceId)}&limit=20`);
+      eventsBody.innerHTML = payload.events.map((event) => `
+        <tr>
+          <td class="mono">${formatTime(event.received_at)}</td>
+          <td><span class="pill ${escapeHtml(event.status)}">${escapeHtml(event.status)}</span></td>
+          <td class="mono">${escapeHtml(event.card_code)}</td>
+          <td>${escapeHtml(event.athlete_name || "未绑定")}</td>
+          <td class="mono">${escapeHtml(event.station_id)}</td>
+          <td class="mono">${escapeHtml(event.device_id)}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function refresh() {
+      await Promise.all([loadParticipants(), loadEvents()]);
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = {
+          raceId: document.querySelector("#raceId").value.trim() || "hyrox-sim-001",
+          cardCode: document.querySelector("#cardCode").value.trim().toUpperCase(),
+          bibNumber: document.querySelector("#bibNumber").value.trim(),
+          athleteName: document.querySelector("#athleteName").value.trim(),
+          phone: document.querySelector("#phone").value.trim(),
+          gender: document.querySelector("#gender").value,
+          division: document.querySelector("#division").value,
+          checkInStatus: document.querySelector("#checkInStatus").value
+        };
+        await requestJson("/api/participants", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        setStatus(`已保存：${payload.cardCode} → ${payload.athleteName}`);
+        await refresh();
+      } catch (error) {
+        setStatus(`保存失败：${error.message}`, true);
+      }
+    });
+
+    refresh().catch((error) => setStatus(`刷新失败：${error.message}`, true));
+    setInterval(() => refresh().catch(() => {}), 2000);
+  </script>
+</body>
+</html>

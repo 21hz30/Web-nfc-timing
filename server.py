@@ -13,6 +13,12 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "timing.sqlite3"
 DUPLICATE_WINDOW_SECONDS = 3
+CHECKPOINT_SEQUENCE = ["START"] + [
+    checkpoint
+    for station_number in range(1, 9)
+    for checkpoint in (f"STATION_{station_number}_ENTER", f"STATION_{station_number}_EXIT")
+] + ["END"]
+CHECKPOINT_INDEX = {checkpoint: index for index, checkpoint in enumerate(CHECKPOINT_SEQUENCE)}
 
 
 def utc_now() -> str:
@@ -80,6 +86,24 @@ def init_db() -> None:
               ON timing_events (race_id, card_code, station_id, event_time DESC);
             """
         )
+        ensure_participant_columns(db)
+
+
+def ensure_participant_columns(db: sqlite3.Connection) -> None:
+    existing_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(participants)").fetchall()
+    }
+    migrations = {
+        "phone": "ALTER TABLE participants ADD COLUMN phone TEXT",
+        "gender": "ALTER TABLE participants ADD COLUMN gender TEXT",
+        "check_in_status": (
+            "ALTER TABLE participants "
+            "ADD COLUMN check_in_status TEXT NOT NULL DEFAULT 'not_checked_in'"
+        ),
+    }
+    for column_name, statement in migrations.items():
+        if column_name not in existing_columns:
+            db.execute(statement)
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
@@ -88,6 +112,16 @@ def row_to_dict(row: sqlite3.Row) -> dict:
 
 def normalize_card_code(value: object) -> str:
     return str(value or "").strip().upper()
+
+
+def milliseconds_between(start: str | None, end: str | None) -> int | None:
+    if not start or not end:
+        return None
+    start_time = parse_iso(start)
+    end_time = parse_iso(end)
+    if not start_time or not end_time:
+        return None
+    return max(0, int((end_time - start_time).total_seconds() * 1000))
 
 
 class TimingHandler(SimpleHTTPRequestHandler):
@@ -121,6 +155,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/participants":
             self.handle_get_participants(parsed.query)
+            return
+
+        if parsed.path == "/api/leaderboard":
+            self.handle_get_leaderboard(parsed.query)
             return
 
         super().do_GET()
@@ -174,7 +212,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                   timing_events.*,
                   participants.athlete_name,
                   participants.bib_number,
-                  participants.division
+                  participants.division,
+                  participants.phone,
+                  participants.gender,
+                  participants.check_in_status
                 FROM timing_events
                 LEFT JOIN participants ON participants.id = timing_events.participant_id
                 WHERE timing_events.race_id = ?
@@ -202,6 +243,156 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
         self.send_json({"ok": True, "participants": [row_to_dict(row) for row in rows]})
 
+    def handle_get_leaderboard(self, query: str) -> None:
+        params = parse_qs(query)
+        race_id = params.get("raceId", ["hyrox-sim-001"])[0]
+        with connect_db() as db:
+            participant_rows = db.execute(
+                """
+                SELECT *
+                FROM participants
+                WHERE race_id = ?
+                ORDER BY bib_number IS NULL, bib_number, athlete_name
+                """,
+                (race_id,),
+            ).fetchall()
+            event_rows = db.execute(
+                """
+                SELECT *
+                FROM timing_events
+                WHERE race_id = ? AND status = 'accepted' AND participant_id IS NOT NULL
+                ORDER BY event_time ASC, id ASC
+                """,
+                (race_id,),
+            ).fetchall()
+
+        leaderboard = self.build_leaderboard(participant_rows, event_rows)
+        self.send_json(
+            {
+                "ok": True,
+                "raceId": race_id,
+                "generatedAt": utc_now(),
+                "checkpoints": CHECKPOINT_SEQUENCE,
+                "leaderboard": leaderboard,
+            }
+        )
+
+    def build_leaderboard(
+        self,
+        participant_rows: list[sqlite3.Row],
+        event_rows: list[sqlite3.Row],
+    ) -> list[dict]:
+        events_by_participant: dict[int, list[sqlite3.Row]] = {}
+        for event in event_rows:
+            events_by_participant.setdefault(event["participant_id"], []).append(event)
+
+        generated_at = utc_now()
+        results = []
+        for participant in participant_rows:
+            checkpoints = self.build_checkpoint_map(
+                events_by_participant.get(participant["id"], [])
+            )
+            start_time = checkpoints.get("START")
+            end_time = checkpoints.get("END")
+            latest_checkpoint = self.latest_checkpoint(checkpoints)
+            progress_index = CHECKPOINT_INDEX.get(latest_checkpoint, -1)
+            status = self.result_status(latest_checkpoint, end_time)
+            elapsed_end = end_time if end_time else generated_at
+            elapsed_ms = milliseconds_between(start_time, elapsed_end) if start_time else None
+
+            results.append(
+                {
+                    "participantId": participant["id"],
+                    "athleteName": participant["athlete_name"],
+                    "bibNumber": participant["bib_number"],
+                    "cardCode": participant["card_code"],
+                    "phone": participant["phone"],
+                    "gender": participant["gender"],
+                    "division": participant["division"],
+                    "checkInStatus": participant["check_in_status"],
+                    "status": status,
+                    "current": self.current_label(checkpoints, latest_checkpoint),
+                    "progressIndex": progress_index,
+                    "latestCheckpoint": latest_checkpoint,
+                    "startTime": start_time,
+                    "finishTime": end_time,
+                    "elapsedMs": elapsed_ms,
+                    "checkpointTimes": checkpoints,
+                    "stationSplits": self.station_splits(checkpoints),
+                }
+            )
+
+        results.sort(key=self.leaderboard_sort_key)
+        leader_elapsed = results[0]["elapsedMs"] if results else None
+        for index, result in enumerate(results, start=1):
+            result["rank"] = index
+            if result["elapsedMs"] is None or leader_elapsed is None:
+                result["gapMs"] = None
+            else:
+                result["gapMs"] = max(0, result["elapsedMs"] - leader_elapsed)
+        return results
+
+    def build_checkpoint_map(self, events: list[sqlite3.Row]) -> dict[str, str]:
+        checkpoints = {}
+        for event in events:
+            station_id = event["station_id"]
+            if station_id in CHECKPOINT_INDEX and station_id not in checkpoints:
+                checkpoints[station_id] = event["event_time"]
+        return checkpoints
+
+    def latest_checkpoint(self, checkpoints: dict[str, str]) -> str | None:
+        latest = None
+        latest_index = -1
+        for checkpoint in checkpoints:
+            checkpoint_index = CHECKPOINT_INDEX.get(checkpoint, -1)
+            if checkpoint_index > latest_index:
+                latest = checkpoint
+                latest_index = checkpoint_index
+        return latest
+
+    def result_status(self, latest_checkpoint: str | None, end_time: str | None) -> str:
+        if end_time:
+            return "finished"
+        if latest_checkpoint:
+            return "racing"
+        return "not_started"
+
+    def current_label(self, checkpoints: dict[str, str], latest_checkpoint: str | None) -> str:
+        if latest_checkpoint is None:
+            return "Waiting"
+        if latest_checkpoint == "END":
+            return "Finished"
+        if latest_checkpoint == "START":
+            return "Run 1"
+
+        for station_number in range(1, 9):
+            enter = f"STATION_{station_number}_ENTER"
+            exit_ = f"STATION_{station_number}_EXIT"
+            if latest_checkpoint == enter and exit_ not in checkpoints:
+                return f"Station {station_number}"
+            if latest_checkpoint == exit_:
+                return "To END" if station_number == 8 else f"Run {station_number + 1}"
+        return latest_checkpoint
+
+    def station_splits(self, checkpoints: dict[str, str]) -> dict[str, int | None]:
+        splits = {}
+        for station_number in range(1, 9):
+            enter = checkpoints.get(f"STATION_{station_number}_ENTER")
+            exit_ = checkpoints.get(f"STATION_{station_number}_EXIT")
+            splits[f"station{station_number}Ms"] = milliseconds_between(enter, exit_)
+        return splits
+
+    def leaderboard_sort_key(self, result: dict) -> tuple:
+        status_order = {"finished": 0, "racing": 1, "not_started": 2}
+        elapsed = result["elapsedMs"] if result["elapsedMs"] is not None else 10**15
+        return (
+            status_order.get(result["status"], 3),
+            -result["progressIndex"],
+            elapsed,
+            result["bibNumber"] or "",
+            result["athleteName"] or "",
+        )
+
     def handle_post_participant(self) -> None:
         try:
             payload = self.read_json_body()
@@ -209,7 +400,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             card_code = normalize_card_code(payload.get("cardCode"))
             athlete_name = str(payload.get("athleteName") or "").strip()
             bib_number = str(payload.get("bibNumber") or "").strip() or None
+            phone = str(payload.get("phone") or "").strip() or None
+            gender = str(payload.get("gender") or "").strip() or None
             division = str(payload.get("division") or "").strip() or None
+            check_in_status = str(payload.get("checkInStatus") or "checked_in").strip()
             if not race_id or not card_code or not athlete_name:
                 raise ValueError("raceId, cardCode and athleteName are required")
 
@@ -218,16 +412,39 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 db.execute(
                     """
                     INSERT INTO participants (
-                      race_id, card_code, athlete_name, bib_number, division, created_at, updated_at
+                      race_id,
+                      card_code,
+                      athlete_name,
+                      bib_number,
+                      phone,
+                      gender,
+                      division,
+                      check_in_status,
+                      created_at,
+                      updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (race_id, card_code) DO UPDATE SET
                       athlete_name = excluded.athlete_name,
                       bib_number = excluded.bib_number,
+                      phone = excluded.phone,
+                      gender = excluded.gender,
                       division = excluded.division,
+                      check_in_status = excluded.check_in_status,
                       updated_at = excluded.updated_at
                     """,
-                    (race_id, card_code, athlete_name, bib_number, division, now, now),
+                    (
+                        race_id,
+                        card_code,
+                        athlete_name,
+                        bib_number,
+                        phone,
+                        gender,
+                        division,
+                        check_in_status,
+                        now,
+                        now,
+                    ),
                 )
                 row = db.execute(
                     "SELECT * FROM participants WHERE race_id = ? AND card_code = ?",
@@ -327,7 +544,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                   timing_events.*,
                   participants.athlete_name,
                   participants.bib_number,
-                  participants.division
+                  participants.division,
+                  participants.phone,
+                  participants.gender,
+                  participants.check_in_status
                 FROM timing_events
                 LEFT JOIN participants ON participants.id = timing_events.participant_id
                 WHERE timing_events.id = ?

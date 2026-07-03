@@ -3,13 +3,96 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0; url=./web-nfc-timing-test.html">
-  <title>HYROX Web NFC Timing</title>
+  <title>HYROX Timing Control</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f5f7;
+      color: #121820;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f3f5f7;
+    }
+
+    main {
+      width: min(900px, 100%);
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #607080;
+      line-height: 1.5;
+    }
+
+    .links {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+    }
+
+    a {
+      display: grid;
+      gap: 8px;
+      min-height: 130px;
+      padding: 16px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #121820;
+      text-decoration: none;
+    }
+
+    a strong {
+      font-size: 18px;
+    }
+
+    a span {
+      color: #607080;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 760px) {
+      .links {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
-  <p>
-    Opening HYROX Web NFC Timing Test...
-    <a href="./web-nfc-timing-test.html">Open manually</a>
-  </p>
+  <main>
+    <h1>HYROX Timing Control</h1>
+    <p>本地测试入口。正式部署时，后台、站点计时和大屏会继续使用同一套 API。</p>
+
+    <div class="links">
+      <a href="./admin.html">
+        <strong>后台管理</strong>
+        <span>登记选手、核实资料、绑定 NFC 卡、查看最新刷卡事件。</span>
+      </a>
+      <a href="./web-nfc-timing-test.html">
+        <strong>站点计时</strong>
+        <span>安卓设备打开，选择 START / Station Enter / Exit，刷 NFC 上传。</span>
+      </a>
+      <a href="./leaderboard.html">
+        <strong>实时排名大屏</strong>
+        <span>F1 风格排名、进度、elapsed、gap 和 station split。</span>
+      </a>
+    </div>
+  </main>
 </body>
 </html>
