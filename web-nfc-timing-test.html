@@ -199,11 +199,23 @@
           Station
           <select id="stationId">
             <option value="START">START</option>
-            <option value="SKI_IN">SKI_IN</option>
-            <option value="SKI_OUT">SKI_OUT</option>
-            <option value="SLED_PUSH_IN">SLED_PUSH_IN</option>
-            <option value="SLED_PUSH_OUT">SLED_PUSH_OUT</option>
-            <option value="FINISH">FINISH</option>
+            <option value="STATION_1_ENTER">Station 1 Enter</option>
+            <option value="STATION_1_EXIT">Station 1 Exit</option>
+            <option value="STATION_2_ENTER">Station 2 Enter</option>
+            <option value="STATION_2_EXIT">Station 2 Exit</option>
+            <option value="STATION_3_ENTER">Station 3 Enter</option>
+            <option value="STATION_3_EXIT">Station 3 Exit</option>
+            <option value="STATION_4_ENTER">Station 4 Enter</option>
+            <option value="STATION_4_EXIT">Station 4 Exit</option>
+            <option value="STATION_5_ENTER">Station 5 Enter</option>
+            <option value="STATION_5_EXIT">Station 5 Exit</option>
+            <option value="STATION_6_ENTER">Station 6 Enter</option>
+            <option value="STATION_6_EXIT">Station 6 Exit</option>
+            <option value="STATION_7_ENTER">Station 7 Enter</option>
+            <option value="STATION_7_EXIT">Station 7 Exit</option>
+            <option value="STATION_8_ENTER">Station 8 Enter</option>
+            <option value="STATION_8_EXIT">Station 8 Exit</option>
+            <option value="END">END</option>
           </select>
         </label>
         <label>
@@ -283,12 +295,39 @@
       return "";
     }
 
+    function getStationMeta(stationId) {
+      if (stationId === "START") {
+        return { stationNumber: null, checkpointType: "start" };
+      }
+
+      if (stationId === "END") {
+        return { stationNumber: null, checkpointType: "end" };
+      }
+
+      const match = stationId.match(/^STATION_(\d+)_(ENTER|EXIT)$/);
+      if (!match) {
+        return { stationNumber: null, checkpointType: "unknown" };
+      }
+
+      return {
+        stationNumber: Number(match[1]),
+        checkpointType: match[2].toLowerCase()
+      };
+    }
+
     function getPayload(cardCode, serialNumber) {
+      const stationSelect = document.querySelector("#stationId");
+      const stationId = stationSelect.value;
+      const stationMeta = getStationMeta(stationId);
+
       return {
         eventId: `${document.querySelector("#deviceId").value}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         raceId: document.querySelector("#raceId").value.trim(),
         deviceId: document.querySelector("#deviceId").value.trim(),
-        stationId: document.querySelector("#stationId").value,
+        stationId,
+        stationLabel: stationSelect.options[stationSelect.selectedIndex].text,
+        stationNumber: stationMeta.stationNumber,
+        checkpointType: stationMeta.checkpointType,
         cardCode,
         serialNumber: serialNumber || "",
         eventTime: new Date().toISOString(),
