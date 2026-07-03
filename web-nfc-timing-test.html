@@ -263,10 +263,19 @@
     const lastCard = document.querySelector("#lastCard");
     const lastMeta = document.querySelector("#lastMeta");
     const eventsBody = document.querySelector("#eventsBody");
+    const apiUrlInput = document.querySelector("#apiUrl");
 
     let abortController = null;
     let recentScans = new Map();
     const duplicateWindowMs = 2500;
+    const savedApiUrl = localStorage.getItem("hyroxTimingApiUrl");
+    if (savedApiUrl) {
+      apiUrlInput.value = savedApiUrl;
+    }
+
+    apiUrlInput.addEventListener("change", () => {
+      localStorage.setItem("hyroxTimingApiUrl", apiUrlInput.value.trim());
+    });
 
     function setStatus(message, isError = false) {
       statusBox.textContent = message;
@@ -336,8 +345,9 @@
     }
 
     async function uploadEvent(payload) {
-      const apiUrl = document.querySelector("#apiUrl").value.trim();
+      const apiUrl = apiUrlInput.value.trim();
       if (!apiUrl) return "local-only";
+      localStorage.setItem("hyroxTimingApiUrl", apiUrl);
 
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -345,11 +355,16 @@
         body: JSON.stringify(payload)
       });
 
+      const contentType = response.headers.get("content-type") || "";
+      const responsePayload = contentType.includes("application/json")
+        ? await response.json()
+        : null;
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(responsePayload?.error || `HTTP ${response.status}`);
       }
 
-      return "uploaded";
+      return responsePayload?.status || "uploaded";
     }
 
     function addRow(payload, result) {
@@ -385,8 +400,8 @@
 
       try {
         const result = await uploadEvent(payload);
-        addRow(payload, result === "uploaded" ? "已上传" : "仅本地记录");
-        setStatus(`记录成功：${cardCode}`);
+        addRow(payload, result === "local-only" ? "仅本地记录" : `已上传：${result}`);
+        setStatus(`记录成功：${cardCode} · ${result}`);
       } catch (error) {
         addRow(payload, `上传失败：${error.message}`);
         setStatus(`本地已记录，但上传失败：${error.message}`, true);
