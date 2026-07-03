@@ -6,9 +6,50 @@
   <title>HYROX Live Timing</title>
   <style>
     :root {
+      color-scheme: dark;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #090d10;
-      color: #f4f7fb;
+      --bg: #090d10;
+      --panel: #0d1217;
+      --header: #0f151a;
+      --header-border: #202a33;
+      --table-head: #151d24;
+      --row: #0d1217;
+      --row-alt: #10171d;
+      --leader-row: #13251f;
+      --text: #f4f7fb;
+      --muted: #a8b4c2;
+      --muted-strong: #d6e0ea;
+      --line: #26323d;
+      --input-bg: #121a20;
+      --input-border: #344250;
+      --live: #32d583;
+      --accent: #60a5fa;
+      --time: #f8d66d;
+      --flash: rgba(248, 214, 109, 0.42);
+      --flash-border: rgba(248, 214, 109, 0.95);
+    }
+
+    body[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f3f5f7;
+      --panel: #ffffff;
+      --header: #ffffff;
+      --header-border: #d7dee7;
+      --table-head: #edf2f7;
+      --row: #ffffff;
+      --row-alt: #f7fafc;
+      --leader-row: #e9f8f0;
+      --text: #121820;
+      --muted: #5d6977;
+      --muted-strong: #344052;
+      --line: #d7dee7;
+      --input-bg: #ffffff;
+      --input-border: #c8d1dc;
+      --live: #0f8a5f;
+      --accent: #1d66d1;
+      --time: #8a5a00;
+      --flash: rgba(250, 204, 21, 0.38);
+      --flash-border: rgba(202, 138, 4, 0.9);
     }
 
     * {
@@ -18,8 +59,8 @@
     body {
       margin: 0;
       min-height: 100vh;
-      background: #090d10;
-      color: #f4f7fb;
+      background: var(--bg);
+      color: var(--text);
     }
 
     header {
@@ -28,8 +69,8 @@
       gap: 16px;
       align-items: end;
       padding: 18px 22px;
-      border-bottom: 1px solid #202a33;
-      background: #0f151a;
+      border-bottom: 1px solid var(--header-border);
+      background: var(--header);
     }
 
     h1 {
@@ -41,25 +82,33 @@
 
     .sub {
       margin-top: 5px;
-      color: #a8b4c2;
+      color: var(--muted);
       font-size: 14px;
     }
 
     .meta {
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .meta-row,
+    .controls {
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       align-items: center;
       justify-content: flex-end;
-      color: #a8b4c2;
-      font-size: 13px;
-      white-space: nowrap;
     }
 
     .live {
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      color: #32d583;
+      color: var(--live);
       font-weight: 900;
     }
 
@@ -67,8 +116,37 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #32d583;
-      box-shadow: 0 0 12px #32d583;
+      background: var(--live);
+      box-shadow: 0 0 12px var(--live);
+    }
+
+    .toggle {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+    }
+
+    .toggle button {
+      min-width: 56px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      padding: 7px 10px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .toggle button:last-child {
+      border-right: 0;
+    }
+
+    .toggle button.active {
+      background: var(--accent);
+      color: #ffffff;
     }
 
     main {
@@ -87,7 +165,7 @@
     label {
       display: grid;
       gap: 6px;
-      color: #a8b4c2;
+      color: var(--muted);
       font-size: 12px;
       font-weight: 800;
       text-transform: uppercase;
@@ -95,12 +173,12 @@
 
     input {
       width: 100%;
-      border: 1px solid #344250;
+      border: 1px solid var(--input-border);
       border-radius: 6px;
       padding: 10px 11px;
       font: inherit;
-      background: #121a20;
-      color: #ffffff;
+      background: var(--input-bg);
+      color: var(--text);
     }
 
     .summary {
@@ -113,14 +191,14 @@
     .metric {
       min-width: 130px;
       padding: 10px 12px;
-      border: 1px solid #26323d;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: #11181e;
+      background: var(--panel);
     }
 
     .metric span {
       display: block;
-      color: #93a1b1;
+      color: var(--muted);
       font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
@@ -136,9 +214,9 @@
     .table-wrap {
       width: 100%;
       overflow-x: auto;
-      border: 1px solid #26323d;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: #0d1217;
+      background: var(--panel);
     }
 
     table {
@@ -149,7 +227,7 @@
 
     th,
     td {
-      border-bottom: 1px solid #202a33;
+      border-bottom: 1px solid var(--header-border);
       padding: 9px 10px;
       text-align: left;
       font-size: 13px;
@@ -160,28 +238,47 @@
       position: sticky;
       top: 0;
       z-index: 1;
-      background: #151d24;
-      color: #9fafbf;
+      background: var(--table-head);
+      color: var(--muted);
       font-size: 11px;
       font-weight: 900;
       text-transform: uppercase;
     }
 
     tbody tr {
-      background: #0d1217;
+      background: var(--row);
+      border-left: 3px solid transparent;
     }
 
     tbody tr:nth-child(even) {
-      background: #10171d;
+      background: var(--row-alt);
     }
 
     tbody tr.leader {
-      background: #13251f;
+      background: var(--leader-row);
+    }
+
+    tbody tr.flash {
+      animation: rowFlash 1.15s ease-out;
+      border-left-color: var(--flash-border);
+    }
+
+    @keyframes rowFlash {
+      0% {
+        background: var(--flash);
+        box-shadow: inset 0 0 0 999px var(--flash);
+      }
+      55% {
+        background: var(--flash);
+      }
+      100% {
+        box-shadow: inset 0 0 0 999px transparent;
+      }
     }
 
     .rank {
       width: 52px;
-      color: #ffffff;
+      color: var(--text);
       font-size: 21px;
       font-weight: 950;
       text-align: center;
@@ -197,7 +294,7 @@
     }
 
     .athlete span {
-      color: #9fafbf;
+      color: var(--muted);
       font-size: 12px;
     }
 
@@ -206,18 +303,18 @@
     }
 
     .elapsed {
-      color: #f8d66d;
+      color: var(--time);
       font-size: 17px;
       font-weight: 950;
     }
 
     .gap {
-      color: #a8b4c2;
+      color: var(--muted);
       font-weight: 800;
     }
 
     .current {
-      color: #60a5fa;
+      color: var(--accent);
       font-weight: 900;
     }
 
@@ -227,8 +324,8 @@
       min-height: 24px;
       padding: 2px 8px;
       border-radius: 999px;
-      background: #26323d;
-      color: #d6e0ea;
+      background: var(--line);
+      color: var(--muted-strong);
       font-size: 12px;
       font-weight: 900;
     }
@@ -244,18 +341,18 @@
     }
 
     .status.not_started {
-      background: #342f25;
-      color: #f8d66d;
+      background: #725c1c;
+      color: #fff4bd;
     }
 
     .split {
-      color: #dbe5ef;
+      color: var(--muted-strong);
       font-weight: 800;
     }
 
     .empty {
       padding: 28px;
-      color: #a8b4c2;
+      color: var(--muted);
       text-align: center;
     }
 
@@ -266,41 +363,56 @@
       }
 
       .meta,
+      .meta-row,
+      .controls,
       .summary {
         justify-content: flex-start;
+        justify-items: start;
       }
     }
   </style>
 </head>
-<body>
+<body data-theme="dark">
   <header>
     <div>
-      <h1>HYROX Live Timing</h1>
-      <div class="sub">实时排名、进度、Gap、Station split。</div>
+      <h1 data-i18n="title">HYROX Live Timing</h1>
+      <div class="sub" data-i18n="subtitle">实时排名、进度、Gap、Station split。</div>
     </div>
     <div class="meta">
-      <span class="live"><span class="dot"></span>LIVE</span>
-      <span id="updatedAt">-</span>
+      <div class="meta-row">
+        <span class="live"><span class="dot"></span><span data-i18n="live">LIVE</span></span>
+        <span id="updatedAt">-</span>
+      </div>
+      <div class="controls">
+        <div class="toggle" aria-label="Theme">
+          <button type="button" id="darkButton" data-theme-button="dark">Dark</button>
+          <button type="button" id="lightButton" data-theme-button="light">Light</button>
+        </div>
+        <div class="toggle" aria-label="Language">
+          <button type="button" id="zhButton" data-lang-button="zh">中文</button>
+          <button type="button" id="enButton" data-lang-button="en">EN</button>
+        </div>
+      </div>
     </div>
   </header>
 
   <main>
     <div class="toolbar">
       <label>
-        Race ID
+        <span data-i18n="raceId">Race ID</span>
         <input id="raceId" value="hyrox-sim-001" autocomplete="off">
       </label>
       <div class="summary">
         <div class="metric">
-          <span>Total</span>
+          <span data-i18n="total">Total</span>
           <strong id="totalCount">0</strong>
         </div>
         <div class="metric">
-          <span>Racing</span>
+          <span data-i18n="racing">Racing</span>
           <strong id="racingCount">0</strong>
         </div>
         <div class="metric">
-          <span>Finished</span>
+          <span data-i18n="finished">Finished</span>
           <strong id="finishedCount">0</strong>
         </div>
       </div>
@@ -310,12 +422,12 @@
       <table>
         <thead>
           <tr>
-            <th>Pos</th>
-            <th>Athlete</th>
-            <th>Status</th>
-            <th>Current</th>
-            <th>Elapsed</th>
-            <th>Gap</th>
+            <th data-i18n="pos">Pos</th>
+            <th data-i18n="athlete">Athlete</th>
+            <th data-i18n="status">Status</th>
+            <th data-i18n="current">Current</th>
+            <th data-i18n="elapsed">Elapsed</th>
+            <th data-i18n="gap">Gap</th>
             <th>S1</th>
             <th>S2</th>
             <th>S3</th>
@@ -324,7 +436,7 @@
             <th>S6</th>
             <th>S7</th>
             <th>S8</th>
-            <th>Card</th>
+            <th data-i18n="card">Card</th>
           </tr>
         </thead>
         <tbody id="leaderboardBody">
@@ -341,6 +453,82 @@
     const totalCount = document.querySelector("#totalCount");
     const racingCount = document.querySelector("#racingCount");
     const finishedCount = document.querySelector("#finishedCount");
+    let language = localStorage.getItem("hyroxLeaderboardLanguage") || "zh";
+    let theme = localStorage.getItem("hyroxLeaderboardTheme") || "dark";
+    let previousSignatures = null;
+
+    const i18n = {
+      zh: {
+        title: "HYROX 实时排名",
+        subtitle: "实时排名、进度、差距和每站用时。",
+        live: "LIVE",
+        raceId: "Race ID",
+        total: "总人数",
+        racing: "比赛中",
+        finished: "已完赛",
+        pos: "排名",
+        athlete: "选手",
+        status: "状态",
+        current: "当前",
+        elapsed: "用时",
+        gap: "差距",
+        card: "卡号",
+        noParticipants: "还没有选手。",
+        waitingData: "等待计时数据...",
+        leader: "领先",
+        bib: "号码",
+        error: "错误",
+        statusText: {
+          finished: "已完赛",
+          racing: "比赛中",
+          not_started: "未开始"
+        },
+        currentText: {
+          Waiting: "等待",
+          Finished: "已完赛"
+        },
+        run: "跑步",
+        station: "站点",
+        toEnd: "前往终点"
+      },
+      en: {
+        title: "HYROX Live Timing",
+        subtitle: "Live ranking, progress, gaps, and station splits.",
+        live: "LIVE",
+        raceId: "Race ID",
+        total: "Total",
+        racing: "Racing",
+        finished: "Finished",
+        pos: "Pos",
+        athlete: "Athlete",
+        status: "Status",
+        current: "Current",
+        elapsed: "Elapsed",
+        gap: "Gap",
+        card: "Card",
+        noParticipants: "No participants yet.",
+        waitingData: "Waiting for timing data...",
+        leader: "Leader",
+        bib: "Bib",
+        error: "Error",
+        statusText: {
+          finished: "Finished",
+          racing: "Racing",
+          not_started: "Not Started"
+        },
+        currentText: {
+          Waiting: "Waiting",
+          Finished: "Finished"
+        },
+        run: "Run",
+        station: "Station",
+        toEnd: "To Finish"
+      }
+    };
+
+    function t(key) {
+      return i18n[language][key] || key;
+    }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -350,6 +538,27 @@
         '"': "&quot;",
         "'": "&#039;"
       }[character]));
+    }
+
+    function applyTheme(nextTheme) {
+      theme = nextTheme;
+      document.body.dataset.theme = theme;
+      localStorage.setItem("hyroxLeaderboardTheme", theme);
+      document.querySelectorAll("[data-theme-button]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.themeButton === theme);
+      });
+    }
+
+    function applyLanguage(nextLanguage) {
+      language = nextLanguage;
+      document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+      localStorage.setItem("hyroxLeaderboardLanguage", language);
+      document.querySelectorAll("[data-i18n]").forEach((node) => {
+        node.textContent = t(node.dataset.i18n);
+      });
+      document.querySelectorAll("[data-lang-button]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.langButton === language);
+      });
     }
 
     function formatDuration(ms) {
@@ -367,8 +576,34 @@
 
     function formatGap(ms, rank) {
       if (ms === null || ms === undefined) return "-";
-      if (rank === 1) return "Leader";
+      if (rank === 1) return t("leader");
       return `+${formatDuration(ms)}`;
+    }
+
+    function translateStatus(status) {
+      return i18n[language].statusText[status] || status;
+    }
+
+    function translateCurrent(current) {
+      if (i18n[language].currentText[current]) {
+        return i18n[language].currentText[current];
+      }
+
+      const runMatch = String(current).match(/^Run (\d+)$/);
+      if (runMatch) {
+        return `${t("run")} ${runMatch[1]}`;
+      }
+
+      const stationMatch = String(current).match(/^Station (\d+)$/);
+      if (stationMatch) {
+        return `${t("station")} ${stationMatch[1]}`;
+      }
+
+      if (current === "To END") {
+        return t("toEnd");
+      }
+
+      return current || "-";
     }
 
     function splitCells(splits) {
@@ -377,6 +612,32 @@
         html += `<td class="split mono">${formatDuration(splits[`station${stationNumber}Ms`])}</td>`;
       }
       return html;
+    }
+
+    function rowSignature(row) {
+      return JSON.stringify({
+        rank: row.rank,
+        status: row.status,
+        current: row.current,
+        latestCheckpoint: row.latestCheckpoint,
+        finishTime: row.finishTime,
+        splits: row.stationSplits
+      });
+    }
+
+    function changedRows(rows) {
+      const nextSignatures = new Map();
+      const changed = new Set();
+      for (const row of rows) {
+        const key = String(row.participantId);
+        const signature = rowSignature(row);
+        nextSignatures.set(key, signature);
+        if (previousSignatures && previousSignatures.get(key) !== signature) {
+          changed.add(key);
+        }
+      }
+      previousSignatures = nextSignatures;
+      return changed;
     }
 
     async function loadLeaderboard() {
@@ -388,43 +649,69 @@
       }
 
       const rows = payload.leaderboard || [];
+      const changed = changedRows(rows);
       totalCount.textContent = rows.length;
       racingCount.textContent = rows.filter((row) => row.status === "racing").length;
       finishedCount.textContent = rows.filter((row) => row.status === "finished").length;
       updatedAt.textContent = new Date(payload.generatedAt).toLocaleTimeString();
 
       if (rows.length === 0) {
-        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="15">No participants yet.</td></tr>`;
+        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="15">${t("noParticipants")}</td></tr>`;
         return;
       }
 
-      leaderboardBody.innerHTML = rows.map((row) => `
-        <tr class="${row.rank === 1 ? "leader" : ""}">
-          <td class="rank">${row.rank}</td>
-          <td>
-            <div class="athlete">
-              <strong>${escapeHtml(row.athleteName)}</strong>
-              <span>Bib ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}</span>
-            </div>
-          </td>
-          <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(row.status)}</span></td>
-          <td class="current">${escapeHtml(row.current)}</td>
-          <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
-          <td class="gap mono">${formatGap(row.gapMs, row.rank)}</td>
-          ${splitCells(row.stationSplits)}
-          <td class="mono">${escapeHtml(row.cardCode)}</td>
-        </tr>
-      `).join("");
+      leaderboardBody.innerHTML = rows.map((row) => {
+        const rowClasses = [
+          row.rank === 1 ? "leader" : "",
+          changed.has(String(row.participantId)) ? "flash" : ""
+        ].filter(Boolean).join(" ");
+
+        return `
+          <tr class="${rowClasses}">
+            <td class="rank">${row.rank}</td>
+            <td>
+              <div class="athlete">
+                <strong>${escapeHtml(row.athleteName)}</strong>
+                <span>${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}</span>
+              </div>
+            </td>
+            <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>
+            <td class="current">${escapeHtml(translateCurrent(row.current))}</td>
+            <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
+            <td class="gap mono">${formatGap(row.gapMs, row.rank)}</td>
+            ${splitCells(row.stationSplits)}
+            <td class="mono">${escapeHtml(row.cardCode)}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     async function refreshLoop() {
       try {
         await loadLeaderboard();
       } catch (error) {
-        updatedAt.textContent = `Error: ${error.message}`;
+        updatedAt.textContent = `${t("error")}: ${error.message}`;
       }
     }
 
+    document.querySelectorAll("[data-theme-button]").forEach((button) => {
+      button.addEventListener("click", () => applyTheme(button.dataset.themeButton));
+    });
+
+    document.querySelectorAll("[data-lang-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        applyLanguage(button.dataset.langButton);
+        refreshLoop();
+      });
+    });
+
+    raceIdInput.addEventListener("change", () => {
+      previousSignatures = null;
+      refreshLoop();
+    });
+
+    applyTheme(theme);
+    applyLanguage(language);
     refreshLoop();
     setInterval(refreshLoop, 1000);
   </script>
