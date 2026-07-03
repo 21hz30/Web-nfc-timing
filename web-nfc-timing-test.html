@@ -301,7 +301,7 @@
 
     function readCardCode(message) {
       for (const record of message.records) {
-        const value = decodeRecord(record).trim();
+        const value = decodeRecord(record).trim().toUpperCase();
         if (value) return value;
       }
       return "";

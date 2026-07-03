@@ -86,6 +86,10 @@ def row_to_dict(row: sqlite3.Row) -> dict:
     return {key: row[key] for key in row.keys()}
 
 
+def normalize_card_code(value: object) -> str:
+    return str(value or "").strip().upper()
+
+
 class TimingHandler(SimpleHTTPRequestHandler):
     server_version = "HyroxTimingTest/0.1"
 
@@ -202,7 +206,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         try:
             payload = self.read_json_body()
             race_id = str(payload.get("raceId") or "hyrox-sim-001").strip()
-            card_code = str(payload.get("cardCode") or "").strip()
+            card_code = normalize_card_code(payload.get("cardCode"))
             athlete_name = str(payload.get("athleteName") or "").strip()
             bib_number = str(payload.get("bibNumber") or "").strip() or None
             division = str(payload.get("division") or "").strip() or None
@@ -348,7 +352,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         race_id = str(payload.get("raceId") or "").strip()
         device_id = str(payload.get("deviceId") or "").strip()
         station_id = str(payload.get("stationId") or "").strip()
-        card_code = str(payload.get("cardCode") or "").strip()
+        card_code = normalize_card_code(payload.get("cardCode"))
         event_time = str(payload.get("eventTime") or "").strip()
 
         if not race_id:

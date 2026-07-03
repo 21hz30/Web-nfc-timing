@@ -308,7 +308,7 @@
       try {
         const payload = {
           raceId: document.querySelector("#raceId").value.trim() || "hyrox-sim-001",
-          cardCode: document.querySelector("#cardCode").value.trim(),
+          cardCode: document.querySelector("#cardCode").value.trim().toUpperCase(),
           athleteName: document.querySelector("#athleteName").value.trim(),
           bibNumber: document.querySelector("#bibNumber").value.trim()
         };
