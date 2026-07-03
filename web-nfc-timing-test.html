@@ -268,9 +268,12 @@
     let abortController = null;
     let recentScans = new Map();
     const duplicateWindowMs = 2500;
+    const defaultApiUrl = `${window.location.origin}/api/timing-events`;
     const savedApiUrl = localStorage.getItem("hyroxTimingApiUrl");
     if (savedApiUrl) {
       apiUrlInput.value = savedApiUrl;
+    } else if (window.location.protocol === "https:" || window.location.hostname === "localhost") {
+      apiUrlInput.value = defaultApiUrl;
     }
 
     apiUrlInput.addEventListener("change", () => {
