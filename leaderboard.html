@@ -8,48 +8,52 @@
     :root {
       color-scheme: dark;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --bg: #090d10;
-      --panel: #0d1217;
-      --header: #0f151a;
-      --header-border: #202a33;
-      --table-head: #151d24;
-      --row: #0d1217;
-      --row-alt: #10171d;
-      --leader-row: #13251f;
-      --text: #f4f7fb;
-      --muted: #a8b4c2;
-      --muted-strong: #d6e0ea;
-      --line: #26323d;
-      --input-bg: #121a20;
-      --input-border: #344250;
-      --live: #32d583;
-      --accent: #60a5fa;
-      --time: #f8d66d;
-      --flash: rgba(248, 214, 109, 0.42);
-      --flash-border: rgba(248, 214, 109, 0.95);
+      --bg: #0b0d10;
+      --panel: #111418;
+      --header: #0f1115;
+      --header-border: #252a31;
+      --table-head: #171b21;
+      --row: #111418;
+      --row-alt: #14181e;
+      --leader-row: #181c22;
+      --text: #f2f4f7;
+      --muted: #8d96a0;
+      --muted-strong: #c8cdd3;
+      --line: #2b3139;
+      --input-bg: #12161b;
+      --input-border: #343b45;
+      --accent: #f2f4f7;
+      --time: #f2f4f7;
+      --flash: rgba(255, 255, 255, 0.12);
+      --flash-border: rgba(255, 255, 255, 0.82);
+      --status-bg: transparent;
+      --status-text: #c8cdd3;
+      --status-border: #343b45;
     }
 
     body[data-theme="light"] {
       color-scheme: light;
-      --bg: #f3f5f7;
+      --bg: #f5f6f8;
       --panel: #ffffff;
       --header: #ffffff;
       --header-border: #d7dee7;
-      --table-head: #edf2f7;
+      --table-head: #f0f2f5;
       --row: #ffffff;
-      --row-alt: #f7fafc;
-      --leader-row: #e9f8f0;
-      --text: #121820;
-      --muted: #5d6977;
-      --muted-strong: #344052;
-      --line: #d7dee7;
+      --row-alt: #f8f9fb;
+      --leader-row: #f1f3f6;
+      --text: #14181f;
+      --muted: #66707c;
+      --muted-strong: #313842;
+      --line: #d9dee5;
       --input-bg: #ffffff;
-      --input-border: #c8d1dc;
-      --live: #0f8a5f;
-      --accent: #1d66d1;
-      --time: #8a5a00;
-      --flash: rgba(250, 204, 21, 0.38);
-      --flash-border: rgba(202, 138, 4, 0.9);
+      --input-border: #c7ced8;
+      --accent: #14181f;
+      --time: #14181f;
+      --flash: rgba(20, 24, 31, 0.08);
+      --flash-border: rgba(20, 24, 31, 0.7);
+      --status-bg: transparent;
+      --status-text: #313842;
+      --status-border: #c7ced8;
     }
 
     * {
@@ -108,7 +112,7 @@
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      color: var(--live);
+      color: var(--accent);
       font-weight: 900;
     }
 
@@ -116,8 +120,8 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--live);
-      box-shadow: 0 0 12px var(--live);
+      background: var(--accent);
+      box-shadow: none;
     }
 
     .toggle {
@@ -145,8 +149,8 @@
     }
 
     .toggle button.active {
-      background: var(--accent);
-      color: #ffffff;
+      background: var(--text);
+      color: var(--bg);
     }
 
     main {
@@ -256,6 +260,7 @@
 
     tbody tr.leader {
       background: var(--leader-row);
+      border-left-color: var(--accent);
     }
 
     tbody tr.flash {
@@ -324,25 +329,18 @@
       min-height: 24px;
       padding: 2px 8px;
       border-radius: 999px;
-      background: var(--line);
-      color: var(--muted-strong);
+      border: 1px solid var(--status-border);
+      background: var(--status-bg);
+      color: var(--status-text);
       font-size: 12px;
       font-weight: 900;
     }
 
-    .status.finished {
-      background: #194d33;
-      color: #9ff0bf;
-    }
-
-    .status.racing {
-      background: #163c5c;
-      color: #9ed5ff;
-    }
-
+    .status.finished,
+    .status.racing,
     .status.not_started {
-      background: #725c1c;
-      color: #fff4bd;
+      background: var(--status-bg);
+      color: var(--status-text);
     }
 
     .split {
