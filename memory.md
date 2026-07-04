@@ -79,10 +79,23 @@ cloudflared tunnel --url http://localhost:8787
 
 The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
 
-## Commit Standards
+## Git Commit Standard
 
-- Keep commits scoped and descriptive.
-- Commit after meaningful working increments.
+- Treat this as a company project: commit messages must be clear to teammates reading history later.
+- Prefer small, focused commits. Split security fixes, lint cleanup, docs, UX, and database work when they are separable.
+- Use Conventional Commit style:
+  - `security(api): restrict class mutation routes`
+  - `fix(lint): satisfy React purity rules`
+  - `docs(memory): record workflow standards`
+  - `chore(db): baseline dev migration history`
+- Commit subject should explain the intent, not just the files changed.
+- For larger commits, include a body with:
+  - what changed;
+  - why it changed;
+  - how it was verified.
+- Before pushing, report the exact commit subject and verification results to the user.
+- Avoid force-pushing or rewriting pushed `main` history unless the user explicitly approves it.
+- If a pushed commit message is unclear, prefer a follow-up clarifying commit/PR description over rewriting public history.
 - Push to `origin/main` after successful verification when requested or after user-facing progress.
 - Do not commit local SQLite data. `data/` is gitignored.
 - Avoid destructive git/database operations unless explicitly requested.
