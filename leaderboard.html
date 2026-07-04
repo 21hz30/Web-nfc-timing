@@ -225,7 +225,7 @@
 
     table {
       width: 100%;
-      min-width: 1240px;
+      min-width: 1060px;
       border-collapse: collapse;
     }
 
@@ -313,11 +313,6 @@
       font-weight: 950;
     }
 
-    .gap {
-      color: var(--muted);
-      font-weight: 800;
-    }
-
     .current {
       color: var(--accent);
       font-weight: 900;
@@ -374,7 +369,7 @@
   <header>
     <div>
       <h1 data-i18n="title">HYROX Live Timing</h1>
-      <div class="sub" data-i18n="subtitle">实时排名、进度、Gap、Station split。</div>
+      <div class="sub" data-i18n="subtitle">实时排名、进度和每站用时。</div>
     </div>
     <div class="meta">
       <div class="meta-row">
@@ -425,7 +420,6 @@
             <th data-i18n="status">Status</th>
             <th data-i18n="current">Current</th>
             <th data-i18n="elapsed">Elapsed</th>
-            <th data-i18n="gap">Gap</th>
             <th>S1</th>
             <th>S2</th>
             <th>S3</th>
@@ -434,11 +428,10 @@
             <th>S6</th>
             <th>S7</th>
             <th>S8</th>
-            <th data-i18n="card">Card</th>
           </tr>
         </thead>
         <tbody id="leaderboardBody">
-          <tr><td class="empty" colspan="15">Waiting for timing data...</td></tr>
+          <tr><td class="empty" colspan="13">Waiting for timing data...</td></tr>
         </tbody>
       </table>
     </div>
@@ -458,7 +451,7 @@
     const i18n = {
       zh: {
         title: "HYROX 实时排名",
-        subtitle: "实时排名、进度、差距和每站用时。",
+        subtitle: "实时排名、进度和每站用时。",
         live: "LIVE",
         raceId: "Race ID",
         total: "总人数",
@@ -469,11 +462,8 @@
         status: "状态",
         current: "当前",
         elapsed: "用时",
-        gap: "差距",
-        card: "卡号",
         noParticipants: "还没有选手。",
         waitingData: "等待计时数据...",
-        leader: "领先",
         bib: "号码",
         error: "错误",
         statusText: {
@@ -491,7 +481,7 @@
       },
       en: {
         title: "HYROX Live Timing",
-        subtitle: "Live ranking, progress, gaps, and station splits.",
+        subtitle: "Live ranking, progress, and station splits.",
         live: "LIVE",
         raceId: "Race ID",
         total: "Total",
@@ -502,11 +492,8 @@
         status: "Status",
         current: "Current",
         elapsed: "Elapsed",
-        gap: "Gap",
-        card: "Card",
         noParticipants: "No participants yet.",
         waitingData: "Waiting for timing data...",
-        leader: "Leader",
         bib: "Bib",
         error: "Error",
         statusText: {
@@ -570,12 +557,6 @@
         return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
       }
       return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
-    }
-
-    function formatGap(ms, rank) {
-      if (ms === null || ms === undefined) return "-";
-      if (rank === 1) return t("leader");
-      return `+${formatDuration(ms)}`;
     }
 
     function translateStatus(status) {
@@ -654,7 +635,7 @@
       updatedAt.textContent = new Date(payload.generatedAt).toLocaleTimeString();
 
       if (rows.length === 0) {
-        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="15">${t("noParticipants")}</td></tr>`;
+        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="13">${t("noParticipants")}</td></tr>`;
         return;
       }
 
@@ -676,9 +657,7 @@
             <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>
             <td class="current">${escapeHtml(translateCurrent(row.current))}</td>
             <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
-            <td class="gap mono">${formatGap(row.gapMs, row.rank)}</td>
             ${splitCells(row.stationSplits)}
-            <td class="mono">${escapeHtml(row.cardCode)}</td>
           </tr>
         `;
       }).join("");
