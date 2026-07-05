@@ -11,6 +11,7 @@ The current proof of concept supports:
 - Raw timing event storage in SQLite.
 - Participant/card binding through an admin page.
 - Live leaderboard with theme toggle, Chinese/English toggle, and F1-style row update flash.
+- Separate animated leaderboard chart page using the same `/api/leaderboard` feed.
 
 The current implementation is suitable for prototype testing, not production race-day deployment yet.
 
@@ -53,6 +54,7 @@ Main pages:
 http://localhost:8787/admin.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
+http://localhost:8787/leaderboard-chart.html
 http://localhost:8787/local-dashboard.html
 ```
 
@@ -137,6 +139,21 @@ Purpose:
   - dark/light theme
   - Chinese/English toggle
   - row flash when rank/status/checkpoint/split changes
+
+### Animated Leaderboard Chart
+
+File:
+
+```text
+leaderboard-chart.html
+```
+
+Purpose:
+
+- Separate large-screen chart view that does not change `leaderboard.html`.
+- Reads the same `/api/leaderboard?raceId=...` endpoint.
+- Shows rank, athlete, current checkpoint, elapsed time, and animated progress bars.
+- Supports dark/light theme, Chinese/English toggle, row flash, and simple row movement animation.
 
 ### Local Debug Dashboard
 

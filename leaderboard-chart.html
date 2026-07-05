@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HYROX Leaderboard Chart</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #07090c;
+      --surface: #101318;
+      --surface-strong: #141820;
+      --header: #0c0f13;
+      --line: #2a3038;
+      --line-soft: #1d232b;
+      --text: #f3f5f7;
+      --muted: #87919d;
+      --muted-strong: #c7ccd2;
+      --accent: #f3f5f7;
+      --track: #232932;
+      --flash: rgba(255, 255, 255, 0.13);
+      --flash-border: rgba(255, 255, 255, 0.86);
+      --shadow: rgba(0, 0, 0, 0.28);
+    }
+
+    body[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --surface-strong: #f0f2f5;
+      --header: #ffffff;
+      --line: #d6dce4;
+      --line-soft: #e6e9ee;
+      --text: #11161d;
+      --muted: #66717d;
+      --muted-strong: #303842;
+      --accent: #11161d;
+      --track: #d9dee5;
+      --flash: rgba(17, 22, 29, 0.08);
+      --flash-border: rgba(17, 22, 29, 0.68);
+      --shadow: rgba(17, 22, 29, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: end;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+      background: var(--header);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .header-meta {
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .meta-row,
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.34; }
+      50% { opacity: 1; }
+    }
+
+    .toggle {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+    }
+
+    .toggle button {
+      min-width: 56px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      padding: 7px 10px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .toggle button:last-child {
+      border-right: 0;
+    }
+
+    .toggle button.active {
+      background: var(--text);
+      color: var(--bg);
+    }
+
+    main {
+      width: 100%;
+      padding: 16px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 260px) 1fr;
+      gap: 14px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 11px;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .metric {
+      min-width: 128px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 2px;
+      color: var(--text);
+      font-size: 21px;
+      line-height: 1.05;
+    }
+
+    .chart-shell {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 18px 42px var(--shadow);
+    }
+
+    .chart-head,
+    .chart-row {
+      display: grid;
+      grid-template-columns: 64px minmax(190px, 270px) minmax(118px, 150px) 112px minmax(300px, 1fr);
+      gap: 14px;
+      align-items: center;
+    }
+
+    .chart-head {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      min-width: 980px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-strong);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+
+    .rows {
+      min-width: 980px;
+    }
+
+    .chart-row {
+      position: relative;
+      min-height: 62px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--surface);
+      border-left: 3px solid transparent;
+      transition: background-color 180ms ease, border-color 180ms ease;
+    }
+
+    .chart-row:nth-child(even) {
+      background: var(--surface-strong);
+    }
+
+    .chart-row:last-child {
+      border-bottom: 0;
+    }
+
+    .chart-row.leader {
+      border-left-color: var(--accent);
+    }
+
+    .chart-row.flash {
+      animation: rowFlash 1.15s ease-out;
+      border-left-color: var(--flash-border);
+    }
+
+    @keyframes rowFlash {
+      0% {
+        background: var(--flash);
+        box-shadow: inset 0 0 0 999px var(--flash);
+      }
+      55% {
+        background: var(--flash);
+      }
+      100% {
+        box-shadow: inset 0 0 0 999px transparent;
+      }
+    }
+
+    .rank {
+      color: var(--text);
+      font-size: 24px;
+      font-weight: 950;
+      text-align: center;
+    }
+
+    .athlete {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .athlete strong {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 900;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .athlete span,
+    .stage-sub {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stage {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .stage strong {
+      overflow: hidden;
+      color: var(--muted-strong);
+      font-size: 14px;
+      font-weight: 900;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .elapsed {
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 950;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .track-area {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .track {
+      position: relative;
+      height: 14px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--track);
+    }
+
+    .fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      border-radius: 999px;
+      background: var(--accent);
+      transition: width 720ms cubic-bezier(0.2, 0.86, 0.22, 1);
+    }
+
+    .pin {
+      position: absolute;
+      top: 50%;
+      left: 0%;
+      width: 4px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--text);
+      box-shadow: 0 0 0 2px var(--surface);
+      transform: translate(-2px, -50%);
+      transition: left 720ms cubic-bezier(0.2, 0.86, 0.22, 1);
+    }
+
+    .track-meta,
+    .stage-ruler {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .ruler-wrap {
+      position: relative;
+      min-width: 980px;
+      min-height: 34px;
+      padding: 12px 16px 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .ruler-line {
+      position: absolute;
+      right: 16px;
+      bottom: 12px;
+      left: 16px;
+      height: 1px;
+      background: var(--line);
+    }
+
+    .marker {
+      position: absolute;
+      bottom: 7px;
+      left: 0;
+      display: grid;
+      gap: 3px;
+      justify-items: center;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      transform: translateX(-50%);
+    }
+
+    .marker.edge-start {
+      justify-items: start;
+      transform: translateX(0);
+    }
+
+    .marker.edge-end {
+      justify-items: end;
+      transform: translateX(-100%);
+    }
+
+    .marker::after {
+      content: "";
+      width: 1px;
+      height: 9px;
+      background: var(--line);
+    }
+
+    .empty {
+      padding: 42px 20px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .error {
+      color: var(--muted-strong);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    @media (max-width: 860px) {
+      .topbar,
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .header-meta,
+      .meta-row,
+      .controls,
+      .summary {
+        justify-content: flex-start;
+        justify-items: start;
+      }
+
+      main {
+        padding: 12px;
+      }
+
+      .chart-shell {
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body data-theme="dark">
+  <header class="topbar">
+    <div>
+      <h1 data-i18n="title">HYROX 动态排名</h1>
+      <div class="subtitle" data-i18n="subtitle">实时进度图和排名变化。</div>
+    </div>
+    <div class="header-meta">
+      <div class="meta-row">
+        <span class="live"><span class="dot"></span><span data-i18n="live">LIVE</span></span>
+        <span id="updatedAt">-</span>
+      </div>
+      <div class="controls">
+        <div class="toggle" aria-label="Theme">
+          <button type="button" id="darkButton" data-theme-button="dark">Dark</button>
+          <button type="button" id="lightButton" data-theme-button="light">Light</button>
+        </div>
+        <div class="toggle" aria-label="Language">
+          <button type="button" id="zhButton" data-lang-button="zh">中文</button>
+          <button type="button" id="enButton" data-lang-button="en">EN</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <label>
+        <span data-i18n="raceId">Race ID</span>
+        <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+      </label>
+      <div class="summary">
+        <div class="metric">
+          <span data-i18n="total">总人数</span>
+          <strong id="totalCount">0</strong>
+        </div>
+        <div class="metric">
+          <span data-i18n="racing">比赛中</span>
+          <strong id="racingCount">0</strong>
+        </div>
+        <div class="metric">
+          <span data-i18n="finished">已完赛</span>
+          <strong id="finishedCount">0</strong>
+        </div>
+        <div class="metric">
+          <span data-i18n="leader">领先者</span>
+          <strong id="leaderName">-</strong>
+        </div>
+      </div>
+    </div>
+
+    <section class="chart-shell" aria-live="polite">
+      <div class="chart-head">
+        <div data-i18n="pos">排名</div>
+        <div data-i18n="athlete">选手</div>
+        <div data-i18n="current">当前</div>
+        <div data-i18n="elapsed">用时</div>
+        <div data-i18n="progress">进度</div>
+      </div>
+      <div class="ruler-wrap" id="rulerWrap">
+        <div class="ruler-line"></div>
+      </div>
+      <div class="rows" id="chartRows">
+        <div class="empty" data-i18n="waitingData">等待计时数据...</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const raceIdInput = document.querySelector("#raceId");
+    const updatedAt = document.querySelector("#updatedAt");
+    const totalCount = document.querySelector("#totalCount");
+    const racingCount = document.querySelector("#racingCount");
+    const finishedCount = document.querySelector("#finishedCount");
+    const leaderName = document.querySelector("#leaderName");
+    const chartRows = document.querySelector("#chartRows");
+    const rulerWrap = document.querySelector("#rulerWrap");
+
+    const query = new URLSearchParams(window.location.search);
+    const defaultRaceId = query.get("raceId") || localStorage.getItem("hyroxChartRaceId") || "hyrox-sim-001";
+    let language = localStorage.getItem("hyroxLeaderboardLanguage") || "zh";
+    let theme = localStorage.getItem("hyroxLeaderboardTheme") || "dark";
+    let previousSignatures = null;
+    let previousProgress = new Map();
+    let checkpointCount = 18;
+
+    const i18n = {
+      zh: {
+        title: "HYROX 动态排名",
+        subtitle: "实时进度图和排名变化。",
+        live: "LIVE",
+        raceId: "Race ID",
+        total: "总人数",
+        racing: "比赛中",
+        finished: "已完赛",
+        leader: "领先者",
+        pos: "排名",
+        athlete: "选手",
+        current: "当前",
+        elapsed: "用时",
+        progress: "进度",
+        noParticipants: "还没有选手。",
+        waitingData: "等待计时数据...",
+        bib: "号码",
+        error: "错误",
+        complete: "完成",
+        statusText: {
+          finished: "已完赛",
+          racing: "比赛中",
+          not_started: "未开始"
+        },
+        currentText: {
+          Waiting: "等待",
+          Finished: "已完赛"
+        },
+        run: "跑步",
+        station: "站点",
+        toEnd: "前往终点",
+        start: "Start",
+        finish: "Finish"
+      },
+      en: {
+        title: "HYROX Race Chart",
+        subtitle: "Live progress chart and ranking movement.",
+        live: "LIVE",
+        raceId: "Race ID",
+        total: "Total",
+        racing: "Racing",
+        finished: "Finished",
+        leader: "Leader",
+        pos: "Pos",
+        athlete: "Athlete",
+        current: "Current",
+        elapsed: "Elapsed",
+        progress: "Progress",
+        noParticipants: "No participants yet.",
+        waitingData: "Waiting for timing data...",
+        bib: "Bib",
+        error: "Error",
+        complete: "complete",
+        statusText: {
+          finished: "Finished",
+          racing: "Racing",
+          not_started: "Not Started"
+        },
+        currentText: {
+          Waiting: "Waiting",
+          Finished: "Finished"
+        },
+        run: "Run",
+        station: "Station",
+        toEnd: "To Finish",
+        start: "Start",
+        finish: "Finish"
+      }
+    };
+
+    function t(key) {
+      return i18n[language][key] || key;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    function applyTheme(nextTheme) {
+      theme = nextTheme;
+      document.body.dataset.theme = theme;
+      localStorage.setItem("hyroxLeaderboardTheme", theme);
+      document.querySelectorAll("[data-theme-button]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.themeButton === theme);
+      });
+    }
+
+    function applyLanguage(nextLanguage) {
+      language = nextLanguage;
+      document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+      localStorage.setItem("hyroxLeaderboardLanguage", language);
+      document.querySelectorAll("[data-i18n]").forEach((node) => {
+        node.textContent = t(node.dataset.i18n);
+      });
+      document.querySelectorAll("[data-lang-button]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.langButton === language);
+      });
+      renderRuler();
+    }
+
+    function formatDuration(ms) {
+      if (ms === null || ms === undefined) return "-";
+      const totalSeconds = Math.floor(ms / 1000);
+      const tenths = Math.floor((ms % 1000) / 100);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
+      }
+      return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
+    }
+
+    function translateStatus(status) {
+      return i18n[language].statusText[status] || status;
+    }
+
+    function translateCurrent(current) {
+      if (i18n[language].currentText[current]) {
+        return i18n[language].currentText[current];
+      }
+
+      const runMatch = String(current).match(/^Run (\d+)$/);
+      if (runMatch) {
+        return `${t("run")} ${runMatch[1]}`;
+      }
+
+      const stationMatch = String(current).match(/^Station (\d+)$/);
+      if (stationMatch) {
+        return `${t("station")} ${stationMatch[1]}`;
+      }
+
+      if (current === "To END") {
+        return t("toEnd");
+      }
+
+      return current || "-";
+    }
+
+    function rowSignature(row) {
+      return JSON.stringify({
+        rank: row.rank,
+        status: row.status,
+        current: row.current,
+        progressIndex: row.progressIndex,
+        latestCheckpoint: row.latestCheckpoint,
+        finishTime: row.finishTime,
+        splits: row.stationSplits
+      });
+    }
+
+    function changedRows(rows) {
+      const nextSignatures = new Map();
+      const changed = new Set();
+      for (const row of rows) {
+        const key = String(row.participantId);
+        const signature = rowSignature(row);
+        nextSignatures.set(key, signature);
+        if (previousSignatures && previousSignatures.get(key) !== signature) {
+          changed.add(key);
+        }
+      }
+      previousSignatures = nextSignatures;
+      return changed;
+    }
+
+    function progressPercent(row) {
+      const maxIndex = Math.max(1, checkpointCount - 1);
+      const index = Math.max(0, Number(row.progressIndex ?? -1));
+      return Math.min(100, Math.round((index / maxIndex) * 1000) / 10);
+    }
+
+    function renderRuler() {
+      const maxIndex = Math.max(1, checkpointCount - 1);
+      const markers = [
+        { label: t("start"), index: 0 },
+        ...Array.from({ length: 8 }, (_, index) => {
+          const stationNumber = index + 1;
+          return { label: `S${stationNumber}`, index: stationNumber * 2 - 0.5 };
+        }),
+        { label: t("finish"), index: maxIndex }
+      ];
+
+      const markerHtml = markers.map((marker) => {
+        const left = Math.min(100, Math.max(0, (marker.index / maxIndex) * 100));
+        const edgeClass = left === 0 ? " edge-start" : left === 100 ? " edge-end" : "";
+        return `<div class="marker${edgeClass}" style="left: ${left}%"><span>${escapeHtml(marker.label)}</span></div>`;
+      }).join("");
+
+      rulerWrap.innerHTML = `<div class="ruler-line"></div>${markerHtml}`;
+    }
+
+    function animateReorder(previousRects) {
+      document.querySelectorAll(".chart-row[data-participant-id]").forEach((row) => {
+        const previousRect = previousRects.get(row.dataset.participantId);
+        if (!previousRect) return;
+        const nextRect = row.getBoundingClientRect();
+        const deltaY = previousRect.top - nextRect.top;
+        if (Math.abs(deltaY) < 1) return;
+        row.animate(
+          [
+            { transform: `translateY(${deltaY}px)` },
+            { transform: "translateY(0)" }
+          ],
+          { duration: 420, easing: "cubic-bezier(0.2, 0.86, 0.22, 1)" }
+        );
+      });
+    }
+
+    function renderRows(rows) {
+      const previousRects = new Map();
+      document.querySelectorAll(".chart-row[data-participant-id]").forEach((row) => {
+        previousRects.set(row.dataset.participantId, row.getBoundingClientRect());
+      });
+
+      const changed = changedRows(rows);
+
+      if (rows.length === 0) {
+        chartRows.innerHTML = `<div class="empty">${t("noParticipants")}</div>`;
+        previousProgress = new Map();
+        return;
+      }
+
+      const nextProgress = new Map();
+      chartRows.innerHTML = rows.map((row) => {
+        const key = String(row.participantId);
+        const nextWidth = progressPercent(row);
+        const initialWidth = previousProgress.has(key) ? previousProgress.get(key) : nextWidth;
+        nextProgress.set(key, nextWidth);
+        const rowClasses = [
+          "chart-row",
+          row.rank === 1 ? "leader" : "",
+          changed.has(key) ? "flash" : ""
+        ].filter(Boolean).join(" ");
+
+        return `
+          <article class="${rowClasses}" data-participant-id="${escapeHtml(key)}">
+            <div class="rank">${escapeHtml(row.rank)}</div>
+            <div class="athlete">
+              <strong>${escapeHtml(row.athleteName)}</strong>
+              <span>${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}</span>
+            </div>
+            <div class="stage">
+              <strong>${escapeHtml(translateCurrent(row.current))}</strong>
+              <span class="stage-sub">${escapeHtml(translateStatus(row.status))}</span>
+            </div>
+            <div class="elapsed mono">${formatDuration(row.elapsedMs)}</div>
+            <div class="track-area">
+              <div class="track" aria-label="${escapeHtml(t("progress"))}">
+                <div class="fill" data-progress-fill style="width: ${initialWidth}%"></div>
+                <div class="pin" data-progress-pin style="left: ${initialWidth}%"></div>
+              </div>
+              <div class="track-meta">
+                <span>${escapeHtml(row.latestCheckpoint || "-")}</span>
+                <span>${nextWidth}% ${t("complete")}</span>
+              </div>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      requestAnimationFrame(() => {
+        document.querySelectorAll(".chart-row[data-participant-id]").forEach((row) => {
+          const key = row.dataset.participantId;
+          const target = nextProgress.get(key) ?? 0;
+          const fill = row.querySelector("[data-progress-fill]");
+          const pin = row.querySelector("[data-progress-pin]");
+          if (fill) fill.style.width = `${target}%`;
+          if (pin) pin.style.left = `${target}%`;
+        });
+        animateReorder(previousRects);
+      });
+
+      previousProgress = nextProgress;
+    }
+
+    async function loadLeaderboard() {
+      const raceId = raceIdInput.value.trim() || "hyrox-sim-001";
+      localStorage.setItem("hyroxChartRaceId", raceId);
+      const url = new URL(window.location.href);
+      url.searchParams.set("raceId", raceId);
+      window.history.replaceState(null, "", url);
+
+      const response = await fetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+
+      checkpointCount = Array.isArray(payload.checkpoints) ? payload.checkpoints.length : 18;
+      renderRuler();
+
+      const rows = payload.leaderboard || [];
+      totalCount.textContent = rows.length;
+      racingCount.textContent = rows.filter((row) => row.status === "racing").length;
+      finishedCount.textContent = rows.filter((row) => row.status === "finished").length;
+      leaderName.textContent = rows[0]?.athleteName || "-";
+      updatedAt.textContent = new Date(payload.generatedAt).toLocaleTimeString();
+      renderRows(rows);
+    }
+
+    async function refreshLoop() {
+      try {
+        await loadLeaderboard();
+      } catch (error) {
+        updatedAt.textContent = `${t("error")}: ${error.message}`;
+        chartRows.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    document.querySelectorAll("[data-theme-button]").forEach((button) => {
+      button.addEventListener("click", () => applyTheme(button.dataset.themeButton));
+    });
+
+    document.querySelectorAll("[data-lang-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        applyLanguage(button.dataset.langButton);
+        refreshLoop();
+      });
+    });
+
+    raceIdInput.addEventListener("change", () => {
+      previousSignatures = null;
+      previousProgress = new Map();
+      refreshLoop();
+    });
+
+    raceIdInput.value = defaultRaceId;
+    applyTheme(theme);
+    applyLanguage(language);
+    refreshLoop();
+    setInterval(refreshLoop, 1000);
+  </script>
+</body>
+</html>
