@@ -8,7 +8,6 @@ It contains:
 - `server.py`: local Python + SQLite API for timing events.
 - `admin.html`: race admin page for athlete info, check-in, and NFC card binding.
 - `leaderboard.html`: live timing board with rank, current checkpoint, and station splits.
-- `leaderboard-chart.html`: separate animated leaderboard chart page using the same live API.
 - `local-dashboard.html`: older local debug page for quick card bindings and event checks.
 
 ## Run Local SQLite API
@@ -29,7 +28,6 @@ Useful pages:
 http://localhost:8787/admin.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
-http://localhost:8787/leaderboard-chart.html
 http://localhost:8787/local-dashboard.html
 ```
 
