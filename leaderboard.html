@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HYROX Live Timing</title>
+  <title>SRC Simulation Race Live Timing</title>
   <style>
     :root {
       color-scheme: dark;
@@ -29,6 +29,8 @@
       --status-bg: transparent;
       --status-text: #c8cdd3;
       --status-border: #343b45;
+      --brand-accent: #8ab84f;
+      --brand-surface: #f7faf0;
     }
 
     body[data-theme="light"] {
@@ -54,6 +56,8 @@
       --status-bg: transparent;
       --status-text: #313842;
       --status-border: #c7ced8;
+      --brand-accent: #6d9638;
+      --brand-surface: #f7faf0;
     }
 
     * {
@@ -71,10 +75,39 @@
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 16px;
-      align-items: end;
+      align-items: center;
       padding: 18px 22px;
       border-bottom: 1px solid var(--header-border);
       background: var(--header);
+    }
+
+    .brand-lockup {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 64px;
+      height: 64px;
+      flex: 0 0 auto;
+      border-radius: 8px;
+      background: #ffffff;
+      object-fit: contain;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-eyebrow {
+      margin-bottom: 5px;
+      color: var(--brand-accent);
+      font-size: 11px;
+      font-weight: 950;
+      letter-spacing: 0;
+      text-transform: uppercase;
     }
 
     h1 {
@@ -217,10 +250,436 @@
 
     .table-wrap {
       width: 100%;
+      min-width: 0;
       overflow-x: auto;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel);
+    }
+
+    .scoreboard-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .commercial-rail {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .ad-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .ad-topline span {
+      color: var(--brand-accent);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+
+    .ad-topline strong {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .ad-stage {
+      position: relative;
+      display: grid;
+      min-height: 282px;
+      background: var(--brand-surface);
+      color: #111418;
+    }
+
+    .ad-stage::before {
+      position: absolute;
+      inset: 0;
+      content: "";
+      background:
+        linear-gradient(135deg, rgba(138, 184, 79, 0.12), transparent 46%),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.72));
+      pointer-events: none;
+    }
+
+    .commercial-rail[data-ad-tone="video"] .ad-stage::before {
+      background:
+        linear-gradient(135deg, rgba(17, 20, 24, 0.94), rgba(17, 20, 24, 0.78)),
+        linear-gradient(0deg, rgba(138, 184, 79, 0.14), rgba(138, 184, 79, 0.14));
+    }
+
+    .commercial-rail[data-ad-tone="package"] .ad-stage::before {
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(247, 250, 240, 0.9)),
+        linear-gradient(90deg, rgba(138, 184, 79, 0.18), transparent);
+    }
+
+    .commercial-rail[data-ad-tone="venue"] .ad-stage::before {
+      background:
+        linear-gradient(135deg, rgba(20, 24, 31, 0.9), rgba(20, 24, 31, 0.74)),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1));
+    }
+
+    .ad-stage-content {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      min-height: 282px;
+      place-items: center;
+      padding: 22px;
+    }
+
+    .ad-logo {
+      width: min(184px, 76%);
+      height: auto;
+      object-fit: contain;
+    }
+
+    .ad-logo.compact {
+      width: 76px;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .ad-brand-frame,
+    .ad-package-frame,
+    .ad-venue-frame,
+    .ad-video-frame {
+      display: grid;
+      width: 100%;
+      gap: 14px;
+      align-content: center;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .ad-wordmark {
+      color: #111418;
+      font-size: 22px;
+      font-weight: 950;
+      line-height: 1.12;
+    }
+
+    .ad-wordmark small {
+      display: block;
+      margin-top: 5px;
+      color: #4f5b35;
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .ad-video-frame,
+    .ad-venue-frame {
+      color: #f2f4f7;
+    }
+
+    .ad-video-frame small {
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .ad-video-screen {
+      display: grid;
+      width: min(230px, 100%);
+      aspect-ratio: 16 / 9;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 8px;
+      background: #0b0d10;
+      box-shadow: inset 0 0 0 1px rgba(138, 184, 79, 0.16);
+    }
+
+    .ad-play-symbol {
+      display: grid;
+      width: 52px;
+      height: 52px;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      border-radius: 50%;
+      color: #ffffff;
+    }
+
+    .ad-play-symbol svg {
+      width: 22px;
+      height: 22px;
+      margin-left: 3px;
+    }
+
+    .ad-bars {
+      display: flex;
+      align-items: end;
+      justify-content: center;
+      gap: 5px;
+      height: 34px;
+      margin-top: 2px;
+    }
+
+    .ad-bars span {
+      width: 6px;
+      border-radius: 999px;
+      background: var(--brand-accent);
+      animation: barLift 1.1s ease-in-out infinite alternate;
+    }
+
+    .ad-bars span:nth-child(1) { height: 15px; }
+    .ad-bars span:nth-child(2) { height: 25px; animation-delay: 0.12s; }
+    .ad-bars span:nth-child(3) { height: 19px; animation-delay: 0.24s; }
+    .ad-bars span:nth-child(4) { height: 30px; animation-delay: 0.36s; }
+
+    @keyframes barLift {
+      from { transform: scaleY(0.72); opacity: 0.65; }
+      to { transform: scaleY(1); opacity: 1; }
+    }
+
+    .ad-package-grid {
+      display: grid;
+      width: 100%;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .ad-package-grid div {
+      display: grid;
+      min-height: 74px;
+      align-content: center;
+      gap: 4px;
+      padding: 10px;
+      border: 1px solid rgba(17, 20, 24, 0.12);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.68);
+      text-align: left;
+    }
+
+    .ad-package-grid span,
+    .ad-venue-frame span {
+      color: #6d9638;
+      font-size: 10px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+
+    .ad-package-grid strong {
+      color: #111418;
+      font-size: 15px;
+      line-height: 1.15;
+    }
+
+    .ad-venue-time {
+      color: #ffffff;
+      font-size: 42px;
+      font-weight: 950;
+      line-height: 1;
+    }
+
+    .ad-venue-frame p {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .video-badge {
+      position: absolute;
+      z-index: 2;
+      right: 12px;
+      bottom: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(17, 20, 24, 0.86);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .play-mark {
+      width: 0;
+      height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 8px solid #ffffff;
+    }
+
+    .ad-progress {
+      height: 3px;
+      background: var(--line);
+    }
+
+    .ad-progress-bar {
+      width: 0%;
+      height: 100%;
+      background: var(--brand-accent);
+      transition: width 0.12s linear;
+    }
+
+    .commercial-copy {
+      display: grid;
+      gap: 7px;
+      padding: 14px;
+    }
+
+    .commercial-copy span {
+      color: var(--brand-accent);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+
+    .commercial-copy strong {
+      font-size: 18px;
+      line-height: 1.15;
+    }
+
+    .commercial-copy p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .ad-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      padding: 0 14px 14px;
+    }
+
+    .ad-tags span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 4px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted-strong);
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .ad-controls {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 0 14px 14px;
+    }
+
+    .ad-button-group {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .icon-button {
+      display: grid;
+      width: 36px;
+      height: 34px;
+      place-items: center;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .icon-button:last-child {
+      border-right: 0;
+    }
+
+    .icon-button:hover,
+    .icon-button:focus-visible {
+      background: var(--table-head);
+      outline: none;
+    }
+
+    .icon-button svg {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2.4;
+    }
+
+    .ad-dots {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 7px;
+    }
+
+    .ad-dot {
+      width: 22px;
+      height: 8px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--line);
+      cursor: pointer;
+    }
+
+    .ad-dot.active {
+      background: var(--brand-accent);
+    }
+
+    .ad-status {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .sponsor-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+    }
+
+    .sponsor-meta div {
+      min-width: 0;
+      padding: 11px 12px;
+      border-right: 1px solid var(--line);
+    }
+
+    .sponsor-meta div:last-child {
+      border-right: 0;
+    }
+
+    .sponsor-meta span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .sponsor-meta strong {
+      display: block;
+      margin-top: 3px;
+      overflow: hidden;
+      color: var(--text);
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     table {
@@ -349,10 +808,30 @@
       text-align: center;
     }
 
+    @media (max-width: 1180px) {
+      .scoreboard-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .ad-stage,
+      .ad-stage-content {
+        min-height: 220px;
+      }
+    }
+
     @media (max-width: 820px) {
       header,
       .toolbar {
         grid-template-columns: 1fr;
+      }
+
+      .brand-lockup {
+        align-items: flex-start;
+      }
+
+      .brand-logo {
+        width: 54px;
+        height: 54px;
       }
 
       .meta,
@@ -362,14 +841,34 @@
         justify-content: flex-start;
         justify-items: start;
       }
+
+      .ad-controls {
+        grid-template-columns: 1fr;
+        justify-items: start;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      tbody tr.flash,
+      .ad-bars span {
+        animation: none;
+      }
+
+      .ad-progress-bar {
+        transition: none;
+      }
     }
   </style>
 </head>
 <body data-theme="dark">
   <header>
-    <div>
-      <h1 data-i18n="title">HYROX Live Timing</h1>
-      <div class="sub" data-i18n="subtitle">实时排名、进度和每站用时。</div>
+    <div class="brand-lockup">
+      <img class="brand-logo" src="./assets/src-logo.png" alt="SRC logo">
+      <div class="brand-copy">
+        <div class="brand-eyebrow" data-i18n="brandEyebrow">Brand demo</div>
+        <h1 data-i18n="title">SRC Simulation Race</h1>
+        <div class="sub" data-i18n="subtitle">实时排名、进度和每站用时。</div>
+      </div>
     </div>
     <div class="meta">
       <div class="meta-row">
@@ -411,29 +910,86 @@
       </div>
     </div>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th data-i18n="pos">Pos</th>
-            <th data-i18n="athlete">Athlete</th>
-            <th data-i18n="status">Status</th>
-            <th data-i18n="current">Current</th>
-            <th data-i18n="elapsed">Elapsed</th>
-            <th>S1</th>
-            <th>S2</th>
-            <th>S3</th>
-            <th>S4</th>
-            <th>S5</th>
-            <th>S6</th>
-            <th>S7</th>
-            <th>S8</th>
-          </tr>
-        </thead>
-        <tbody id="leaderboardBody">
-          <tr><td class="empty" colspan="13">Waiting for timing data...</td></tr>
-        </tbody>
-      </table>
+    <div class="scoreboard-layout">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="pos">Pos</th>
+              <th data-i18n="athlete">Athlete</th>
+              <th data-i18n="status">Status</th>
+              <th data-i18n="current">Current</th>
+              <th data-i18n="elapsed">Elapsed</th>
+              <th>S1</th>
+              <th>S2</th>
+              <th>S3</th>
+              <th>S4</th>
+              <th>S5</th>
+              <th>S6</th>
+              <th>S7</th>
+              <th>S8</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardBody">
+            <tr><td class="empty" colspan="13">Waiting for timing data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <aside class="commercial-rail" id="adDeck" aria-label="SRC commercial media demo" data-ad-tone="brand">
+        <div class="ad-topline">
+          <span data-i18n="commercialSlot">Commercial space</span>
+          <strong id="adCounter">01 / 04</strong>
+        </div>
+        <div class="ad-stage" id="adStage">
+          <div class="ad-stage-content" id="adStageContent"></div>
+          <div class="video-badge">
+            <span class="play-mark"></span>
+            <span id="adBadge">Ad slot</span>
+          </div>
+        </div>
+        <div class="ad-progress" aria-hidden="true">
+          <div class="ad-progress-bar" id="adProgressBar"></div>
+        </div>
+        <div class="commercial-copy">
+          <span id="adEyebrow">Commercial space</span>
+          <strong id="adTitle">SRC Brand Showcase</strong>
+          <p id="adBody">Logo, product ads, or muted sponsor videos can rotate here while timing stays live.</p>
+        </div>
+        <div class="ad-tags" id="adTags"></div>
+        <div class="ad-controls">
+          <div class="ad-button-group" aria-label="Ad controls">
+            <button class="icon-button" type="button" id="adPreviousButton" aria-label="Previous ad" title="Previous ad">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15 18l-6-6 6-6"></path>
+              </svg>
+            </button>
+            <button class="icon-button" type="button" id="adPlayButton" aria-label="Pause ads" aria-pressed="false" title="Pause ads">
+              <svg id="adPlayIcon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 7v10"></path>
+                <path d="M15 7v10"></path>
+              </svg>
+            </button>
+            <button class="icon-button" type="button" id="adNextButton" aria-label="Next ad" title="Next ad">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 6l6 6-6 6"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="ad-dots" id="adDots" aria-label="Ad selector"></div>
+          <div class="ad-status" id="adStatus">Auto</div>
+        </div>
+        <div class="sponsor-meta">
+          <div>
+            <span data-i18n="brandLabel">Brand</span>
+            <strong>SRC</strong>
+          </div>
+          <div>
+            <span data-i18n="mediaLabel">Media</span>
+            <strong id="adMediaValue">Logo / video</strong>
+          </div>
+        </div>
+      </aside>
     </div>
   </main>
 
@@ -444,14 +1000,36 @@
     const totalCount = document.querySelector("#totalCount");
     const racingCount = document.querySelector("#racingCount");
     const finishedCount = document.querySelector("#finishedCount");
+    const adDeck = document.querySelector("#adDeck");
+    const adStageContent = document.querySelector("#adStageContent");
+    const adBadge = document.querySelector("#adBadge");
+    const adCounter = document.querySelector("#adCounter");
+    const adEyebrow = document.querySelector("#adEyebrow");
+    const adTitle = document.querySelector("#adTitle");
+    const adBody = document.querySelector("#adBody");
+    const adTags = document.querySelector("#adTags");
+    const adDots = document.querySelector("#adDots");
+    const adProgressBar = document.querySelector("#adProgressBar");
+    const adPreviousButton = document.querySelector("#adPreviousButton");
+    const adNextButton = document.querySelector("#adNextButton");
+    const adPlayButton = document.querySelector("#adPlayButton");
+    const adPlayIcon = document.querySelector("#adPlayIcon");
+    const adStatus = document.querySelector("#adStatus");
+    const adMediaValue = document.querySelector("#adMediaValue");
     let language = localStorage.getItem("hyroxLeaderboardLanguage") || "zh";
     let theme = localStorage.getItem("hyroxLeaderboardTheme") || "dark";
     let previousSignatures = null;
+    let adIndex = 0;
+    let adPaused = false;
+    let adElapsed = 0;
+    let adLastTick = Date.now();
+    const AD_DURATION_MS = 7000;
 
     const i18n = {
       zh: {
-        title: "HYROX 实时排名",
-        subtitle: "实时排名、进度和每站用时。",
+        brandEyebrow: "品牌演示",
+        title: "SRC 模拟赛",
+        subtitle: "SRC 品牌模拟赛实时排名、进度和每站用时。",
         live: "LIVE",
         raceId: "Race ID",
         total: "总人数",
@@ -475,13 +1053,28 @@
           Waiting: "等待",
           Finished: "已完赛"
         },
+        videoSlot: "广告位",
+        commercialSlot: "商业展示区",
+        commercialTitle: "SRC 品牌展示",
+        commercialBody: "品牌 Logo、产品广告或静音赞助视频可以在这里轮播，同时排名保持实时更新。",
+        brandLabel: "品牌",
+        mediaLabel: "媒体",
+        mediaValue: "Logo / 视频",
+        adAuto: "自动轮播",
+        adPaused: "已暂停",
+        previousAd: "上一条广告",
+        nextAd: "下一条广告",
+        pauseAds: "暂停广告",
+        playAds: "播放广告",
+        selectAd: "选择广告",
         run: "跑步",
         station: "站点",
         toEnd: "前往终点"
       },
       en: {
-        title: "HYROX Live Timing",
-        subtitle: "Live ranking, progress, and station splits.",
+        brandEyebrow: "Brand demo",
+        title: "SRC Simulation Race",
+        subtitle: "Live ranking, progress, and station splits for the SRC brand race.",
         live: "LIVE",
         raceId: "Race ID",
         total: "Total",
@@ -505,11 +1098,132 @@
           Waiting: "Waiting",
           Finished: "Finished"
         },
+        videoSlot: "Ad slot",
+        commercialSlot: "Commercial space",
+        commercialTitle: "SRC Brand Showcase",
+        commercialBody: "Logo, product ads, or muted sponsor videos can rotate here while timing stays live.",
+        brandLabel: "Brand",
+        mediaLabel: "Media",
+        mediaValue: "Logo / video",
+        adAuto: "Auto rotation",
+        adPaused: "Paused",
+        previousAd: "Previous ad",
+        nextAd: "Next ad",
+        pauseAds: "Pause ads",
+        playAds: "Play ads",
+        selectAd: "Select ad",
         run: "Run",
         station: "Station",
         toEnd: "To Finish"
       }
     };
+
+    const adCampaigns = [
+      {
+        tone: "brand",
+        visual: "logo",
+        zh: {
+          badge: "主视觉",
+          eyebrow: "SRC 官方合作",
+          title: "To Feel Not Count",
+          body: "把模拟赛变成品牌现场。SRC 主视觉、口号和活动信息可以在大屏持续露出。",
+          media: "Logo 主视觉",
+          tags: ["官方合作", "品牌主屏", "赛事口号"],
+          visualTitle: "Sustainable Runner",
+          visualSub: "Sky Never Down"
+        },
+        en: {
+          badge: "Key visual",
+          eyebrow: "SRC official partner",
+          title: "To Feel Not Count",
+          body: "Turn the simulation race into a brand venue with SRC identity, slogan, and campaign presence on the live screen.",
+          media: "Logo key visual",
+          tags: ["Official partner", "Main screen", "Campaign line"],
+          visualTitle: "Sustainable Runner",
+          visualSub: "Sky Never Down"
+        }
+      },
+      {
+        tone: "video",
+        visual: "video",
+        zh: {
+          badge: "15s 视频",
+          eyebrow: "商业短片位",
+          title: "品牌片循环播放",
+          body: "适合播放品牌片、课程片段、产品视频或场馆广告。正式版使用静音 autoplay video。",
+          media: "静音视频",
+          tags: ["15 秒", "静音循环", "场馆大屏"],
+          visualTitle: "SRC Commercial Reel",
+          visualSub: "Muted autoplay"
+        },
+        en: {
+          badge: "15s video",
+          eyebrow: "Commercial reel",
+          title: "Looped Brand Film",
+          body: "Built for brand films, class clips, product videos, or venue ads. Production can use muted autoplay video.",
+          media: "Muted video",
+          tags: ["15 sec", "Muted loop", "Venue screen"],
+          visualTitle: "SRC Commercial Reel",
+          visualSub: "Muted autoplay"
+        }
+      },
+      {
+        tone: "package",
+        visual: "package",
+        zh: {
+          badge: "赞助套餐",
+          eyebrow: "广告权益",
+          title: "Race Day Exposure",
+          body: "同一块大屏可以同时承担实时排名、品牌露出和商业权益交付。",
+          media: "广告权益",
+          tags: ["Logo 露出", "产品卖点", "赞助权益"],
+          items: [
+            ["Logo", "顶部 + 侧栏"],
+            ["Video", "15s 轮播"],
+            ["Offer", "活动权益"],
+            ["Screen", "多屏同步"]
+          ]
+        },
+        en: {
+          badge: "Sponsor pack",
+          eyebrow: "Ad inventory",
+          title: "Race Day Exposure",
+          body: "One live screen can carry ranking, brand presence, and sponsor deliverables at the same time.",
+          media: "Ad inventory",
+          tags: ["Logo placement", "Product message", "Sponsor value"],
+          items: [
+            ["Logo", "Header + rail"],
+            ["Video", "15s rotation"],
+            ["Offer", "Campaign value"],
+            ["Screen", "Multi-display"]
+          ]
+        }
+      },
+      {
+        tone: "venue",
+        visual: "venue",
+        zh: {
+          badge: "现场信息",
+          eyebrow: "门店 / 场馆联动",
+          title: "下一组 10:30",
+          body: "广告区也可以穿插下一组、场馆活动、课程报名或品牌二维码内容。",
+          media: "现场插播",
+          tags: ["下一组", "课程报名", "品牌二维码"],
+          visualTitle: "10:30",
+          visualSub: "Next heat / commercial break"
+        },
+        en: {
+          badge: "Venue info",
+          eyebrow: "Venue activation",
+          title: "Next Heat 10:30",
+          body: "The ad area can also rotate heat calls, venue programs, class signup, or brand QR content.",
+          media: "Venue insert",
+          tags: ["Next heat", "Class signup", "Brand QR"],
+          visualTitle: "10:30",
+          visualSub: "Next heat / commercial break"
+        }
+      }
+    ];
 
     function t(key) {
       return i18n[language][key] || key;
@@ -544,6 +1258,148 @@
       document.querySelectorAll("[data-lang-button]").forEach((button) => {
         button.classList.toggle("active", button.dataset.langButton === language);
       });
+      renderAd();
+    }
+
+    function adCopy(campaign) {
+      return campaign[language] || campaign.en;
+    }
+
+    function renderAdVisual(campaign, copy) {
+      if (campaign.visual === "video") {
+        return `
+          <div class="ad-video-frame">
+            <div class="ad-video-screen">
+              <div class="ad-play-symbol">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 6l9 6-9 6z" fill="currentColor"></path>
+                </svg>
+              </div>
+            </div>
+            <div>
+              <div class="ad-wordmark" style="color: inherit;">${escapeHtml(copy.visualTitle)}</div>
+              <small>${escapeHtml(copy.visualSub)}</small>
+              <div class="ad-bars" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (campaign.visual === "package") {
+        return `
+          <div class="ad-package-frame">
+            <img class="ad-logo compact" src="./assets/src-logo.png" alt="SRC logo">
+            <div class="ad-package-grid">
+              ${copy.items.map((item) => `
+                <div>
+                  <span>${escapeHtml(item[0])}</span>
+                  <strong>${escapeHtml(item[1])}</strong>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }
+
+      if (campaign.visual === "venue") {
+        return `
+          <div class="ad-venue-frame">
+            <span>${escapeHtml(copy.eyebrow)}</span>
+            <div class="ad-venue-time">${escapeHtml(copy.visualTitle)}</div>
+            <p>${escapeHtml(copy.visualSub)}</p>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="ad-brand-frame">
+          <img class="ad-logo" src="./assets/src-logo.png" alt="SRC logo">
+          <div class="ad-wordmark">
+            ${escapeHtml(copy.visualTitle)}
+            <small>${escapeHtml(copy.visualSub)}</small>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAdDots() {
+      adDots.innerHTML = adCampaigns.map((_, index) => `
+        <button
+          class="ad-dot ${index === adIndex ? "active" : ""}"
+          type="button"
+          aria-label="${escapeHtml(t("selectAd"))} ${index + 1}"
+          data-ad-index="${index}">
+        </button>
+      `).join("");
+
+      adDots.querySelectorAll("[data-ad-index]").forEach((button) => {
+        button.addEventListener("click", () => setAdIndex(Number(button.dataset.adIndex)));
+      });
+    }
+
+    function renderPlayIcon() {
+      adPlayIcon.innerHTML = adPaused
+        ? '<path d="M8 5l11 7-11 7z" fill="currentColor" stroke="none"></path>'
+        : '<path d="M9 7v10"></path><path d="M15 7v10"></path>';
+    }
+
+    function renderAd() {
+      const campaign = adCampaigns[adIndex];
+      const copy = adCopy(campaign);
+      adDeck.dataset.adTone = campaign.tone;
+      adStageContent.innerHTML = renderAdVisual(campaign, copy);
+      adBadge.textContent = copy.badge;
+      adCounter.textContent = `${String(adIndex + 1).padStart(2, "0")} / ${String(adCampaigns.length).padStart(2, "0")}`;
+      adEyebrow.textContent = copy.eyebrow;
+      adTitle.textContent = copy.title;
+      adBody.textContent = copy.body;
+      adMediaValue.textContent = copy.media;
+      adTags.innerHTML = copy.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+      adStatus.textContent = adPaused ? t("adPaused") : t("adAuto");
+      adPreviousButton.setAttribute("aria-label", t("previousAd"));
+      adPreviousButton.title = t("previousAd");
+      adNextButton.setAttribute("aria-label", t("nextAd"));
+      adNextButton.title = t("nextAd");
+      adPlayButton.setAttribute("aria-label", adPaused ? t("playAds") : t("pauseAds"));
+      adPlayButton.setAttribute("aria-pressed", String(adPaused));
+      adPlayButton.title = adPaused ? t("playAds") : t("pauseAds");
+      renderAdDots();
+      renderPlayIcon();
+      updateAdProgress();
+    }
+
+    function updateAdProgress() {
+      adProgressBar.style.width = `${Math.min(100, (adElapsed / AD_DURATION_MS) * 100)}%`;
+    }
+
+    function setAdIndex(nextIndex) {
+      adIndex = (nextIndex + adCampaigns.length) % adCampaigns.length;
+      adElapsed = 0;
+      adLastTick = Date.now();
+      renderAd();
+    }
+
+    function toggleAdPlayback() {
+      adPaused = !adPaused;
+      adLastTick = Date.now();
+      renderAd();
+    }
+
+    function tickAds() {
+      const now = Date.now();
+      const delta = now - adLastTick;
+      adLastTick = now;
+      if (adPaused) {
+        return;
+      }
+      adElapsed += delta;
+      if (adElapsed >= AD_DURATION_MS) {
+        setAdIndex(adIndex + 1);
+        return;
+      }
+      updateAdProgress();
     }
 
     function formatDuration(ms) {
@@ -687,10 +1543,15 @@
       refreshLoop();
     });
 
+    adPreviousButton.addEventListener("click", () => setAdIndex(adIndex - 1));
+    adNextButton.addEventListener("click", () => setAdIndex(adIndex + 1));
+    adPlayButton.addEventListener("click", toggleAdPlayback);
+
     applyTheme(theme);
     applyLanguage(language);
     refreshLoop();
     setInterval(refreshLoop, 1000);
+    setInterval(tickAds, 120);
   </script>
 </body>
 </html>
