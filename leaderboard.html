@@ -1024,6 +1024,11 @@
     let adElapsed = 0;
     let adLastTick = Date.now();
     const AD_DURATION_MS = 7000;
+    const pageParams = new URLSearchParams(window.location.search);
+    const forceDemoData = ["1", "true", "yes"].includes(
+      String(pageParams.get("demo") || pageParams.get("mock") || "").toLowerCase()
+    );
+    let useDemoFallback = forceDemoData;
 
     const i18n = {
       zh: {
@@ -1044,6 +1049,7 @@
         waitingData: "等待计时数据...",
         bib: "号码",
         error: "错误",
+        demoData: "演示数据",
         statusText: {
           finished: "已完赛",
           racing: "比赛中",
@@ -1089,6 +1095,7 @@
         waitingData: "Waiting for timing data...",
         bib: "Bib",
         error: "Error",
+        demoData: "Demo data",
         statusText: {
           finished: "Finished",
           racing: "Racing",
@@ -1475,20 +1482,205 @@
       return changed;
     }
 
-    async function loadLeaderboard() {
-      const raceId = raceIdInput.value.trim() || "hyrox-sim-001";
+    function demoSplits(values) {
+      const splits = {};
+      for (let stationNumber = 1; stationNumber <= 8; stationNumber += 1) {
+        splits[`station${stationNumber}Ms`] = values[stationNumber - 1] ?? null;
+      }
+      return splits;
+    }
+
+    function demoIsoFrom(nowMs, offsetMs) {
+      return new Date(nowMs - offsetMs).toISOString();
+    }
+
+    function mockLeaderboardPayload(raceId) {
+      const nowMs = Date.now();
+      const rows = [
+        {
+          participantId: 9001,
+          athleteName: "Ming Chen",
+          bibNumber: "101",
+          cardCode: "SIM-DEMO-101",
+          phone: "",
+          gender: "male",
+          division: "Men Open",
+          checkInStatus: "checked_in",
+          status: "finished",
+          current: "Finished",
+          progressIndex: 17,
+          latestCheckpoint: "END",
+          startTime: demoIsoFrom(nowMs, 3862000),
+          finishTime: demoIsoFrom(nowMs, 182000),
+          elapsedMs: 3680000,
+          checkpointTimes: {},
+          stationSplits: demoSplits([251000, 269000, 246000, 284000, 271000, 258000, 296000, 312000])
+        },
+        {
+          participantId: 9002,
+          athleteName: "Lina Wang",
+          bibNumber: "118",
+          cardCode: "SIM-DEMO-118",
+          phone: "",
+          gender: "female",
+          division: "Women Open",
+          checkInStatus: "checked_in",
+          status: "finished",
+          current: "Finished",
+          progressIndex: 17,
+          latestCheckpoint: "END",
+          startTime: demoIsoFrom(nowMs, 4028000),
+          finishTime: demoIsoFrom(nowMs, 178000),
+          elapsedMs: 3850000,
+          checkpointTimes: {},
+          stationSplits: demoSplits([263000, 276000, 258000, 301000, 288000, 267000, 312000, 329000])
+        },
+        {
+          participantId: 9003,
+          athleteName: "Zhang Wei",
+          bibNumber: "126",
+          cardCode: "SIM-DEMO-126",
+          phone: "",
+          gender: "male",
+          division: "Men Pro",
+          checkInStatus: "checked_in",
+          status: "racing",
+          current: "Station 8",
+          progressIndex: 16,
+          latestCheckpoint: "STATION_8_ENTER",
+          startTime: demoIsoFrom(nowMs, 3410000),
+          finishTime: null,
+          elapsedMs: 3410000,
+          checkpointTimes: {},
+          stationSplits: demoSplits([238000, 251000, 241000, 263000, 252000, 244000, 280000, null])
+        },
+        {
+          participantId: 9004,
+          athleteName: "SRC Relay Team",
+          bibNumber: "203",
+          cardCode: "SIM-DEMO-203",
+          phone: "",
+          gender: "mixed",
+          division: "Relay",
+          checkInStatus: "checked_in",
+          status: "racing",
+          current: "Run 7",
+          progressIndex: 13,
+          latestCheckpoint: "STATION_6_EXIT",
+          startTime: demoIsoFrom(nowMs, 2865000),
+          finishTime: null,
+          elapsedMs: 2865000,
+          checkpointTimes: {},
+          stationSplits: demoSplits([224000, 236000, 229000, 248000, 240000, 255000, null, null])
+        },
+        {
+          participantId: 9005,
+          athleteName: "Peter Demo",
+          bibNumber: "137",
+          cardCode: "SIM-DEMO-137",
+          phone: "",
+          gender: "male",
+          division: "Men Open",
+          checkInStatus: "checked_in",
+          status: "racing",
+          current: "Station 5",
+          progressIndex: 9,
+          latestCheckpoint: "STATION_5_ENTER",
+          startTime: demoIsoFrom(nowMs, 2198000),
+          finishTime: null,
+          elapsedMs: 2198000,
+          checkpointTimes: {},
+          stationSplits: demoSplits([271000, 286000, 268000, 294000, null, null, null, null])
+        },
+        {
+          participantId: 9006,
+          athleteName: "Brand Guest",
+          bibNumber: "156",
+          cardCode: "SIM-DEMO-156",
+          phone: "",
+          gender: "female",
+          division: "Women Open",
+          checkInStatus: "checked_in",
+          status: "racing",
+          current: "Run 3",
+          progressIndex: 5,
+          latestCheckpoint: "STATION_2_EXIT",
+          startTime: demoIsoFrom(nowMs, 1262000),
+          finishTime: null,
+          elapsedMs: 1262000,
+          checkpointTimes: {},
+          stationSplits: demoSplits([284000, 297000, null, null, null, null, null, null])
+        },
+        {
+          participantId: 9007,
+          athleteName: "Ada Liu",
+          bibNumber: "172",
+          cardCode: "SIM-DEMO-172",
+          phone: "",
+          gender: "female",
+          division: "Women Pro",
+          checkInStatus: "checked_in",
+          status: "not_started",
+          current: "Waiting",
+          progressIndex: -1,
+          latestCheckpoint: null,
+          startTime: null,
+          finishTime: null,
+          elapsedMs: null,
+          checkpointTimes: {},
+          stationSplits: demoSplits([])
+        },
+        {
+          participantId: 9008,
+          athleteName: "Sky Runner",
+          bibNumber: "188",
+          cardCode: "SIM-DEMO-188",
+          phone: "",
+          gender: "male",
+          division: "Men Open",
+          checkInStatus: "not_checked_in",
+          status: "not_started",
+          current: "Waiting",
+          progressIndex: -1,
+          latestCheckpoint: null,
+          startTime: null,
+          finishTime: null,
+          elapsedMs: null,
+          checkpointTimes: {},
+          stationSplits: demoSplits([])
+        }
+      ];
+
+      rows.forEach((row, index) => {
+        row.rank = index + 1;
+      });
+
+      return {
+        ok: true,
+        raceId,
+        generatedAt: new Date(nowMs).toISOString(),
+        checkpoints: [],
+        leaderboard: rows
+      };
+    }
+
+    async function fetchLeaderboardPayload(raceId) {
       const response = await fetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
+      return payload;
+    }
 
+    function renderLeaderboard(payload, isDemoData) {
       const rows = payload.leaderboard || [];
       const changed = changedRows(rows);
       totalCount.textContent = rows.length;
       racingCount.textContent = rows.filter((row) => row.status === "racing").length;
       finishedCount.textContent = rows.filter((row) => row.status === "finished").length;
-      updatedAt.textContent = new Date(payload.generatedAt).toLocaleTimeString();
+      const generatedAt = new Date(payload.generatedAt).toLocaleTimeString();
+      updatedAt.textContent = isDemoData ? `${t("demoData")} · ${generatedAt}` : generatedAt;
 
       if (rows.length === 0) {
         leaderboardBody.innerHTML = `<tr><td class="empty" colspan="13">${t("noParticipants")}</td></tr>`;
@@ -1517,6 +1709,26 @@
           </tr>
         `;
       }).join("");
+    }
+
+    async function loadLeaderboard() {
+      const raceId = raceIdInput.value.trim() || "hyrox-sim-001";
+      let payload;
+      let isDemoData = useDemoFallback;
+
+      if (useDemoFallback) {
+        payload = mockLeaderboardPayload(raceId);
+      } else {
+        try {
+          payload = await fetchLeaderboardPayload(raceId);
+        } catch (error) {
+          useDemoFallback = true;
+          isDemoData = true;
+          payload = mockLeaderboardPayload(raceId);
+        }
+      }
+
+      renderLeaderboard(payload, isDemoData);
     }
 
     async function refreshLoop() {
