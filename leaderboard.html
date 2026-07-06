@@ -1028,6 +1028,8 @@
     const forceDemoData = ["1", "true", "yes"].includes(
       String(pageParams.get("demo") || pageParams.get("mock") || "").toLowerCase()
     );
+    const initialRaceId = String(pageParams.get("raceId") || pageParams.get("race") || "").trim();
+    const demoRaceIds = new Set(["src-hyrox"]);
     let useDemoFallback = forceDemoData;
 
     const i18n = {
@@ -1234,6 +1236,10 @@
 
     function t(key) {
       return i18n[language][key] || key;
+    }
+
+    function isDemoRaceId(raceId) {
+      return demoRaceIds.has(String(raceId || "").trim().toLowerCase());
     }
 
     function escapeHtml(value) {
@@ -1713,10 +1719,11 @@
 
     async function loadLeaderboard() {
       const raceId = raceIdInput.value.trim() || "hyrox-sim-001";
+      const shouldUseDemoData = useDemoFallback || isDemoRaceId(raceId);
       let payload;
-      let isDemoData = useDemoFallback;
+      let isDemoData = shouldUseDemoData;
 
-      if (useDemoFallback) {
+      if (shouldUseDemoData) {
         payload = mockLeaderboardPayload(raceId);
       } else {
         try {
@@ -1758,6 +1765,10 @@
     adPreviousButton.addEventListener("click", () => setAdIndex(adIndex - 1));
     adNextButton.addEventListener("click", () => setAdIndex(adIndex + 1));
     adPlayButton.addEventListener("click", toggleAdPlayback);
+
+    if (initialRaceId) {
+      raceIdInput.value = initialRaceId;
+    }
 
     applyTheme(theme);
     applyLanguage(language);
