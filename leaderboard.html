@@ -1464,13 +1464,16 @@
       return html;
     }
 
-    function rowSignature(row) {
+    function timingEventSignature(row) {
+      const checkpointTimes = Object.entries(row.checkpointTimes || {})
+        .sort(([checkpointA], [checkpointB]) => checkpointA.localeCompare(checkpointB));
+
       return JSON.stringify({
-        rank: row.rank,
         status: row.status,
         current: row.current,
+        progressIndex: row.progressIndex,
         latestCheckpoint: row.latestCheckpoint,
-        finishTime: row.finishTime,
+        checkpointTimes,
         splits: row.stationSplits
       });
     }
@@ -1480,7 +1483,7 @@
       const changed = new Set();
       for (const row of rows) {
         const key = String(row.participantId);
-        const signature = rowSignature(row);
+        const signature = timingEventSignature(row);
         nextSignatures.set(key, signature);
         if (previousSignatures && previousSignatures.get(key) !== signature) {
           changed.add(key);
