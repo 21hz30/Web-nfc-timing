@@ -2,16 +2,27 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HYROX Web NFC Timing Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SRC NFC Timing Gate</title>
   <link rel="icon" type="image/png" sizes="192x192" href="./assets/src-logo.png">
   <link rel="apple-touch-icon" href="./assets/src-logo.png">
   <style>
     :root {
       color-scheme: light;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f4f6f8;
-      color: #101820;
+      --bg: #f3f5f7;
+      --surface: #ffffff;
+      --surface-strong: #101820;
+      --text: #101820;
+      --muted: #627080;
+      --line: #d5dde6;
+      --soft: #e9eef3;
+      --success: #087a4b;
+      --success-soft: #e4f5ed;
+      --warning: #9a5b00;
+      --warning-soft: #fff4d6;
+      --error: #b42318;
+      --error-soft: #fdebea;
     }
 
     * {
@@ -21,142 +32,434 @@
     body {
       margin: 0;
       min-height: 100vh;
-      background: #f4f6f8;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    input:not([type="checkbox"]),
+    select {
+      font: inherit;
+    }
+
+    button,
+    summary {
+      -webkit-tap-highlight-color: transparent;
     }
 
     main {
-      width: min(920px, 100%);
+      width: min(860px, 100%);
+      min-height: 100vh;
       margin: 0 auto;
-      padding: 20px;
+      padding: max(14px, env(safe-area-inset-top)) 16px max(22px, env(safe-area-inset-bottom));
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .brand {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .brand img {
+      width: 46px;
+      height: 46px;
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #ffffff;
+      object-fit: contain;
+    }
+
+    .brand-copy {
+      min-width: 0;
     }
 
     h1 {
-      margin: 0 0 6px;
-      font-size: 24px;
+      margin: 0;
+      font-size: 20px;
       line-height: 1.2;
     }
 
-    p {
-      margin: 0;
-      line-height: 1.5;
-      color: #4a5563;
+    .device-meta {
+      margin-top: 3px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .panel {
-      margin-top: 16px;
-      padding: 16px;
-      border: 1px solid #d7dee7;
+    .icon-button {
+      display: inline-grid;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 23px;
+      cursor: pointer;
+    }
+
+    .role-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 15px;
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+    }
+
+    .role-strip span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .role-strip strong {
+      text-align: right;
+      font-size: 15px;
+    }
+
+    .scanner {
+      display: grid;
+      min-height: 330px;
+      margin-top: 12px;
+      padding: 22px;
+      place-items: center;
+      border: 2px solid var(--line);
       border-radius: 8px;
-      background: #ffffff;
+      background: var(--surface);
+      text-align: center;
+      transition: border-color 160ms ease, background 160ms ease;
     }
 
-    .grid {
+    .scanner[data-tone="ready"] {
+      border-color: #7b8794;
+    }
+
+    .scanner[data-tone="busy"] {
+      border-color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .scanner[data-tone="success"] {
+      border-color: var(--success);
+      background: var(--success-soft);
+    }
+
+    .scanner[data-tone="error"] {
+      border-color: var(--error);
+      background: var(--error-soft);
+    }
+
+    .scanner-content {
+      display: grid;
+      width: 100%;
+      max-width: 650px;
+      gap: 12px;
+      justify-items: center;
+    }
+
+    .scan-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .scan-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #8a95a1;
+    }
+
+    body.scanning .scan-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 5px rgba(8, 122, 75, 0.12);
+    }
+
+    .scanner h2 {
+      margin: 0;
+      font-size: 42px;
+      line-height: 1.12;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .scanner p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.5;
+    }
+
+    .last-result {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px 16px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 13px 14px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .last-result-copy {
+      min-width: 0;
+    }
+
+    .last-result span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .last-result strong {
+      display: block;
+      margin-top: 4px;
+      overflow: hidden;
+      font-size: 18px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .last-time {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button.command {
+      min-height: 52px;
+      border: 0;
+      border-radius: 7px;
+      padding: 12px 16px;
+      background: var(--surface-strong);
+      color: #ffffff;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    button.command.secondary {
+      min-width: 112px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .voice-setting {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .checkbox-setting {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      gap: 9px;
+      align-items: center;
+      min-height: 46px;
+      border: 1px solid #bec9d4;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: var(--surface);
+      cursor: pointer;
+    }
+
+    .checkbox-setting input {
+      width: 20px;
+      height: 20px;
+      margin: 0;
+      accent-color: var(--success);
+    }
+
+    .checkbox-setting span {
+      display: grid;
+      gap: 2px;
+    }
+
+    .checkbox-setting small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .setting-button {
+      min-width: 82px;
+      border: 1px solid #bec9d4;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: var(--surface-strong);
+      color: #ffffff;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .setting-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .status {
+      margin-top: 10px;
+      min-height: 42px;
+      padding: 10px 12px;
+      border-left: 4px solid #7b8794;
+      background: var(--soft);
+      color: #344150;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.45;
+    }
+
+    .status[data-tone="success"] {
+      border-color: var(--success);
+      background: var(--success-soft);
+      color: #075f3d;
+    }
+
+    .status[data-tone="warning"] {
+      border-color: var(--warning);
+      background: var(--warning-soft);
+      color: #744500;
+    }
+
+    .status[data-tone="error"] {
+      border-color: var(--error);
+      background: var(--error-soft);
+      color: #8f1c14;
+    }
+
+    details {
+      margin-top: 16px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+    }
+
+    summary {
+      padding: 14px 2px;
+      color: #344150;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .settings-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
+      padding: 0 0 16px;
     }
 
     label {
       display: grid;
       gap: 6px;
-      color: #303946;
-      font-size: 14px;
-      font-weight: 600;
+      color: #344150;
+      font-size: 13px;
+      font-weight: 800;
     }
 
     input,
     select {
       width: 100%;
-      border: 1px solid #c8d1dc;
+      min-height: 46px;
+      border: 1px solid #bec9d4;
       border-radius: 6px;
-      padding: 11px 12px;
-      font: inherit;
-      color: #101820;
-      background: #ffffff;
+      padding: 10px 11px;
+      background: var(--surface);
+      color: var(--text);
     }
 
-    button {
+    .hidden {
+      display: none !important;
+    }
+
+    .history {
+      margin-top: 18px;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .text-button {
       border: 0;
-      border-radius: 6px;
-      padding: 12px 14px;
-      font: inherit;
-      font-weight: 700;
-      color: #ffffff;
-      background: #0f766e;
+      padding: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 800;
       cursor: pointer;
     }
 
-    button.secondary {
-      color: #101820;
-      background: #e5e9ef;
-    }
-
-    button:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 14px;
-    }
-
-    .status {
-      display: grid;
-      gap: 8px;
-      margin-top: 12px;
-      padding: 12px;
-      border-radius: 6px;
-      background: #eef7f6;
-      color: #0f4f49;
-      font-weight: 700;
-    }
-
-    .status.error {
-      background: #fff1f0;
-      color: #a21616;
-    }
-
-    .last-card {
-      display: grid;
-      gap: 6px;
-      margin-top: 12px;
-      padding: 14px;
-      border-radius: 8px;
-      background: #101820;
-      color: #ffffff;
-    }
-
-    .last-card strong {
-      font-size: 28px;
-      line-height: 1.1;
-      word-break: break-word;
+    .table-wrap {
+      margin-top: 10px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
     }
 
     table {
       width: 100%;
+      min-width: 620px;
       border-collapse: collapse;
-      margin-top: 12px;
-      overflow: hidden;
-      border-radius: 8px;
-      background: #ffffff;
     }
 
     th,
     td {
-      border-bottom: 1px solid #e1e7ef;
       padding: 10px;
+      border-bottom: 1px solid #e1e7ed;
       text-align: left;
+      font-size: 13px;
       vertical-align: top;
-      font-size: 14px;
     }
 
     th {
-      color: #303946;
       background: #edf1f5;
-      font-weight: 700;
+      color: #344150;
+      font-weight: 900;
     }
 
     tr:last-child td {
@@ -167,38 +470,191 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
 
-    @media (max-width: 720px) {
+    .result-status {
+      font-weight: 900;
+    }
+
+    .result-status.success {
+      color: var(--success);
+    }
+
+    .result-status.warning {
+      color: var(--warning);
+    }
+
+    .result-status.error {
+      color: var(--error);
+    }
+
+    .feedback {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      padding: 26px;
+      place-items: center;
+      background: var(--success);
+      color: #ffffff;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(1.015);
+      transition: opacity 100ms ease, transform 100ms ease;
+    }
+
+    .feedback.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .feedback[data-tone="warning"] {
+      background: #9a5b00;
+    }
+
+    .feedback[data-tone="error"] {
+      background: var(--error);
+    }
+
+    .feedback-content {
+      display: grid;
+      max-width: 720px;
+      gap: 12px;
+      justify-items: center;
+    }
+
+    .feedback-mark {
+      display: grid;
+      width: 98px;
+      height: 98px;
+      place-items: center;
+      border: 5px solid currentColor;
+      border-radius: 50%;
+      font-size: 34px;
+      font-weight: 950;
+    }
+
+    .feedback-kicker {
+      font-size: 22px;
+      font-weight: 950;
+    }
+
+    .feedback h2 {
+      margin: 0;
+      font-size: 50px;
+      line-height: 1.08;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .feedback p {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 640px) {
       main {
-        padding: 14px;
+        padding-right: 12px;
+        padding-left: 12px;
       }
 
-      .grid {
+      .scanner {
+        min-height: 310px;
+        padding: 18px;
+      }
+
+      .scanner h2 {
+        font-size: 34px;
+      }
+
+      .scanner p {
+        font-size: 16px;
+      }
+
+      .settings-grid {
         grid-template-columns: 1fr;
       }
 
-      .last-card strong {
-        font-size: 22px;
+      .feedback h2 {
+        font-size: 39px;
+      }
+
+      .feedback p {
+        font-size: 20px;
       }
     }
   </style>
 </head>
 <body>
   <main>
-    <h1>HYROX Web NFC Timing Test</h1>
-    <p>用于验证 NFC tag 读取、站点时间记录和可选上传。请用支持 Web NFC 的 Android Chrome 打开 HTTPS 页面。</p>
+    <header class="topbar">
+      <div class="brand">
+        <img src="./assets/src-logo.png" alt="SRC">
+        <div class="brand-copy">
+          <h1>NFC 计时闸机</h1>
+          <div id="deviceMeta" class="device-meta">设备尚未配置</div>
+        </div>
+      </div>
+      <button id="fullscreenButton" class="icon-button" type="button" title="全屏" aria-label="全屏">&#x26F6;</button>
+    </header>
 
-    <section class="panel">
-      <div class="grid">
+    <div class="role-strip">
+      <span>本机角色</span>
+      <strong id="roleName">跑步出发口 / RUN OUT</strong>
+    </div>
+
+    <section id="scanner" class="scanner" data-tone="idle" aria-live="polite">
+      <div class="scanner-content">
+        <div class="scan-state"><span class="scan-dot"></span><span id="scanState">未启动</span></div>
+        <h2 id="heroTitle">点击开始扫描</h2>
+        <p id="heroDetail">设备启动后等待选手贴卡</p>
+      </div>
+    </section>
+
+    <div class="last-result">
+      <div class="last-result-copy">
+        <span>最近一次</span>
+        <strong id="lastResult">还没有计时记录</strong>
+      </div>
+      <div id="lastTime" class="last-time">--:--:--</div>
+    </div>
+
+    <div class="actions">
+      <button id="startButton" class="command" type="button">开始扫描 NFC</button>
+      <button id="stopButton" class="command secondary" type="button" disabled>停止</button>
+    </div>
+
+    <div id="status" class="status" data-tone="info">等待启动。</div>
+
+    <details id="settingsPanel">
+      <summary>设备设置</summary>
+      <p id="raceProfileStatus" class="settings-note">正在读取比赛配置…</p>
+      <div class="settings-grid">
         <label>
           Race ID
           <input id="raceId" value="hyrox-sim-001" autocomplete="off">
         </label>
         <label>
           Device ID
-          <input id="deviceId" value="mate40-001" autocomplete="off">
+          <input id="deviceId" value="timing-reader-01" autocomplete="off">
         </label>
         <label>
-          Station
+          计时模式
+          <select id="timingMode">
+            <option value="auto">自动共享闸机</option>
+            <option value="manual">手动 checkpoint</option>
+          </select>
+        </label>
+        <label id="gateRoleField">
+          本机角色
+          <select id="gateRole">
+            <option value="RUN_OUT">跑步出发口 / RUN OUT</option>
+            <option value="RUN_IN">跑步结束口 / RUN IN</option>
+          </select>
+        </label>
+        <label id="stationField" class="hidden">
+          Manual checkpoint
           <select id="stationId">
             <option value="START">START</option>
             <option value="STATION_1_ENTER">Station 1 Enter</option>
@@ -222,82 +678,265 @@
         </label>
         <label>
           Upload API URL
-          <input id="apiUrl" placeholder="https://your-domain.com/api/timing-events" autocomplete="off">
+          <input id="apiUrl" placeholder="https://timing.example.com/api/timing-events" autocomplete="off">
         </label>
+        <label>
+          重复刷卡保护（秒）
+          <input id="duplicateProtectionSeconds" type="number" min="3" max="60" step="1" value="10" inputmode="numeric">
+        </label>
+        <div class="voice-setting">
+          <label class="checkbox-setting">
+            <input id="voiceEnabled" type="checkbox" checked>
+            <span>
+              语音播报
+              <small>成功后播放“打卡成功”</small>
+            </span>
+          </label>
+          <button id="testVoiceButton" class="setting-button" type="button">测试语音</button>
+        </div>
       </div>
+    </details>
 
-      <div class="actions">
-        <button id="startButton">开始扫描 NFC</button>
-        <button id="stopButton" class="secondary" disabled>停止扫描</button>
-        <button id="clearButton" class="secondary">清空本地记录</button>
+    <section class="history">
+      <div class="section-heading">
+        <h2>本机记录</h2>
+        <button id="clearButton" class="text-button" type="button">清空显示</button>
       </div>
-
-      <div id="status" class="status">等待开始扫描。</div>
-
-      <div class="last-card">
-        <span>Last Scan</span>
-        <strong id="lastCard">-</strong>
-        <span id="lastMeta">还没有记录</span>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>选手</th>
+              <th>Checkpoint</th>
+              <th>结果</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
       </div>
-    </section>
-
-    <section class="panel">
-      <h2 style="margin: 0; font-size: 18px;">本地事件记录</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>站点</th>
-            <th>卡号</th>
-            <th>状态</th>
-          </tr>
-        </thead>
-        <tbody id="eventsBody"></tbody>
-      </table>
     </section>
   </main>
 
-  <script>
-    const startButton = document.querySelector("#startButton");
-    const stopButton = document.querySelector("#stopButton");
-    const clearButton = document.querySelector("#clearButton");
-    const statusBox = document.querySelector("#status");
-    const lastCard = document.querySelector("#lastCard");
-    const lastMeta = document.querySelector("#lastMeta");
-    const eventsBody = document.querySelector("#eventsBody");
-    const apiUrlInput = document.querySelector("#apiUrl");
+  <audio id="successVoiceAudio" preload="auto" src="./assets/check-in-success.wav" aria-hidden="true"></audio>
 
-    let abortController = null;
-    let recentScans = new Map();
+  <div id="feedback" class="feedback" data-tone="success" role="status" aria-live="assertive" aria-hidden="true">
+    <div class="feedback-content">
+      <div id="feedbackMark" class="feedback-mark">OK</div>
+      <div id="feedbackKicker" class="feedback-kicker">打卡成功</div>
+      <h2 id="feedbackTitle">-</h2>
+      <p id="feedbackDetail">-</p>
+    </div>
+  </div>
+
+  <script>
+    const elements = {
+      apiUrl: document.querySelector("#apiUrl"),
+      clearButton: document.querySelector("#clearButton"),
+      deviceId: document.querySelector("#deviceId"),
+      deviceMeta: document.querySelector("#deviceMeta"),
+      duplicateProtectionSeconds: document.querySelector("#duplicateProtectionSeconds"),
+      eventsBody: document.querySelector("#eventsBody"),
+      feedback: document.querySelector("#feedback"),
+      feedbackDetail: document.querySelector("#feedbackDetail"),
+      feedbackKicker: document.querySelector("#feedbackKicker"),
+      feedbackMark: document.querySelector("#feedbackMark"),
+      feedbackTitle: document.querySelector("#feedbackTitle"),
+      fullscreenButton: document.querySelector("#fullscreenButton"),
+      gateRole: document.querySelector("#gateRole"),
+      gateRoleField: document.querySelector("#gateRoleField"),
+      heroDetail: document.querySelector("#heroDetail"),
+      heroTitle: document.querySelector("#heroTitle"),
+      lastResult: document.querySelector("#lastResult"),
+      lastTime: document.querySelector("#lastTime"),
+      raceId: document.querySelector("#raceId"),
+      roleName: document.querySelector("#roleName"),
+      scanner: document.querySelector("#scanner"),
+      scanState: document.querySelector("#scanState"),
+      settingsPanel: document.querySelector("#settingsPanel"),
+      startButton: document.querySelector("#startButton"),
+      stationField: document.querySelector("#stationField"),
+      stationId: document.querySelector("#stationId"),
+      status: document.querySelector("#status"),
+      stopButton: document.querySelector("#stopButton"),
+      successVoiceAudio: document.querySelector("#successVoiceAudio"),
+      testVoiceButton: document.querySelector("#testVoiceButton"),
+      timingMode: document.querySelector("#timingMode"),
+      voiceEnabled: document.querySelector("#voiceEnabled"),
+      raceProfileStatus: document.querySelector("#raceProfileStatus")
+    };
+
+    const settingsKey = "srcNfcTimingSettingsV2";
     const duplicateWindowMs = 2500;
     const defaultApiUrl = `${window.location.origin}/api/timing-events`;
-    const savedApiUrl = localStorage.getItem("hyroxTimingApiUrl");
-    if (savedApiUrl) {
-      apiUrlInput.value = savedApiUrl;
-    } else if (window.location.protocol === "https:" || window.location.hostname === "localhost") {
-      apiUrlInput.value = defaultApiUrl;
+    const recentScans = new Map();
+    let abortController = null;
+    let audioContext = null;
+    let feedbackTimer = null;
+    let ndefReader = null;
+    let scanQueue = Promise.resolve();
+    let speechTimer = null;
+    let wakeLock = null;
+    let raceProfile = null;
+
+    function roleLabel(role) {
+      return role === "RUN_IN" ? "跑步结束口 / RUN IN" : "跑步出发口 / RUN OUT";
     }
 
-    apiUrlInput.addEventListener("change", () => {
-      localStorage.setItem("hyroxTimingApiUrl", apiUrlInput.value.trim());
-    });
+    function shortRoleLabel(role) {
+      return role === "RUN_IN" ? "跑步结束口" : "跑步出发口";
+    }
 
-    function setStatus(message, isError = false) {
-      statusBox.textContent = message;
-      statusBox.classList.toggle("error", isError);
+    function checkpointLabel(checkpoint) {
+      if (checkpoint === "START") return "开始第 1 圈跑步";
+      if (checkpoint === "END") return "正式完赛";
+      if (checkpoint === "AUTO_RUN_OUT") return "跑步出发口 · 未推进";
+      if (checkpoint === "AUTO_RUN_IN") return "跑步结束口 · 未推进";
+      if (checkpoint === "AUTO") return "等待服务器自动判定";
+
+      const match = String(checkpoint || "").match(/^STATION_(\d+)_(ENTER|EXIT|START)$/);
+      if (!match) return checkpoint || "未分配 checkpoint";
+
+      const stationNumber = Number(match[1]);
+      if (match[2] === "START") return "第 " + stationNumber + " 站打卡";
+      if (match[2] === "ENTER") {
+        return `第 ${stationNumber} 圈跑步完成 · 进入第 ${stationNumber} 站`;
+      }
+      return `第 ${stationNumber} 站完成 · 开始第 ${stationNumber + 1} 圈跑步`;
+    }
+
+    function loadSettings() {
+      let saved = {};
+      try {
+        saved = JSON.parse(localStorage.getItem(settingsKey) || "{}");
+      } catch (error) {
+        saved = {};
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      elements.raceId.value = params.get("raceId") || saved.raceId || "hyrox-sim-001";
+      elements.deviceId.value = params.get("deviceId") || saved.deviceId || "timing-reader-01";
+      elements.timingMode.value = params.get("mode") || saved.timingMode || "auto";
+      elements.gateRole.value = params.get("role") || saved.gateRole || "RUN_OUT";
+      elements.stationId.value = params.get("checkpoint")
+        || params.get("stationId")
+        || saved.stationId
+        || "START";
+      elements.apiUrl.value = params.get("apiUrl") || saved.apiUrl || defaultApiUrl;
+      elements.duplicateProtectionSeconds.value = params.get("duplicateWindowSeconds") || saved.duplicateProtectionSeconds || "10";
+      const voiceParam = params.get("voice");
+      elements.voiceEnabled.checked = voiceParam === null
+        ? saved.voiceEnabled !== false
+        : !["0", "false", "off"].includes(voiceParam.toLowerCase());
+    }
+
+    function saveSettings() {
+      localStorage.setItem(settingsKey, JSON.stringify({
+        apiUrl: elements.apiUrl.value.trim(),
+        deviceId: elements.deviceId.value.trim(),
+        duplicateProtectionSeconds: elements.duplicateProtectionSeconds.value,
+        gateRole: elements.gateRole.value,
+        raceId: elements.raceId.value.trim(),
+        stationId: elements.stationId.value,
+        timingMode: elements.timingMode.value,
+        voiceEnabled: elements.voiceEnabled.checked
+      }));
+    }
+
+    function raceConfigUrl() {
+      const apiUrl = elements.apiUrl.value.trim() || defaultApiUrl;
+      return apiUrl.replace(/\/api\/timing-events\/?$/, "/api/race-config");
+    }
+
+    function renderRaceCheckpoints(checkpoints, preferredCheckpoint) {
+      elements.stationId.replaceChildren(
+        ...checkpoints.map((checkpoint) => {
+          return new Option(checkpointLabel(checkpoint), checkpoint);
+        })
+      );
+      elements.stationId.value = checkpoints.includes(preferredCheckpoint)
+        ? preferredCheckpoint
+        : checkpoints[0];
+    }
+
+    async function loadRaceProfile() {
+      const raceId = elements.raceId.value.trim();
+      if (!raceId) return;
+      const params = new URLSearchParams(window.location.search);
+      const response = await fetch(
+        raceConfigUrl() + "?raceId=" + encodeURIComponent(raceId)
+      );
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || ("HTTP " + response.status));
+      }
+      raceProfile = payload.race;
+      elements.timingMode.value = raceProfile.mode === "station_checkpoints"
+        ? "manual"
+        : "auto";
+      renderRaceCheckpoints(
+        raceProfile.checkpoints,
+        params.get("checkpoint") || params.get("stationId") || elements.stationId.value
+      );
+      elements.raceProfileStatus.textContent =
+        raceProfile.name + " · " + raceProfile.mode
+        + " · " + raceProfile.stationCount + " stations";
+      elements.raceProfileStatus.dataset.tone = "success";
+      renderConfiguration();
+    }
+
+    function renderConfiguration() {
+      const isAuto = elements.timingMode.value === "auto";
+      elements.gateRoleField.classList.toggle("hidden", !isAuto);
+      elements.stationField.classList.toggle("hidden", isAuto);
+      elements.roleName.textContent = isAuto
+        ? roleLabel(elements.gateRole.value)
+        : `手动 · ${elements.stationId.value}`;
+      elements.deviceMeta.textContent = `${elements.raceId.value.trim() || "No race"} · ${elements.deviceId.value.trim() || "No device"}`;
+      elements.testVoiceButton.disabled = !elements.voiceEnabled.checked;
+      if (!document.body.classList.contains("scanning")) renderReadyState();
+      saveSettings();
+    }
+
+    function renderReadyState() {
+      const isAuto = elements.timingMode.value === "auto";
+      elements.scanner.dataset.tone = document.body.classList.contains("scanning") ? "ready" : "idle";
+      elements.scanState.textContent = document.body.classList.contains("scanning") ? "正在扫描" : "未启动";
+      if (!document.body.classList.contains("scanning")) {
+        elements.heroTitle.textContent = "点击开始扫描";
+        elements.heroDetail.textContent = "设备启动后等待选手贴卡";
+        return;
+      }
+
+      if (isAuto && elements.gateRole.value === "RUN_IN") {
+        elements.heroTitle.textContent = "跑步结束后请贴卡";
+        elements.heroDetail.textContent = "听到提示音并看到绿色成功页面后再离开";
+      } else if (isAuto) {
+        elements.heroTitle.textContent = "进入跑道前请贴卡";
+        elements.heroDetail.textContent = "听到提示音并看到绿色成功页面后再离开";
+      } else {
+        elements.heroTitle.textContent = "请贴 NFC 卡";
+        elements.heroDetail.textContent = checkpointLabel(elements.stationId.value);
+      }
+    }
+
+    function setStatus(message, tone = "info") {
+      elements.status.textContent = message;
+      elements.status.dataset.tone = tone;
+    }
+
+    function setBusy(cardCode) {
+      elements.scanner.dataset.tone = "busy";
+      elements.scanState.textContent = "正在写入服务器";
+      elements.heroTitle.textContent = cardCode;
+      elements.heroDetail.textContent = "请保持卡片移开，等待确认";
     }
 
     function decodeRecord(record) {
       if (!record.data) return "";
-
       if (record.recordType === "text") {
         return new TextDecoder(record.encoding || "utf-8").decode(record.data);
       }
-
-      if (record.recordType === "url") {
-        return new TextDecoder("utf-8").decode(record.data);
-      }
-
       return new TextDecoder("utf-8").decode(record.data);
     }
 
@@ -310,56 +949,57 @@
     }
 
     function getStationMeta(stationId) {
-      if (stationId === "START") {
-        return { stationNumber: null, checkpointType: "start" };
-      }
-
-      if (stationId === "END") {
-        return { stationNumber: null, checkpointType: "end" };
-      }
-
-      const match = stationId.match(/^STATION_(\d+)_(ENTER|EXIT)$/);
-      if (!match) {
-        return { stationNumber: null, checkpointType: "unknown" };
-      }
-
+      if (stationId === "START") return { stationNumber: null, checkpointType: "start" };
+      if (stationId === "END") return { stationNumber: null, checkpointType: "end" };
+      const match = stationId.match(/^STATION_(\d+)_(ENTER|EXIT|START)$/);
+      if (!match) return { stationNumber: null, checkpointType: "unknown" };
       return {
         stationNumber: Number(match[1]),
         checkpointType: match[2].toLowerCase()
       };
     }
 
-    function getPayload(cardCode, serialNumber) {
-      const stationSelect = document.querySelector("#stationId");
-      const stationId = stationSelect.value;
+    function buildPayload(cardCode, serialNumber) {
+      const isAuto = elements.timingMode.value === "auto";
+      const stationId = isAuto ? "AUTO" : elements.stationId.value;
       const stationMeta = getStationMeta(stationId);
-
       return {
-        eventId: `${document.querySelector("#deviceId").value}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        raceId: document.querySelector("#raceId").value.trim(),
-        deviceId: document.querySelector("#deviceId").value.trim(),
+        eventId: `${elements.deviceId.value.trim()}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        raceId: elements.raceId.value.trim(),
+        deviceId: elements.deviceId.value.trim(),
+        timingMode: elements.timingMode.value,
+        gateRole: isAuto ? elements.gateRole.value : "",
+        duplicateWindowSeconds: Number(elements.duplicateProtectionSeconds.value),
         stationId,
-        stationLabel: stationSelect.options[stationSelect.selectedIndex].text,
+        stationLabel: isAuto ? roleLabel(elements.gateRole.value) : elements.stationId.options[elements.stationId.selectedIndex].text,
         stationNumber: stationMeta.stationNumber,
         checkpointType: stationMeta.checkpointType,
         cardCode,
         serialNumber: serialNumber || "",
         eventTime: new Date().toISOString(),
-        source: "web-nfc-test"
+        source: "web-nfc-gate"
       };
     }
 
     async function uploadEvent(payload) {
-      const apiUrl = apiUrlInput.value.trim();
-      if (!apiUrl) return "local-only";
-      localStorage.setItem("hyroxTimingApiUrl", apiUrl);
+      const apiUrl = elements.apiUrl.value.trim();
+      if (!apiUrl) {
+        if (payload.timingMode === "auto") {
+          throw new Error("自动模式必须连接计时服务器");
+        }
+        return {
+          status: "local_only",
+          stationId: payload.stationId,
+          stationLabel: payload.stationLabel,
+          cardCode: payload.cardCode
+        };
+      }
 
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-
       const contentType = response.headers.get("content-type") || "";
       const responsePayload = contentType.includes("application/json")
         ? await response.json()
@@ -368,89 +1008,407 @@
       if (!response.ok) {
         throw new Error(responsePayload?.error || `HTTP ${response.status}`);
       }
-
-      return responsePayload?.status || "uploaded";
+      return responsePayload || { status: "uploaded", stationId: payload.stationId };
     }
 
-    function addRow(payload, result) {
+    async function unlockAudio() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!audioContext) audioContext = new AudioContextClass();
+      if (audioContext.state === "suspended") await audioContext.resume();
+    }
+
+    function playTone(tone) {
+      if (!audioContext || audioContext.state !== "running") return;
+      const notes = tone === "success"
+        ? [{ frequency: 880, offset: 0 }, { frequency: 1175, offset: 0.16 }]
+        : tone === "warning"
+          ? [{ frequency: 520, offset: 0 }]
+          : [{ frequency: 220, offset: 0 }, { frequency: 180, offset: 0.2 }];
+
+      notes.forEach(({ frequency, offset }) => {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        const startAt = audioContext.currentTime + offset;
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, startAt);
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.45, startAt + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.13);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start(startAt);
+        oscillator.stop(startAt + 0.15);
+      });
+    }
+
+    function speakSystemMessage(message) {
+      if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+        return false;
+      }
+
+      window.clearTimeout(speechTimer);
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = "zh-CN";
+      utterance.rate = 1.12;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      const voices = window.speechSynthesis.getVoices();
+      const chineseVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith("zh-cn"))
+        || voices.find((voice) => voice.lang.toLowerCase().startsWith("zh"));
+      if (chineseVoice) utterance.voice = chineseVoice;
+      window.speechSynthesis.speak(utterance);
+      return true;
+    }
+
+    async function playSuccessVoice() {
+      if (!elements.voiceEnabled.checked) return false;
+
+      try {
+        elements.successVoiceAudio.pause();
+        elements.successVoiceAudio.currentTime = 0;
+        elements.successVoiceAudio.volume = 1;
+        await elements.successVoiceAudio.play();
+        return true;
+      } catch (error) {
+        return speakSystemMessage("打卡成功");
+      }
+    }
+
+    async function unlockSuccessVoice() {
+      if (!elements.voiceEnabled.checked) return;
+      const wasMuted = elements.successVoiceAudio.muted;
+      elements.successVoiceAudio.muted = true;
+      try {
+        await elements.successVoiceAudio.play();
+        elements.successVoiceAudio.pause();
+        elements.successVoiceAudio.currentTime = 0;
+      } catch (error) {
+        // The test button remains available if the browser blocks media priming.
+      } finally {
+        elements.successVoiceAudio.muted = wasMuted;
+      }
+    }
+
+    function announceSuccess() {
+      window.clearTimeout(speechTimer);
+      speechTimer = window.setTimeout(() => {
+        playSuccessVoice();
+      }, 320);
+    }
+
+    function vibrate(tone) {
+      if (!("vibrate" in navigator)) return;
+      navigator.vibrate(tone === "success" ? [90, 60, 90] : tone === "warning" ? [140] : [280]);
+    }
+
+    function showFeedback({ tone, mark, kicker, title, detail, duration = 1500 }) {
+      window.clearTimeout(feedbackTimer);
+      elements.feedback.dataset.tone = tone;
+      elements.feedbackMark.textContent = mark;
+      elements.feedbackKicker.textContent = kicker;
+      elements.feedbackTitle.textContent = title;
+      elements.feedbackDetail.textContent = detail;
+      elements.feedback.setAttribute("aria-hidden", "false");
+      elements.feedback.classList.add("show");
+      playTone(tone);
+      vibrate(tone);
+      feedbackTimer = window.setTimeout(() => {
+        elements.feedback.classList.remove("show");
+        elements.feedback.setAttribute("aria-hidden", "true");
+        renderReadyState();
+      }, duration);
+    }
+
+    function responseTone(status) {
+      if (status === "accepted") return "success";
+      if (["duplicate_tap", "duplicate_event_id", "already_finished", "local_only"].includes(status)) return "warning";
+      return "error";
+    }
+
+    function responseLabel(status) {
+      const labels = {
+        accepted: "已记录",
+        already_finished: "已经完赛",
+        duplicate_event_id: "重复事件",
+        duplicate_tap: "重复刷卡",
+        invalid_progress: "进度异常",
+        local_only: "仅本机",
+        unbound_card: "卡片未绑定",
+        wrong_gate: "刷卡位置错误"
+      };
+      return labels[status] || status;
+    }
+
+    function handleResponse(response, payload) {
+      const status = response.status || "uploaded";
+      const tone = responseTone(status);
+      const athlete = response.athleteName || response.event?.athlete_name || payload.cardCode;
+      const stationId = response.stationId || response.event?.station_id || payload.stationId;
+      const checkpoint = checkpointLabel(stationId);
+      let feedback = {
+        tone,
+        mark: tone === "success" ? "OK" : tone === "warning" ? "!" : "X",
+        kicker: responseLabel(status),
+        title: athlete,
+        detail: checkpoint,
+        duration: tone === "error" ? 2400 : 1600
+      };
+
+      if (status === "wrong_gate") {
+        feedback.detail = `请到${shortRoleLabel(response.expectedRole)}刷卡`;
+      } else if (status === "unbound_card") {
+        feedback.detail = `${payload.cardCode} 尚未绑定选手`;
+      } else if (status === "duplicate_tap" || status === "duplicate_event_id") {
+        feedback.detail = "上一条已经记录，无需再次贴卡";
+      } else if (status === "already_finished") {
+        feedback.detail = "该选手已经完成比赛";
+      } else if (status === "invalid_progress") {
+        feedback.detail = "请联系计时工作人员检查记录";
+      } else if (status === "local_only") {
+        feedback.detail = "服务器未连接，这条记录不会进入实时排名";
+      }
+
+      elements.lastResult.textContent = `${athlete} · ${feedback.detail}`;
+      elements.lastTime.textContent = new Date().toLocaleTimeString([], { hour12: false });
+      elements.scanner.dataset.tone = tone === "warning" ? "busy" : tone;
+      setStatus(`${responseLabel(status)}：${athlete} · ${feedback.detail}`, tone);
+      showFeedback(feedback);
+      if (status === "accepted") announceSuccess();
+      addRow(payload, response, tone);
+    }
+
+    function addCell(row, value, className = "") {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      if (className) cell.className = className;
+      row.appendChild(cell);
+    }
+
+    function addRow(payload, response, tone) {
       const row = document.createElement("tr");
-      row.innerHTML = `
-        <td class="mono">${new Date(payload.eventTime).toLocaleTimeString()}</td>
-        <td class="mono">${payload.stationId}</td>
-        <td class="mono">${payload.cardCode}</td>
-        <td>${result}</td>
-      `;
-      eventsBody.prepend(row);
+      const athlete = response.athleteName || response.event?.athlete_name || payload.cardCode;
+      const stationId = response.stationId || response.event?.station_id || payload.stationId;
+      addCell(row, new Date(payload.eventTime).toLocaleTimeString([], { hour12: false }), "mono");
+      addCell(row, athlete);
+      addCell(row, checkpointLabel(stationId));
+      addCell(row, responseLabel(response.status || "uploaded"), `result-status ${tone}`);
+      elements.eventsBody.prepend(row);
     }
 
-    async function handleReading(event) {
+    function queueReading(event) {
       const cardCode = readCardCode(event.message);
       if (!cardCode) {
-        setStatus("读到了 NFC，但没有找到文本卡号。", true);
+        setStatus("读到了 NFC，但没有找到卡号文本。", "error");
+        showFeedback({
+          tone: "error",
+          mark: "X",
+          kicker: "读取失败",
+          title: "请重新贴卡",
+          detail: "NFC tag 内没有可读取的文本卡号",
+          duration: 2400
+        });
         return;
       }
 
-      const duplicateKey = `${document.querySelector("#stationId").value}:${cardCode}`;
+      const locationKey = elements.timingMode.value === "auto"
+        ? elements.gateRole.value
+        : elements.stationId.value;
+      const duplicateKey = `${locationKey}:${cardCode}`;
       const now = Date.now();
       const previous = recentScans.get(duplicateKey) || 0;
       if (now - previous < duplicateWindowMs) {
-        setStatus(`忽略重复刷卡：${cardCode}`);
+        setStatus(`卡片仍在感应区，已忽略：${cardCode}`, "warning");
         return;
       }
       recentScans.set(duplicateKey, now);
 
-      const payload = getPayload(cardCode, event.serialNumber);
-      lastCard.textContent = cardCode;
-      lastMeta.textContent = `${payload.stationId} · ${new Date(payload.eventTime).toLocaleString()}`;
+      const payload = buildPayload(cardCode, event.serialNumber);
+      scanQueue = scanQueue
+        .then(async () => {
+          setBusy(cardCode);
+          const response = await uploadEvent(payload);
+          handleResponse(response, payload);
+        })
+        .catch((error) => {
+          elements.scanner.dataset.tone = "error";
+          elements.lastResult.textContent = `${cardCode} · 上传失败`;
+          elements.lastTime.textContent = new Date().toLocaleTimeString([], { hour12: false });
+          setStatus(`未记录：${error.message}`, "error");
+          addRow(payload, { status: "upload_failed", stationId: payload.stationId }, "error");
+          showFeedback({
+            tone: "error",
+            mark: "X",
+            kicker: "没有记录",
+            title: cardCode,
+            detail: `上传失败：${error.message}`,
+            duration: 2800
+          });
+        });
+    }
 
+    async function requestWakeLock() {
+      if (!("wakeLock" in navigator) || document.visibilityState !== "visible") return;
       try {
-        const result = await uploadEvent(payload);
-        addRow(payload, result === "local-only" ? "仅本地记录" : `已上传：${result}`);
-        setStatus(`记录成功：${cardCode} · ${result}`);
+        wakeLock = await navigator.wakeLock.request("screen");
       } catch (error) {
-        addRow(payload, `上传失败：${error.message}`);
-        setStatus(`本地已记录，但上传失败：${error.message}`, true);
+        setStatus(`扫描已启动，但无法保持屏幕常亮：${error.message}`, "warning");
       }
     }
 
-    startButton.addEventListener("click", async () => {
+    async function releaseWakeLock() {
+      if (!wakeLock) return;
+      try {
+        await wakeLock.release();
+      } catch (error) {
+        // The lock may already be released by the browser.
+      }
+      wakeLock = null;
+    }
+
+    function validateConfiguration() {
+      if (!elements.raceId.value.trim()) throw new Error("请填写 Race ID");
+      if (!elements.deviceId.value.trim()) throw new Error("请填写 Device ID");
+      const duplicateProtectionSeconds = Number(elements.duplicateProtectionSeconds.value);
+      if (!Number.isInteger(duplicateProtectionSeconds) || duplicateProtectionSeconds < 3 || duplicateProtectionSeconds > 60) {
+        throw new Error("重复刷卡保护必须是 3 到 60 秒的整数");
+      }
+      if (elements.timingMode.value === "auto" && !elements.apiUrl.value.trim()) {
+        throw new Error("自动共享闸机必须填写 API URL");
+      }
+    }
+
+    function lockConfiguration(locked) {
+      [
+        elements.apiUrl,
+        elements.deviceId,
+        elements.duplicateProtectionSeconds,
+        elements.gateRole,
+        elements.raceId,
+        elements.stationId,
+        elements.testVoiceButton,
+        elements.timingMode,
+        elements.voiceEnabled
+      ].forEach((control) => {
+        control.disabled = locked;
+      });
+      elements.testVoiceButton.disabled = locked || !elements.voiceEnabled.checked;
+      if (locked) elements.settingsPanel.open = false;
+    }
+
+    elements.startButton.addEventListener("click", async () => {
       if (!("NDEFReader" in window)) {
-        setStatus("当前浏览器不支持 Web NFC。请在 Android Chrome 中打开 HTTPS 页面。", true);
+        setStatus("当前浏览器不支持 Web NFC，请使用 Android Chrome 打开 HTTPS 页面。", "error");
         return;
       }
 
       try {
+        await loadRaceProfile();
+        validateConfiguration();
+        saveSettings();
+        await unlockAudio();
+        await unlockSuccessVoice();
         abortController = new AbortController();
-        const ndef = new NDEFReader();
-        await ndef.scan({ signal: abortController.signal });
-        ndef.addEventListener("reading", handleReading);
-        ndef.addEventListener("readingerror", () => {
-          setStatus("NFC 读取失败，请重新贴卡。", true);
+        ndefReader = new NDEFReader();
+        await ndefReader.scan({ signal: abortController.signal });
+        ndefReader.addEventListener("reading", queueReading);
+        ndefReader.addEventListener("readingerror", () => {
+          setStatus("NFC 读取失败，请将卡片移开后重新贴卡。", "error");
+          playTone("error");
+          vibrate("error");
         });
-        startButton.disabled = true;
-        stopButton.disabled = false;
-        setStatus("扫描已开始。保持页面在前台，然后贴 NFC 卡。");
+        document.body.classList.add("scanning");
+        elements.startButton.disabled = true;
+        elements.stopButton.disabled = false;
+        lockConfiguration(true);
+        await requestWakeLock();
+        renderReadyState();
+        setStatus(`扫描已启动 · ${elements.roleName.textContent}`, "success");
       } catch (error) {
-        setStatus(`无法开始扫描：${error.message}`, true);
+        abortController = null;
+        ndefReader = null;
+        setStatus(`无法开始扫描：${error.message}`, "error");
       }
     });
 
-    stopButton.addEventListener("click", () => {
-      if (abortController) {
-        abortController.abort();
-      }
+    elements.stopButton.addEventListener("click", async () => {
+      if (abortController) abortController.abort();
       abortController = null;
-      startButton.disabled = false;
-      stopButton.disabled = true;
-      setStatus("扫描已停止。");
+      ndefReader = null;
+      document.body.classList.remove("scanning");
+      elements.startButton.disabled = false;
+      elements.stopButton.disabled = true;
+      lockConfiguration(false);
+      await releaseWakeLock();
+      renderReadyState();
+      setStatus("扫描已停止。", "info");
     });
 
-    clearButton.addEventListener("click", () => {
-      eventsBody.innerHTML = "";
-      recentScans = new Map();
-      lastCard.textContent = "-";
-      lastMeta.textContent = "还没有记录";
-      setStatus("本地记录已清空。");
+    elements.clearButton.addEventListener("click", () => {
+      elements.eventsBody.replaceChildren();
+      recentScans.clear();
+      elements.lastResult.textContent = "还没有计时记录";
+      elements.lastTime.textContent = "--:--:--";
+      setStatus("本机显示记录已清空，服务器原始数据未删除。", "info");
+    });
+
+    elements.fullscreenButton.addEventListener("click", async () => {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (error) {
+        setStatus(`无法进入全屏：${error.message}`, "warning");
+      }
+    });
+
+    elements.testVoiceButton.addEventListener("click", async () => {
+      if (await playSuccessVoice()) {
+        setStatus("固定语音正在播放。", "success");
+      } else {
+        setStatus("当前浏览器不支持语音播报，提示音仍可正常使用。", "warning");
+      }
+    });
+
+    [
+      elements.apiUrl,
+      elements.deviceId,
+      elements.duplicateProtectionSeconds,
+      elements.gateRole,
+      elements.raceId,
+      elements.stationId,
+      elements.timingMode,
+      elements.voiceEnabled
+    ].forEach((control) => {
+      control.addEventListener("change", renderConfiguration);
+      control.addEventListener("input", () => {
+        if (control.tagName === "INPUT") renderConfiguration();
+      });
+    });
+
+    [elements.apiUrl, elements.raceId].forEach((control) => {
+      control.addEventListener("change", () => {
+        loadRaceProfile().catch((error) => {
+          elements.raceProfileStatus.textContent = "比赛配置读取失败：" + error.message;
+          elements.raceProfileStatus.dataset.tone = "error";
+        });
+      });
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && document.body.classList.contains("scanning") && !wakeLock) {
+        requestWakeLock();
+      }
+    });
+
+    loadSettings();
+    renderConfiguration();
+    loadRaceProfile().catch((error) => {
+      elements.raceProfileStatus.textContent = "比赛配置读取失败：" + error.message;
+      elements.raceProfileStatus.dataset.tone = "error";
     });
   </script>
 </body>

@@ -267,6 +267,36 @@
     </section>
 
     <section>
+      <h2>比赛模式 / Race Profile</h2>
+      <p>先保存比赛模式，扫描手机只需要切换 Race ID；每个 Race ID 可以独立保存。</p>
+      <form id="raceConfigForm" class="grid">
+        <label>
+          Race ID
+          <input id="raceConfigId" value="hyrox-sim-001" autocomplete="off">
+        </label>
+        <label>
+          比赛名称
+          <input id="raceConfigName" placeholder="Sunday Simulation" autocomplete="off">
+        </label>
+        <label>
+          计时模式
+          <select id="raceMode">
+            <option value="two_reader_auto">双手机自动交替（RUN_OUT / RUN_IN）</option>
+            <option value="station_checkpoints">固定站点打卡（START / 每站 / END）</option>
+          </select>
+        </label>
+        <label>
+          站点数量
+          <input id="raceStationCount" type="number" min="1" max="20" step="1" value="8">
+        </label>
+        <div class="actions">
+          <button type="submit">保存比赛配置</button>
+        </div>
+      </form>
+      <div id="raceConfigStatus" class="status">读取比赛配置中。</div>
+    </section>
+
+    <section>
       <h2>选手与卡绑定</h2>
       <table>
         <thead>
@@ -281,7 +311,7 @@
             <th>Updated</th>
           </tr>
         </thead>
-        <tbody id="participantsBody"></tbody>
+      <tbody id="participantsBody"></tbody>
       </table>
     </section>
 
@@ -308,6 +338,8 @@
     const formStatus = document.querySelector("#formStatus");
     const participantsBody = document.querySelector("#participantsBody");
     const eventsBody = document.querySelector("#eventsBody");
+    const raceConfigForm = document.querySelector("#raceConfigForm");
+    const raceConfigStatus = document.querySelector("#raceConfigStatus");
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -338,6 +370,25 @@
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
       return payload;
+    }
+
+    async function loadRaceConfig() {
+      const participantRaceId = document.querySelector("#raceId").value.trim();
+      const raceId = document.querySelector("#raceConfigId").value.trim()
+        || participantRaceId
+        || "hyrox-sim-001";
+      document.querySelector("#raceConfigId").value = raceId;
+      const payload = await requestJson(
+        "/api/race-config?raceId=" + encodeURIComponent(raceId)
+      );
+      const race = payload.race;
+      document.querySelector("#raceConfigName").value = race.name || race.raceId;
+      document.querySelector("#raceMode").value = race.mode;
+      document.querySelector("#raceStationCount").value = race.stationCount;
+      raceConfigStatus.textContent =
+        race.name + " · " + race.mode + " · " + race.stationCount
+        + " stations · " + race.checkpoints.length + " checkpoints";
+      raceConfigStatus.classList.remove("error");
     }
 
     async function loadParticipants() {
@@ -401,7 +452,43 @@
       }
     });
 
-    refresh().catch((error) => setStatus(`刷新失败：${error.message}`, true));
+    raceConfigForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = await requestJson("/api/race-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: document.querySelector("#raceConfigId").value.trim(),
+            name: document.querySelector("#raceConfigName").value.trim(),
+            mode: document.querySelector("#raceMode").value,
+            stationCount: Number(document.querySelector("#raceStationCount").value)
+          })
+        });
+        document.querySelector("#raceId").value = payload.race.raceId;
+        raceConfigStatus.textContent =
+          "已保存：" + payload.race.name + " · " + payload.race.mode
+          + " · " + payload.race.stationCount + " stations";
+        raceConfigStatus.classList.remove("error");
+        await refresh();
+      } catch (error) {
+        raceConfigStatus.textContent = "保存失败：" + error.message;
+        raceConfigStatus.classList.add("error");
+      }
+    });
+
+    document.querySelector("#raceId").addEventListener("change", () => {
+      document.querySelector("#raceConfigId").value =
+        document.querySelector("#raceId").value.trim();
+      loadRaceConfig().catch((error) => {
+        raceConfigStatus.textContent = "读取失败：" + error.message;
+        raceConfigStatus.classList.add("error");
+      });
+    });
+
+    Promise.all([loadRaceConfig(), refresh()]).catch((error) => {
+      setStatus(`刷新失败：${error.message}`, true);
+    });
     setInterval(() => refresh().catch(() => {}), 2000);
   </script>
 </body>

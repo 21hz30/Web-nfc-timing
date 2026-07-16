@@ -38,6 +38,17 @@ This file is an internal notebook for future assistant/dev sessions working on t
   - check-in status
 - Normalize card codes to uppercase in frontend and backend.
 - Treat the NFC tag code as an identifier, not as the athlete record itself.
+- In automatic timing mode, devices have fixed physical roles and the backend owns race progression.
+- Recommended shared-gate roles:
+  - `RUN_OUT`: athlete enters the run course.
+  - `RUN_IN`: athlete finishes a run and enters the workout zone.
+- Do not auto-correct a missing tap. Store and surface `wrong_gate` for staff review.
+- A green client success state must mean the server returned `accepted`, not merely that NFC was read.
+- Duplicate-tap protection defaults to 10 seconds and is enforced by the backend.
+- Store the effective `duplicate_window_seconds` with every raw timing event.
+- Chinese voice feedback says "打卡成功" only after an `accepted` response.
+- Play `assets/check-in-success.wav` first so Huawei/Android does not depend on system TTS;
+  keep system TTS and the tone as fallbacks.
 
 ## Data Safety Rules
 
@@ -106,6 +117,14 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
 - Static pages are plain HTML/CSS/JS.
 - `admin.html` is the race admin/check-in/card binding page.
 - `web-nfc-timing-test.html` is the Android Web NFC station timing page.
+- The timing page supports automatic two-reader progression, manual checkpoint fallback,
+  configurable duplicate protection, full-screen feedback, Chinese speech, sound,
+  vibration, and screen wake lock.
+- Automatic race sequence runs from `START`, through Station 1-8 enter/exit progress,
+  to `END`; the final `END` also closes the Station 8 split.
+- One generic reader is not recommended for race day because it cannot validate direction.
+- Two readers require a course where every athlete crosses the same run-out and run-in points.
+- Individual start taps imply staggered/time-trial starts. Mass starts need a wave-start feature.
 - `leaderboard.html` is the live timing board.
 - `local-dashboard.html` is an older debug page.
 - `index.html` is a local hub for the main pages.
@@ -124,18 +143,17 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
 
 1. Remove race ID input from the public leaderboard and read `raceId` from URL query/default config.
 2. Add reset/delete tools for test data, with clear confirmation.
-3. Add station/device management:
-   - device ID
-   - station ID
-   - station role
+3. Add wave start management for mass-start or grouped heats.
 4. Improve admin workflow:
    - search participant
    - edit participant
    - unbind/rebind NFC card
    - import participant CSV
-5. Move production backend from SQLite to managed PostgreSQL/MySQL.
-6. Prepare deployment for China network conditions:
+5. Add race-day exception tools for missed taps and wrong-gate review without deleting raw events.
+6. Add a persistent client retry queue for temporary network loss.
+7. Move production backend from SQLite to managed PostgreSQL/MySQL.
+8. Prepare deployment for China network conditions:
    - TOS or similar static hosting
    - Function Service/ECS API
    - custom HTTPS domain
-7. Add authentication before real participant data is hosted publicly.
+9. Add authentication before real participant data is hosted publicly.
