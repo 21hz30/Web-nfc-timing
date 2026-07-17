@@ -48,6 +48,26 @@ class AutoTransitionTests(unittest.TestCase):
         self.assertEqual(result["expectedRole"], "RUN_IN")
         self.assertNotIn("assignedCheckpoint", result)
 
+    def test_three_reader_mode_reserves_end_for_finish_gate(self):
+        checkpoints = server.build_two_reader_checkpoints(1)
+        run_out = server.resolve_auto_transition(
+            "STATION_1_ENTER",
+            "RUN_OUT",
+            checkpoints,
+            "FINISH",
+        )
+        self.assertEqual(run_out["status"], "wrong_gate")
+        self.assertEqual(run_out["expectedRole"], "FINISH")
+
+        finish = server.resolve_auto_transition(
+            "STATION_1_ENTER",
+            "FINISH",
+            checkpoints,
+            "FINISH",
+        )
+        self.assertEqual(finish["status"], "accepted")
+        self.assertEqual(finish["assignedCheckpoint"], "END")
+
 
 class TimingApiTests(unittest.TestCase):
     def setUp(self):
@@ -196,6 +216,42 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(response["storage"]["localSaved"])
         self.assertFalse(response["storage"]["supabaseSaved"])
 
+    def test_three_reader_api_requires_finish_role_for_end(self):
+        server.save_race_profile(
+            server.make_race_profile(
+                "auto-test",
+                "Three Reader Test",
+                "three_reader_auto",
+                1,
+            )
+        )
+
+        start = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(0, "RUN_OUT"),
+        )
+        self.assertEqual(start["stationId"], "START")
+
+        station = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(2, "RUN_IN"),
+        )
+        self.assertEqual(station["stationId"], "STATION_1_ENTER")
+
+        wrong_finish = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(4, "RUN_OUT"),
+        )
+        self.assertEqual(wrong_finish["status"], "wrong_gate")
+        self.assertEqual(wrong_finish["expectedRole"], "FINISH")
+
+        finish = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(6, "FINISH"),
+        )
+        self.assertEqual(finish["status"], "accepted")
+        self.assertEqual(finish["stationId"], "END")
+
 
 class SupabaseSerializationTests(unittest.TestCase):
     def test_timing_event_raw_json_is_sent_as_jsonb(self):
@@ -272,6 +328,12 @@ class RaceProfileTests(TimingApiTests):
             self.station_payload(20, "END"),
         )
         self.assertEqual(finished["status"], "already_finished")
+
+        leaderboard = self.request_json(
+            "/api/leaderboard?raceId=station-test"
+        )["leaderboard"][0]
+        self.assertEqual(leaderboard["stationSplits"]["station1Ms"], 10000)
+        self.assertEqual(leaderboard["stationSplits"]["station2Ms"], 10000)
 
     def test_race_config_endpoint_returns_mode_and_checkpoints(self):
         response = self.request_json("/api/race-config?raceId=station-test")

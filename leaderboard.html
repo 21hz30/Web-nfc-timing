@@ -922,14 +922,14 @@
               <th data-i18n="status">Status</th>
               <th data-i18n="current">Current</th>
               <th data-i18n="elapsed">Elapsed</th>
-              <th>S1</th>
-              <th>S2</th>
-              <th>S3</th>
-              <th>S4</th>
-              <th>S5</th>
-              <th>S6</th>
-              <th>S7</th>
-              <th>S8</th>
+              <th data-split-column="1">S1</th>
+              <th data-split-column="2">S2</th>
+              <th data-split-column="3">S3</th>
+              <th data-split-column="4">S4</th>
+              <th data-split-column="5">S5</th>
+              <th data-split-column="6">S6</th>
+              <th data-split-column="7">S7</th>
+              <th data-split-column="8">S8</th>
             </tr>
           </thead>
           <tbody id="leaderboardBody">
@@ -995,6 +995,7 @@
     </div>
   </main>
 
+  <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
     const raceIdInput = document.querySelector("#raceId");
@@ -1456,9 +1457,22 @@
       return current || "-";
     }
 
-    function splitCells(splits) {
+    function configureSplitColumns(race) {
+      const stationCount = Math.max(1, Math.min(Number(race?.stationCount) || 8, 8));
+      const usesSegments = race?.mode === "station_checkpoints";
+      document.querySelectorAll("[data-split-column]").forEach((header) => {
+        const stationNumber = Number(header.dataset.splitColumn);
+        header.hidden = stationNumber > stationCount;
+        header.textContent = usesSegments
+          ? (stationNumber === 1 ? "Start→S1" : `S${stationNumber - 1}→S${stationNumber}`)
+          : `S${stationNumber}`;
+      });
+      return stationCount;
+    }
+
+    function splitCells(splits, stationCount) {
       let html = "";
-      for (let stationNumber = 1; stationNumber <= 8; stationNumber += 1) {
+      for (let stationNumber = 1; stationNumber <= stationCount; stationNumber += 1) {
         html += `<td class="split mono">${formatDuration(splits[`station${stationNumber}Ms`])}</td>`;
       }
       return html;
@@ -1669,6 +1683,7 @@
       return {
         ok: true,
         raceId,
+        race: { mode: "two_reader_auto", stationCount: 8 },
         generatedAt: new Date(nowMs).toISOString(),
         checkpoints: [],
         leaderboard: rows
@@ -1676,7 +1691,7 @@
     }
 
     async function fetchLeaderboardPayload(raceId) {
-      const response = await fetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
+      const response = await window.timingApiFetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);
@@ -1686,6 +1701,7 @@
 
     function renderLeaderboard(payload, isDemoData) {
       const rows = payload.leaderboard || [];
+      const stationCount = configureSplitColumns(payload.race);
       const changed = changedRows(rows);
       totalCount.textContent = rows.length;
       racingCount.textContent = rows.filter((row) => row.status === "racing").length;
@@ -1694,7 +1710,7 @@
       updatedAt.textContent = isDemoData ? `${t("demoData")} · ${generatedAt}` : generatedAt;
 
       if (rows.length === 0) {
-        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="13">${t("noParticipants")}</td></tr>`;
+        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + stationCount}">${t("noParticipants")}</td></tr>`;
         return;
       }
 
@@ -1716,7 +1732,7 @@
             <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>
             <td class="current">${escapeHtml(translateCurrent(row.current))}</td>
             <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
-            ${splitCells(row.stationSplits)}
+            ${splitCells(row.stationSplits, stationCount)}
           </tr>
         `;
       }).join("");

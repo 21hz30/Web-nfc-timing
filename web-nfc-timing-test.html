@@ -651,6 +651,7 @@
           <select id="gateRole">
             <option value="RUN_OUT">跑步出发口 / RUN OUT</option>
             <option value="RUN_IN">跑步结束口 / RUN IN</option>
+            <option value="FINISH" hidden disabled>终点 / FINISH</option>
           </select>
         </label>
         <label id="stationField" class="hidden">
@@ -729,6 +730,7 @@
     </div>
   </div>
 
+  <script src="./timing-api.js"></script>
   <script>
     const elements = {
       apiUrl: document.querySelector("#apiUrl"),
@@ -780,11 +782,19 @@
     let raceProfile = null;
 
     function roleLabel(role) {
-      return role === "RUN_IN" ? "跑步结束口 / RUN IN" : "跑步出发口 / RUN OUT";
+      return {
+        RUN_IN: "跑步结束口 / RUN IN",
+        RUN_OUT: "跑步出发口 / RUN OUT",
+        FINISH: "终点 / FINISH"
+      }[role] || role;
     }
 
     function shortRoleLabel(role) {
-      return role === "RUN_IN" ? "跑步结束口" : "跑步出发口";
+      return {
+        RUN_IN: "跑步结束口",
+        RUN_OUT: "跑步出发口",
+        FINISH: "终点"
+      }[role] || role;
     }
 
     function checkpointLabel(checkpoint) {
@@ -792,6 +802,7 @@
       if (checkpoint === "END") return "正式完赛";
       if (checkpoint === "AUTO_RUN_OUT") return "跑步出发口 · 未推进";
       if (checkpoint === "AUTO_RUN_IN") return "跑步结束口 · 未推进";
+      if (checkpoint === "AUTO_FINISH") return "终点 · 未推进";
       if (checkpoint === "AUTO") return "等待服务器自动判定";
 
       const match = String(checkpoint || "").match(/^STATION_(\d+)_(ENTER|EXIT|START)$/);
@@ -848,6 +859,19 @@
       return apiUrl.replace(/\/api\/timing-events\/?$/, "/api/race-config");
     }
 
+    async function readApiResponse(response) {
+      const responseText = await response.text();
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`计时服务器暂时不可用（HTTP ${response.status}），请稍后刷新页面重试`);
+      }
+      try {
+        return responseText ? JSON.parse(responseText) : {};
+      } catch (error) {
+        throw new Error(`计时服务器返回格式错误（HTTP ${response.status}）`);
+      }
+    }
+
     function renderRaceCheckpoints(checkpoints, preferredCheckpoint) {
       elements.stationId.replaceChildren(
         ...checkpoints.map((checkpoint) => {
@@ -863,10 +887,10 @@
       const raceId = elements.raceId.value.trim();
       if (!raceId) return;
       const params = new URLSearchParams(window.location.search);
-      const response = await fetch(
+      const response = await window.timingApiFetch(
         raceConfigUrl() + "?raceId=" + encodeURIComponent(raceId)
       );
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || ("HTTP " + response.status));
       }
@@ -874,6 +898,13 @@
       elements.timingMode.value = raceProfile.mode === "station_checkpoints"
         ? "manual"
         : "auto";
+      const finishOption = elements.gateRole.querySelector('option[value="FINISH"]');
+      const usesFinishReader = raceProfile.mode === "three_reader_auto";
+      finishOption.hidden = !usesFinishReader;
+      finishOption.disabled = !usesFinishReader;
+      if (!usesFinishReader && elements.gateRole.value === "FINISH") {
+        elements.gateRole.value = "RUN_OUT";
+      }
       renderRaceCheckpoints(
         raceProfile.checkpoints,
         params.get("checkpoint") || params.get("stationId") || elements.stationId.value
@@ -908,7 +939,10 @@
         return;
       }
 
-      if (isAuto && elements.gateRole.value === "RUN_IN") {
+      if (isAuto && elements.gateRole.value === "FINISH") {
+        elements.heroTitle.textContent = "冲过终点后请贴卡";
+        elements.heroDetail.textContent = "看到正式完赛提示后再离开";
+      } else if (isAuto && elements.gateRole.value === "RUN_IN") {
         elements.heroTitle.textContent = "跑步结束后请贴卡";
         elements.heroDetail.textContent = "听到提示音并看到绿色成功页面后再离开";
       } else if (isAuto) {
@@ -995,20 +1029,17 @@
         };
       }
 
-      const response = await fetch(apiUrl, {
+      const response = await window.timingApiFetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      const contentType = response.headers.get("content-type") || "";
-      const responsePayload = contentType.includes("application/json")
-        ? await response.json()
-        : null;
+      const responsePayload = await readApiResponse(response);
 
       if (!response.ok) {
         throw new Error(responsePayload?.error || `HTTP ${response.status}`);
       }
-      return responsePayload || { status: "uploaded", stationId: payload.stationId };
+      return responsePayload;
     }
 
     async function unlockAudio() {

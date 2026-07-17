@@ -282,6 +282,7 @@
           计时模式
           <select id="raceMode">
             <option value="two_reader_auto">双手机自动交替（RUN_OUT / RUN_IN）</option>
+            <option value="three_reader_auto">三手机自动计时（RUN_OUT / RUN_IN / FINISH）</option>
             <option value="station_checkpoints">固定站点打卡（START / 每站 / END）</option>
           </select>
         </label>
@@ -333,6 +334,7 @@
     </section>
   </main>
 
+  <script src="./timing-api.js"></script>
   <script>
     const form = document.querySelector("#participantForm");
     const formStatus = document.querySelector("#formStatus");
@@ -364,7 +366,7 @@
     }
 
     async function requestJson(url, options) {
-      const response = await fetch(url, options);
+      const response = await window.timingApiFetch(url, options);
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);

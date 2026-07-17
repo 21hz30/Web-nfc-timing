@@ -230,6 +230,7 @@
     </section>
   </main>
 
+  <script src="./timing-api.js"></script>
   <script>
     const participantForm = document.querySelector("#participantForm");
     const formStatus = document.querySelector("#formStatus");
@@ -259,7 +260,7 @@
     }
 
     async function requestJson(url, options) {
-      const response = await fetch(url, options);
+      const response = await window.timingApiFetch(url, options);
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);

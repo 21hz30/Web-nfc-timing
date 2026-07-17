@@ -70,7 +70,7 @@ RACE_PROFILE_COLUMNS = (
     "created_at",
     "updated_at",
 )
-RACE_MODES = {"two_reader_auto", "station_checkpoints"}
+RACE_MODES = {"two_reader_auto", "three_reader_auto", "station_checkpoints"}
 LAST_SUPABASE_SYNC = {
     "attemptedAt": None,
     "saved": None,
@@ -79,7 +79,7 @@ LAST_SUPABASE_SYNC = {
 DEFAULT_DUPLICATE_WINDOW_SECONDS = 10
 MIN_DUPLICATE_WINDOW_SECONDS = 3
 MAX_DUPLICATE_WINDOW_SECONDS = 60
-AUTO_GATE_ROLES = {"RUN_OUT", "RUN_IN"}
+AUTO_GATE_ROLES = {"RUN_OUT", "RUN_IN", "FINISH"}
 
 
 def build_two_reader_checkpoints(station_count: int) -> list[str]:
@@ -255,7 +255,9 @@ def make_race_profile(
     updated_at: str | None = None,
 ) -> dict:
     if mode not in RACE_MODES:
-        raise ValueError("mode must be two_reader_auto or station_checkpoints")
+        raise ValueError(
+            "mode must be two_reader_auto, three_reader_auto, or station_checkpoints"
+        )
     if not 1 <= station_count <= 20:
         raise ValueError("stationCount must be between 1 and 20")
     now = utc_now()
@@ -275,12 +277,19 @@ def default_race_profile(race_id: str) -> dict:
 
 
 def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
-    for race_id, name in (
-        ("hyrox-sim-001", "HYROX Simulation"),
-        ("nfc-test-001", "NFC Test"),
-        ("supabase-e2e-20260716", "Supabase E2E Test"),
+    for race_id, name, mode, station_count in (
+        ("hyrox-sim-001", "HYROX Simulation", "two_reader_auto", 8),
+        ("nfc-test-001", "NFC Test", "two_reader_auto", 8),
+        ("supabase-e2e-20260716", "Supabase E2E Test", "two_reader_auto", 8),
+        (
+            "fitmonster-hyrox-single",
+            "Fitmonster Hyrox Single Simulation Race",
+            "three_reader_auto",
+            8,
+        ),
+        ("hoka-race", "Hoka Race", "station_checkpoints", 5),
     ):
-        profile = make_race_profile(race_id, name, "two_reader_auto", 8)
+        profile = make_race_profile(race_id, name, mode, station_count)
         db.execute(
             """
             INSERT INTO race_profiles (
@@ -582,6 +591,7 @@ def checkpoint_metadata(checkpoint: str) -> dict:
 def expected_auto_transition(
     latest_checkpoint: str | None,
     checkpoints: list[str] | None = None,
+    finish_role: str = "RUN_OUT",
 ) -> tuple[str, str] | None:
     checkpoints = checkpoints or CHECKPOINT_SEQUENCE
     if latest_checkpoint is None:
@@ -593,8 +603,10 @@ def expected_auto_transition(
     except (ValueError, IndexError):
         return None
 
-    if next_checkpoint == "START" or next_checkpoint == "END":
+    if next_checkpoint == "START":
         return ("RUN_OUT", next_checkpoint)
+    if next_checkpoint == "END":
+        return (finish_role, next_checkpoint)
     if next_checkpoint.endswith("_ENTER"):
         return ("RUN_IN", next_checkpoint)
     if next_checkpoint.endswith("_EXIT"):
@@ -606,6 +618,7 @@ def resolve_auto_transition(
     latest_checkpoint: str | None,
     gate_role: str,
     checkpoints: list[str] | None = None,
+    finish_role: str = "RUN_OUT",
 ) -> dict:
     if latest_checkpoint == "END":
         return {
@@ -615,7 +628,7 @@ def resolve_auto_transition(
             "expectedCheckpoint": None,
         }
 
-    expected = expected_auto_transition(latest_checkpoint, checkpoints)
+    expected = expected_auto_transition(latest_checkpoint, checkpoints, finish_role)
     if expected is None:
         return {
             "status": "invalid_progress",
@@ -653,7 +666,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, apikey")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -859,6 +872,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
             checkpoints,
             checkpoint_index,
             profile["station_count"],
+            profile["mode"],
         )
         self.send_json(
             {
@@ -878,6 +892,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         checkpoints: list[str],
         checkpoint_index: dict[str, int],
         station_count: int,
+        profile_mode: str,
     ) -> list[dict]:
         events_by_participant: dict[int, list[sqlite3.Row]] = {}
         for event in event_rows:
@@ -916,7 +931,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "finishTime": end_time,
                     "elapsedMs": elapsed_ms,
                     "checkpointTimes": checkpoints,
-                    "stationSplits": self.station_splits(checkpoints, station_count),
+                    "stationSplits": self.station_splits(
+                        checkpoints,
+                        station_count,
+                        profile_mode,
+                    ),
                 }
             )
 
@@ -987,8 +1006,20 @@ class TimingHandler(SimpleHTTPRequestHandler):
         self,
         checkpoints: dict[str, str],
         station_count: int,
+        profile_mode: str,
     ) -> dict[str, int | None]:
         splits = {}
+        if profile_mode == "station_checkpoints":
+            previous = checkpoints.get("START")
+            for station_number in range(1, station_count + 1):
+                current = checkpoints.get(f"STATION_{station_number}_START")
+                splits[f"station{station_number}Ms"] = milliseconds_between(
+                    previous,
+                    current,
+                )
+                previous = current
+            return splits
+
         for station_number in range(1, station_count + 1):
             enter = checkpoints.get(f"STATION_{station_number}_ENTER")
             exit_ = checkpoints.get(f"STATION_{station_number}_EXIT")
@@ -1181,6 +1212,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         status = "accepted"
             elif normalized["timing_mode"] == "auto":
                 expected_sequence = profile["checkpoints"]
+                finish_role = (
+                    "FINISH"
+                    if profile["mode"] == "three_reader_auto"
+                    else "RUN_OUT"
+                )
                 latest_checkpoint = self.latest_accepted_checkpoint(
                     db,
                     normalized["race_id"],
@@ -1194,6 +1230,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     latest_checkpoint,
                     normalized["gate_role"],
                     expected_sequence,
+                    finish_role,
                 )
                 status = transition["status"]
                 if status == "accepted":
@@ -1278,9 +1315,15 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     profile["checkpoints"][checkpoint_position + 1],
                 ) if checkpoint_position + 1 < len(profile["checkpoints"]) else None
             else:
+                finish_role = (
+                    "FINISH"
+                    if profile["mode"] == "three_reader_auto"
+                    else "RUN_OUT"
+                )
                 next_transition = expected_auto_transition(
                     normalized["station_id"],
                     profile["checkpoints"],
+                    finish_role,
                 )
 
         cloud = sync_supabase_record("timing_events", event)
@@ -1333,7 +1376,9 @@ class TimingHandler(SimpleHTTPRequestHandler):
             raise ValueError("This race uses fixed station checkpoints")
         if timing_mode == "auto":
             if gate_role not in AUTO_GATE_ROLES:
-                raise ValueError("gateRole must be RUN_OUT or RUN_IN in auto mode")
+                raise ValueError(
+                    "gateRole must be RUN_OUT, RUN_IN, or FINISH in auto mode"
+                )
             station_id = f"AUTO_{gate_role}"
         elif not station_id:
             raise ValueError("stationId is required in manual mode")
@@ -1374,7 +1419,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
         station_label = str(payload.get("stationLabel") or station_id).strip()
         checkpoint_type = str(payload.get("checkpointType") or "").strip()
         if timing_mode == "auto":
-            station_label = "Run Out Gate" if gate_role == "RUN_OUT" else "Run In Gate"
+            station_label = {
+                "RUN_OUT": "Run Out Gate",
+                "RUN_IN": "Run In Gate",
+                "FINISH": "Finish Gate",
+            }[gate_role]
             station_number = None
             checkpoint_type = "auto"
 

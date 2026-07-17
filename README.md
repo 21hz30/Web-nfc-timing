@@ -19,9 +19,15 @@ https://timing.hybridtraining.cn/
 ```
 
 Android Chrome can load the Web NFC page from this domain. The current deployment
-serves the static frontend, but the Python API must also be deployed or reverse
-proxied on the same origin for `/api/races`, timing writes, and Supabase mirroring to
-work. Verify `GET https://timing.hybridtraining.cn/api/races` before a phone test.
+serves the static frontend from Vercel and rewrites `/api/*` to the Supabase
+`timing-api` Edge Function. The live API uses Supabase as its primary store and the
+`process_timing_event_v2` PostgreSQL function serializes timing writes per athlete.
+
+Live health check:
+
+```text
+https://timing.hybridtraining.cn/api/health
+```
 
 ## Run Timing API
 
@@ -64,14 +70,16 @@ data/timing.sqlite3
 
 ## Supabase Cloud Storage
 
-The server mirrors participant and timing-event writes to the `SRC-timing` Supabase
-project. SQLite remains the local source used by the timing logic, so a temporary
-internet outage does not discard a scan. Every API write response includes:
+The local Python server mirrors participant and timing-event writes to the
+`SRC-timing` Supabase project. SQLite remains the local source used by the local
+timing logic, so a temporary internet outage does not discard a scan. The deployed
+Edge API writes transactionally to Supabase without SQLite. Every API write response
+includes storage details such as:
 
 ```json
 {
   "storage": {
-    "localSaved": true,
+    "localSaved": false,
     "supabaseSaved": true
   },
   "cloudError": null
@@ -88,10 +96,14 @@ python3 server.py --sync-only
 Set `TIMING_SERVER_PORT` when the default port is already in use, for example
 `TIMING_SERVER_PORT=8788 python3 server.py`.
 
-Supabase access is protected by RLS and a server-only token stored in
+Local-server Supabase access is protected by RLS and a server-only token stored in
 `.timing-api-key`. That file is ignored by Git and must never be sent to a browser or
 committed. For a deployed server, configure `SUPABASE_URL`,
 `SUPABASE_PUBLISHABLE_KEY`, and `TIMING_API_KEY` as environment variables.
+
+The live Edge Function validates the public application key from `timing-api.js` and
+uses Supabase-managed server credentials internally. No private Supabase key is
+stored in the repository or configured in Vercel.
 
 ## Race Profiles
 
@@ -105,25 +117,39 @@ two_reader_auto
   Two phones alternate RUN_OUT and RUN_IN.
   The server assigns START, station transitions, and END.
 
+three_reader_auto
+  RUN_OUT and RUN_IN advance the course; only FINISH can assign END.
+
 station_checkpoints
   Each phone has one fixed checkpoint.
   The server accepts only START -> STATION_n_START -> ... -> END.
 ```
 
-Profiles already created for testing:
+Official live profiles:
 
 ```text
-sunday-sim-20260719   two_reader_auto       8 stations
-saturday-sim-20260725 station_checkpoints  5 stations
+fitmonster-hyrox-single three_reader_auto    8 HYROX stations
+hoka-race                station_checkpoints 5 stations
 ```
 
-Scanner URL examples:
+Fitmonster phone URLs:
 
 ```text
-/web-nfc-timing-test.html?raceId=sunday-sim-20260719&deviceId=run-out-01&role=RUN_OUT
-/web-nfc-timing-test.html?raceId=sunday-sim-20260719&deviceId=run-in-01&role=RUN_IN
-/web-nfc-timing-test.html?raceId=saturday-sim-20260725&deviceId=station-1&checkpoint=STATION_1_START
-/web-nfc-timing-test.html?raceId=saturday-sim-20260725&deviceId=end&checkpoint=END
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-out&role=RUN_OUT
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-in&role=RUN_IN
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-finish&role=FINISH
+```
+
+Hoka phone URLs:
+
+```text
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-start&checkpoint=START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-1&checkpoint=STATION_1_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-2&checkpoint=STATION_2_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-3&checkpoint=STATION_3_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-4&checkpoint=STATION_4_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-5&checkpoint=STATION_5_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-end&checkpoint=END
 ```
 
 The scanner loads the profile from `GET /api/race-config?raceId=...` and
@@ -159,10 +185,11 @@ RUN OUT -> STATION_1_EXIT
 RUN IN  -> STATION_2_ENTER
 ...
 RUN IN  -> STATION_8_ENTER
-RUN OUT -> END
+FINISH  -> END
 ```
 
-The final `END` event also closes the Station 8 split. Manual checkpoint mode remains
+In `three_reader_auto`, a RUN_OUT tap at the final checkpoint is stored as
+`wrong_gate`; only the FINISH phone closes the race. Manual checkpoint mode remains
 available as an operational fallback.
 
 The API stores every raw event and returns one of:
@@ -181,11 +208,11 @@ invalid_progress
 Only `accepted` events advance leaderboard progress. Rejected scans are still stored
 as raw timing events for later review.
 
-## Two-Reader Setup
+## Reader Setup
 
-- Reader 1: `RUN_OUT`, where athletes leave the workout zone and enter the run course.
-- Reader 2: `RUN_IN`, where athletes finish each run and enter the next workout station.
-- Every athlete must pass the same two controlled points in the same order.
+- Fitmonster uses `RUN_OUT`, `RUN_IN`, and a dedicated `FINISH` reader.
+- Hoka uses dedicated readers for START, Stations 1-5, and END.
+- Every athlete must pass the configured readers in checkpoint order.
 - A missed tap cannot be inferred safely. The next wrong-role tap is rejected for staff review.
 - One generic reader cannot validate direction and is not recommended for race day.
 - Individual NFC starts suit staggered starts. A mass or wave start needs a shared-start workflow.
@@ -199,27 +226,30 @@ to 10 seconds and can be configured from 3 to 60 seconds on each timing device.
 Reader settings can be prefilled through the URL:
 
 ```text
-/web-nfc-timing-test.html?raceId=demo-001&deviceId=run-out-01&role=RUN_OUT
-/web-nfc-timing-test.html?raceId=demo-001&deviceId=run-in-01&role=RUN_IN
+/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-out&role=RUN_OUT
+/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-in&role=RUN_IN
+/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-finish&role=FINISH
 ```
 
 ## Phone Testing Note
 
-Web NFC requires HTTPS on Android Chrome. A Vercel static page is HTTPS, but it cannot directly write to local SQLite unless the local API is exposed through a trusted HTTPS URL.
+Web NFC requires HTTPS on Android Chrome. The custom domain provides HTTPS and its
+same-origin `/api/*` routes write directly to Supabase through the Edge Function.
+The test Edge Function has JWT verification disabled and the publishable key is
+visible in browser source, so do not use real participant data until authentication
+is added.
 
 Do not mount a phone with its NFC antenna flat against a wall. Use an angled or offset
 holder so the rear upper NFC area remains reachable, then mark the physical tap target.
 
-For real phone testing, use one of these:
+For real phone testing, use:
 
 ```text
-Vercel Web NFC page -> HTTPS tunnel -> local server.py -> SQLite
+timing.hybridtraining.cn -> Supabase Edge Function -> PostgreSQL
 ```
 
-or:
+The local fallback remains:
 
 ```text
-Web NFC page hosted on cloud -> cloud API -> cloud database
+Cloudflare Quick Tunnel -> local server.py -> SQLite -> Supabase mirror
 ```
-
-For the first backend proof, test API and database locally from the computer. Then expose/deploy the API for phone scanning.

@@ -7,9 +7,12 @@ This repo is a prototype timing system for a HYROX simulation race.
 The current proof of concept supports:
 
 - NFC tag scan from Android Chrome Web NFC.
-- Automatic two-reader race progression using fixed `RUN_OUT` and `RUN_IN` roles.
-- Timing event upload to a local Python API.
+- Automatic two-reader progression and a three-reader mode with a dedicated
+  `FINISH` phone.
+- Timing event upload to either the local Python API or the deployed Supabase Edge API.
 - Local SQLite timing storage with a Supabase cloud mirror.
+- Live same-origin `/api/*` routing through Vercel to Supabase, with PostgreSQL as
+  the authoritative online race engine.
 - Participant/card binding through an admin page.
 - Live leaderboard with theme toggle, Chinese/English toggle, and F1-style row update flash.
 - Full-screen accepted/error feedback, sound, vibration, and screen wake lock on timing devices.
@@ -18,10 +21,12 @@ The current proof of concept supports:
   with system TTS and the tone retained as fallbacks.
 - Supabase persistence for participants and timing events, protected by RLS and a
   server-only request token.
-- Race profiles selected by race ID, supporting two-reader auto progression and
-  fixed per-station checkpoints.
+- Race profiles selected by race ID, supporting two-reader/three-reader automatic
+  progression and fixed per-station checkpoints.
 
-The current implementation is suitable for prototype testing, not production race-day deployment yet.
+The current implementation is suitable for controlled rehearsal testing. Authentication,
+offline device retry, and race-day correction tools are still required before handling
+real participant data at a production race.
 
 ## Current Supabase Connection
 
@@ -38,6 +43,9 @@ The tracked migrations are:
 ```
 supabase/migrations/20260716030000_create_timing_cloud_mirror.sql
 supabase/migrations/20260716040000_add_race_profiles.sql
+supabase/migrations/20260716060000_enable_cloud_timing_api.sql
+supabase/migrations/20260717010000_add_three_reader_finish_mode.sql
+supabase/migrations/20260717020000_seed_official_race_profiles.sql
 ```
 
 It creates these RLS-protected tables:
@@ -51,9 +59,9 @@ public.race_profiles
 Current verified cloud data:
 
 ```
-5 race profiles
-10 participants
-22 timing events
+9 race profiles
+14 participants
+54 timing events
 0 orphaned timing events
 ```
 
@@ -61,16 +69,29 @@ The original local data was 8 participants and 14 events. One additional
 `supabase-e2e-20260716` participant and `START` event were added as a live
 connection test. A `Saturday Demo` participant and a complete 5-station test
 sequence were also added. These development records are intentionally still
-present for test verification.
+present for test verification. `cloud-api-e2e-20260716` and
+`cloud-auto-e2e-20260716` verify the live fixed-checkpoint and concurrent two-reader
+paths respectively.
+
+The official profiles are `fitmonster-hyrox-single` and `hoka-race`.
+`CODEX-FIT-20260717-V2` and `CODEX-HOKA-20260717-V2` are complete live smoke-test
+records. They intentionally remain in Supabase so both leaderboards can be verified
+without scanning physical cards.
 
 ### Storage Flow
 
 ```
-Admin/NFC browser
+Online Admin/NFC browser
+  -> timing.hybridtraining.cn/api/*
+  -> Vercel external rewrite
+  -> Supabase timing-api Edge Function
+  -> process_timing_event_v2 PostgreSQL RPC (per-athlete transaction lock)
+  -> Supabase PostgreSQL (authoritative online store)
+
+Local Admin/NFC browser
   -> server.py HTTP API
-  -> race_profiles selects the profile by raceId
-  -> SQLite local database (race progression and immediate reads)
-  -> Supabase REST API (cloud mirror on every profile/participant/event write)
+  -> SQLite local database (authoritative local store)
+  -> Supabase REST API (cloud mirror)
 ```
 
 At server startup, all local SQLite participants and timing events are upserted to
@@ -101,8 +122,9 @@ No `.env` file is required for the current local setup. The checked-out project
 already has the project URL and publishable key defaults in `server.py`, and the
 ignored `.timing-api-key` file supplies the private server token.
 
-For a deployment or another machine, configure these environment variables in the
-process manager (the Python server does not automatically load a `.env` file):
+For another Python-server deployment or machine, configure these environment
+variables in the process manager (the Python server does not automatically load a
+`.env` file):
 
 ```
 SUPABASE_URL=https://lfzvkqwpekgtkcnpzbqj.supabase.co
@@ -119,6 +141,16 @@ TIMING_SERVER_PORT=8788       # default is 8787
 
 Use the publishable/anon key only for the REST client. Never use a Supabase
 service-role key in browser code or commit one to the repository.
+
+The current Vercel deployment needs no private environment variables. Static pages
+send the public key from `timing-api.js`; the Supabase Edge Function validates it
+against `SUPABASE_PUBLISHABLE_KEYS` and reads server credentials from Supabase-managed
+function secrets.
+
+The Edge Function is deployed with Supabase JWT verification disabled so the static
+scanner can call it with the publishable key. Because that key is visible in browser
+source, the current API is effectively public and must contain test data only until
+admin/device authentication is added.
 
 ## Current Repo
 
@@ -305,31 +337,45 @@ two_reader_auto
   Two phones alternate RUN_OUT and RUN_IN.
   The server assigns START, station transitions, and END.
 
+three_reader_auto
+  RUN_OUT and RUN_IN advance the course; only FINISH can assign END.
+
 station_checkpoints
   Each phone is fixed to one checkpoint.
   The server accepts only START -> STATION_n_START -> ... -> END.
 ~~~
 
-Profiles created for the current rehearsal:
+Official live profiles:
 
 ~~~text
-sunday-sim-20260719   two_reader_auto       8 stations
-saturday-sim-20260725 station_checkpoints  5 stations
+fitmonster-hyrox-single three_reader_auto    8 HYROX stations
+hoka-race                station_checkpoints 5 stations
 ~~~
 
-Use these URL parameters on scanner devices:
+Fitmonster scanner URLs:
 
 ~~~text
-?raceId=sunday-sim-20260719&deviceId=run-out-01&role=RUN_OUT
-?raceId=sunday-sim-20260719&deviceId=run-in-01&role=RUN_IN
-?raceId=saturday-sim-20260725&deviceId=station-1&checkpoint=STATION_1_START
-?raceId=saturday-sim-20260725&deviceId=end&checkpoint=END
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-out&role=RUN_OUT
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-in&role=RUN_IN
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-finish&role=FINISH
+~~~
+
+Hoka scanner URLs:
+
+~~~text
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-start&checkpoint=START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-1&checkpoint=STATION_1_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-2&checkpoint=STATION_2_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-3&checkpoint=STATION_3_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-4&checkpoint=STATION_4_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-5&checkpoint=STATION_5_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-end&checkpoint=END
 ~~~
 
 The scanner fetches `GET /api/race-config?raceId=...` on startup and automatically
-selects auto/manual mode and the profile's checkpoint list. The Saturday setup needs
-7 devices: START, five station devices, and END. The Sunday setup needs two devices:
-RUN_OUT and RUN_IN.
+selects auto/manual mode and the profile's checkpoint list. Hoka needs 7 devices:
+START, five station devices, and END. Fitmonster needs 3 devices: RUN_OUT, RUN_IN,
+and FINISH.
 
 Timing event payload example:
 
@@ -450,8 +496,9 @@ documented as permanent.
 
 ## Physical Reader Layout
 
-- Mount one Android reader at the shared run-course exit (`RUN_OUT`).
-- Mount one Android reader at the shared run-course return (`RUN_IN`).
+- For Fitmonster, mount Android readers at the shared run-course exit (`RUN_OUT`),
+  shared return (`RUN_IN`), and race finish (`FINISH`).
+- For Hoka, use dedicated readers for START, Stations 1-5, and END.
 - The course must force every athlete through these points in order.
 - Do not attach the phone back flat against a wall; keep the rear upper NFC antenna reachable.
 - A single generic reader cannot validate direction and is not recommended for race day.
@@ -460,8 +507,9 @@ documented as permanent.
 Reader URLs can be preconfigured:
 
 ```text
-/web-nfc-timing-test.html?raceId=demo-001&deviceId=run-out-01&role=RUN_OUT
-/web-nfc-timing-test.html?raceId=demo-001&deviceId=run-in-01&role=RUN_IN
+/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-out&role=RUN_OUT
+/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-in&role=RUN_IN
+/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-finish&role=FINISH
 ```
 
 ## Current Deployment Status
@@ -472,11 +520,17 @@ The custom HTTPS frontend domain is:
 https://timing.hybridtraining.cn/
 ```
 
-The root and static pages are reachable. As of 2026-07-16,
-`https://timing.hybridtraining.cn/api/races` returns a Vercel `404`, so the custom
-domain does not yet expose the Python timing API. Loading the page alone is not a
-complete end-to-end test: NFC writes and Supabase mirroring require `server.py` to be
-deployed or reverse proxied under the same origin.
+The root, static pages, and same-origin cloud API are deployed. Vercel rewrites
+`/api/*` to:
+
+```text
+https://lfzvkqwpekgtkcnpzbqj.supabase.co/functions/v1/timing-api/*
+```
+
+The Edge Function source is tracked in `supabase/functions/timing-api/`. Requests
+must include the project's public publishable key; the browser helper
+`timing-api.js` adds it automatically. Timing writes use the service-role-only
+`process_timing_event_v2` RPC and a transaction-level advisory lock per race/card.
 
 The earlier Vercel deployment is still documented for historical reference:
 
@@ -508,6 +562,7 @@ Important production correction:
 ## Known Gaps
 
 - No authentication yet.
+- The JWT-disabled Edge API is suitable only for test data until authentication is added.
 - No participant search/edit workflow beyond save/upsert.
 - No card unbind/rebind flow.
 - No reset/cleanup test data action.
@@ -516,8 +571,8 @@ Important production correction:
 - No admin correction workflow for missed/wrong taps.
 - No wave-start workflow for mass or grouped starts.
 - No persistent device retry queue for temporary network loss.
-- Supabase REST cloud mirroring is implemented, but SQLite is still the primary
-  race engine; there is not yet a fully remote transactional PostgreSQL adapter.
+- The local Python API still uses SQLite as its primary race engine; cloud-created
+  participants are not pulled back into SQLite automatically.
 - No official deployment config for 火山云 yet.
 - Leaderboard still has a visible race ID input; public board should probably use URL parameter/default config instead.
 - Local database currently contains test records from development.

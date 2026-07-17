@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://lfzvkqwpekgtkcnpzbqj.supabase.co/functions/v1/timing-api/:path*"
+    },
+    {
       "source": "/",
       "destination": "/web-nfc-timing-test.html"
     }
