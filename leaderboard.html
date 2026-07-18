@@ -394,7 +394,7 @@
 
     .fitmonster-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 10px;
     }
 
@@ -469,8 +469,38 @@
       background: var(--brand-accent);
     }
     .fit-card-details { border-top: 1px solid var(--line); padding-top: 7px; }
-    .fit-card-details summary { padding: 0; color: var(--muted); font-size: 11px; font-weight: 900; cursor: pointer; }
     .fit-card-details .segment-detail { min-width: 0; margin-top: 6px; }
+
+    .fitmonster-pager {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .fitmonster-pager[hidden] { display: none; }
+
+    .fitmonster-pager button {
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 10px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .fitmonster-pager button:disabled { cursor: not-allowed; opacity: 0.45; }
 
     .scoreboard-layout {
       display: grid;
@@ -1038,7 +1068,7 @@
         min-height: 220px;
       }
 
-      .fitmonster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .fitmonster-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 820px) {
@@ -1185,6 +1215,11 @@
           </table>
         </div>
         <div id="fitMonsterGrid" class="fitmonster-grid" hidden></div>
+        <div id="fitMonsterPager" class="fitmonster-pager" hidden>
+          <button id="fitMonsterPrevious" type="button">上一页</button>
+          <span id="fitMonsterPageLabel">第 1 / 1 页</span>
+          <button id="fitMonsterNext" type="button">下一页</button>
+        </div>
       </div>
 
       <aside class="commercial-rail" id="adDeck" aria-label="SRC commercial media demo" data-ad-tone="brand">
@@ -1270,6 +1305,10 @@
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
     const fitMonsterGrid = document.querySelector("#fitMonsterGrid");
+    const fitMonsterPager = document.querySelector("#fitMonsterPager");
+    const fitMonsterPrevious = document.querySelector("#fitMonsterPrevious");
+    const fitMonsterNext = document.querySelector("#fitMonsterNext");
+    const fitMonsterPageLabel = document.querySelector("#fitMonsterPageLabel");
     const leaderboardTableWrap = document.querySelector(".table-wrap");
     const raceIdInput = document.querySelector("#raceId");
     const updatedAt = document.querySelector("#updatedAt");
@@ -1311,6 +1350,12 @@
     let adPaused = false;
     let adElapsed = 0;
     let adLastTick = Date.now();
+    let fitMonsterPage = 0;
+    let fitMonsterRows = [];
+    let fitMonsterChanged = new Set();
+    const FITMONSTER_PAGE_SIZE = 1;
+    const FITMONSTER_PAGE_INTERVAL_MS = 10000;
+    let fitMonsterLastPageChange = Date.now();
     const AD_DURATION_MS = 7000;
     const pageParams = new URLSearchParams(window.location.search);
     const forceDemoData = ["1", "true", "yes"].includes(
@@ -1380,6 +1425,9 @@
         elapsed: "用时",
         segmentDetails: "分段明细",
         segments: "分段",
+        page: "第",
+        previousPage: "上一页",
+        nextPage: "下一页",
         run500: "500m 跑步",
         noParticipants: "还没有参赛单位。",
         waitingData: "等待计时数据...",
@@ -1447,6 +1495,9 @@
         elapsed: "Elapsed",
         segmentDetails: "Segment details",
         segments: "segments",
+        page: "Page",
+        previousPage: "Previous",
+        nextPage: "Next",
         run500: "500m Run",
         noParticipants: "No entries yet.",
         waitingData: "Waiting for timing data...",
@@ -1942,13 +1993,36 @@
           </div>
           <div>
             <div class="fit-card-progress" aria-label="${progress}%"><span style="width:${progress}%"></span></div>
-            <details class="fit-card-details">
-              <summary>${escapeHtml(t("segmentDetails"))}</summary>
+            <div class="fit-card-details">
               <div class="segment-detail">${segmentDetailMarkup(row.segmentSplits)}</div>
-            </details>
+            </div>
           </div>
         </article>
       `;
+    }
+
+    function renderFitMonsterPage() {
+      const pageCount = Math.max(1, Math.ceil(fitMonsterRows.length / FITMONSTER_PAGE_SIZE));
+      fitMonsterPage = Math.max(0, Math.min(fitMonsterPage, pageCount - 1));
+      const start = fitMonsterPage * FITMONSTER_PAGE_SIZE;
+      fitMonsterGrid.innerHTML = fitMonsterRows
+        .slice(start, start + FITMONSTER_PAGE_SIZE)
+        .map((row) => fitMonsterCard(row, fitMonsterChanged))
+        .join("");
+      fitMonsterPager.hidden = fitMonsterRows.length <= FITMONSTER_PAGE_SIZE;
+      fitMonsterPageLabel.textContent = `${t("page")} ${fitMonsterPage + 1} / ${pageCount}`;
+      fitMonsterPrevious.textContent = t("previousPage");
+      fitMonsterNext.textContent = t("nextPage");
+      fitMonsterPrevious.disabled = pageCount <= 1;
+      fitMonsterNext.disabled = pageCount <= 1;
+    }
+
+    function advanceFitMonsterPage(direction = 1) {
+      const pageCount = Math.max(1, Math.ceil(fitMonsterRows.length / FITMONSTER_PAGE_SIZE));
+      if (pageCount <= 1) return;
+      fitMonsterPage = (fitMonsterPage + direction + pageCount) % pageCount;
+      fitMonsterLastPageChange = Date.now();
+      renderFitMonsterPage();
     }
 
     function timingEventSignature(row) {
@@ -2198,6 +2272,7 @@
       updatedAt.textContent = `${t("error")}: ${error.message}`;
       leaderboardTableWrap.hidden = columns.usesDetailedSegments;
       fitMonsterGrid.hidden = !columns.usesDetailedSegments;
+      fitMonsterPager.hidden = true;
       fitMonsterGrid.innerHTML = columns.usesDetailedSegments
         ? `<div class="empty">${escapeHtml(error.message)}</div>`
         : "";
@@ -2222,6 +2297,7 @@
       if (rows.length === 0) {
         if (isFitMonster) {
           fitMonsterGrid.innerHTML = `<div class="empty">${t("noParticipants")}</div>`;
+          fitMonsterPager.hidden = true;
         } else {
           leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${t("noParticipants")}</td></tr>`;
         }
@@ -2229,9 +2305,14 @@
       }
 
       if (isFitMonster) {
-        fitMonsterGrid.innerHTML = rows.map((row) => fitMonsterCard(row, changed)).join("");
+        fitMonsterRows = rows;
+        fitMonsterChanged = changed;
+        if (fitMonsterPage >= Math.ceil(rows.length / FITMONSTER_PAGE_SIZE)) fitMonsterPage = 0;
+        renderFitMonsterPage();
         return;
       }
+
+      fitMonsterPager.hidden = true;
 
       leaderboardBody.innerHTML = rows.map((row) => {
         const rowClasses = [
@@ -2396,6 +2477,8 @@
     adPreviousButton.addEventListener("click", () => setAdIndex(adIndex - 1));
     adNextButton.addEventListener("click", () => setAdIndex(adIndex + 1));
     adPlayButton.addEventListener("click", toggleAdPlayback);
+    fitMonsterPrevious.addEventListener("click", () => advanceFitMonsterPage(-1));
+    fitMonsterNext.addEventListener("click", () => advanceFitMonsterPage(1));
 
     applyTheme(theme);
     applyLanguage(language);
@@ -2403,6 +2486,12 @@
     updateRaceControls();
     refreshLoop();
     setInterval(refreshLoop, 1000);
+    setInterval(() => {
+      if (!fitMonsterGrid.hidden && fitMonsterRows.length > FITMONSTER_PAGE_SIZE
+        && Date.now() - fitMonsterLastPageChange >= FITMONSTER_PAGE_INTERVAL_MS) {
+        advanceFitMonsterPage(1);
+      }
+    }, 1000);
     setInterval(tickAds, 120);
   </script>
 </body>
