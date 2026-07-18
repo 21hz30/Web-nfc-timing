@@ -293,16 +293,18 @@ Purpose:
   - `STATION_8_EXIT`
   - `END`
 
-Recommended automatic setup:
+FitMonster automatic setup:
 
 ```text
-RUN_OUT -> START / station exit / final END
-RUN_IN  -> run finish / next station enter
+RUN_IN  -> START / station exit / begin the next 500m run
+RUN_OUT -> finish the 500m run / station enter
+FINISH  -> final END after Wall Ball
 ```
 
-The sequence reaches `STATION_8_ENTER` and then uses the final `RUN_OUT` tap as `END`.
-That `END` timestamp also closes the Station 8 split. Manual checkpoint mode remains
-available for controlled fallback use.
+The first `RUN_IN` tap starts the first 500m run. Each `RUN_OUT` tap ends a run and
+starts the next station; each subsequent `RUN_IN` tap ends a station and starts the
+next 500m run. Wall Ball ends with the dedicated `FINISH` phone. Manual checkpoint
+mode remains available for controlled fallback use.
 
 ### Leaderboard
 
@@ -537,14 +539,14 @@ documented as permanent.
 
 ## Physical Reader Layout
 
-- For FitMonster, mount Android readers at the shared run-course exit (`RUN_OUT`),
-  shared return (`RUN_IN`), and race finish (`FINISH`).
+- For FitMonster, mount Android readers at the shared run-course entry (`RUN_IN`),
+  shared run-course exit / station entry (`RUN_OUT`), and race finish (`FINISH`).
 - For Hoka, Station 1 records START, Stations 2-5 mark adjacent boundaries, and
   the final reader records END.
 - The course must force every athlete through these points in order.
 - Do not attach the phone back flat against a wall; keep the rear upper NFC antenna reachable.
 - A single generic reader cannot validate direction and is not recommended for race day.
-- The current first `RUN_OUT` tap starts each athlete individually. Mass/wave starts still need a shared-start feature.
+- The current first `RUN_IN` tap starts each athlete individually. Mass/wave starts still need a shared-start feature.
 
 Reader URLs can be preconfigured:
 

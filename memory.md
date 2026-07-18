@@ -40,9 +40,10 @@ This file is an internal notebook for future assistant/dev sessions working on t
 - Normalize card codes to uppercase in frontend and backend.
 - Treat the NFC tag code as an identifier, not as the athlete record itself.
 - In automatic timing mode, devices have fixed physical roles and the backend owns race progression.
-- Recommended shared-gate roles:
-  - `RUN_OUT`: athlete enters the run course.
-  - `RUN_IN`: athlete finishes a run and enters the workout zone.
+- FitMonster shared-gate roles:
+  - `RUN_IN`: athlete enters the run course and starts the next 500m.
+  - `RUN_OUT`: athlete finishes a run and enters the workout zone.
+  - `FINISH`: dedicated final phone after Wall Ball.
 - Do not auto-correct a missing tap. Store and surface `wrong_gate` for staff review.
 - A green client success state must mean the server returned `accepted`, not merely that NFC was read.
 - Duplicate-tap protection defaults to 10 seconds and is enforced by the backend.
@@ -149,8 +150,8 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
 - The timing page supports automatic two-reader progression, manual checkpoint fallback,
   configurable duplicate protection, full-screen feedback, Chinese speech, sound,
   vibration, and screen wake lock.
-- Automatic race sequence runs from `START`, through Station 1-8 enter/exit progress,
-  to `END`; the final `END` also closes the Station 8 split.
+- Automatic FitMonster sequence starts with `RUN_IN`, alternates `RUN_OUT` station-entry
+  and `RUN_IN` run-start taps, and uses `FINISH` after Wall Ball for `END`.
 - One generic reader is not recommended for race day because it cannot validate direction.
 - Two readers require a course where every athlete crosses the same run-out and run-in points.
 - Individual start taps imply staggered/time-trial starts. Mass starts need a wave-start feature.

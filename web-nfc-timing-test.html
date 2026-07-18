@@ -601,7 +601,7 @@
 
     <div class="role-strip">
       <span>本机角色</span>
-      <strong id="roleName">跑步出发口 / RUN OUT</strong>
+      <strong id="roleName">跑步入口（开始跑步） / RUN IN</strong>
     </div>
 
     <section id="scanner" class="scanner" data-tone="idle" aria-live="polite">
@@ -654,8 +654,8 @@
         <label id="gateRoleField">
           本机角色
           <select id="gateRole">
-            <option value="RUN_OUT">跑步出口（离开站点） / RUN OUT</option>
-            <option value="RUN_IN">跑步入口（进入站点） / RUN IN</option>
+            <option value="RUN_IN">跑步入口（开始跑步） / RUN IN</option>
+            <option value="RUN_OUT">跑步出口（结束跑步，进入站点） / RUN OUT</option>
             <option value="FINISH" hidden disabled>终点 / FINISH</option>
           </select>
         </label>
@@ -817,8 +817,8 @@
 
     function roleLabel(role) {
       return {
-        RUN_IN: "跑步入口（进入站点） / RUN IN",
-        RUN_OUT: "跑步出口（离开站点） / RUN OUT",
+        RUN_IN: "跑步入口（开始跑步） / RUN IN",
+        RUN_OUT: "跑步出口（结束跑步，进入站点） / RUN OUT",
         FINISH: "终点 / FINISH"
       }[role] || role;
     }
@@ -882,7 +882,7 @@
       elements.raceId.value = preferredRaceId;
       elements.deviceId.value = params.get("deviceId") || saved.deviceId || "timing-reader-01";
       elements.timingMode.value = params.get("mode") || saved.timingMode || "auto";
-      elements.gateRole.value = params.get("role") || saved.gateRole || "RUN_OUT";
+      elements.gateRole.value = params.get("role") || saved.gateRole || "RUN_IN";
       elements.stationId.value = params.get("checkpoint")
         || params.get("stationId")
         || saved.stationId
@@ -1017,7 +1017,7 @@
       finishOption.hidden = !usesFinishReader;
       finishOption.disabled = !usesFinishReader;
       if (!usesFinishReader && elements.gateRole.value === "FINISH") {
-        elements.gateRole.value = "RUN_OUT";
+        elements.gateRole.value = "RUN_IN";
       }
       renderRaceCheckpoints(
         raceProfile.checkpoints,
@@ -1139,12 +1139,12 @@
       if (isAuto && elements.gateRole.value === "FINISH") {
         elements.heroTitle.textContent = "冲过终点后请贴卡";
         elements.heroDetail.textContent = "看到正式完赛提示后再离开";
-      } else if (isAuto && elements.gateRole.value === "RUN_IN") {
+      } else if (isAuto && elements.gateRole.value === "RUN_OUT") {
         elements.heroTitle.textContent = "跑步结束后请贴卡";
-        elements.heroDetail.textContent = "听到提示音并看到绿色成功页面后再离开";
+        elements.heroDetail.textContent = "打卡后进入功能站，听到提示音再离开";
       } else if (isAuto) {
-        elements.heroTitle.textContent = "进入跑道前请贴卡";
-        elements.heroDetail.textContent = "听到提示音并看到绿色成功页面后再离开";
+        elements.heroTitle.textContent = "开始跑步前请贴卡";
+        elements.heroDetail.textContent = "打卡后开始 500m 跑步，听到提示音再离开";
       } else {
         elements.heroTitle.textContent = "请贴 NFC 卡";
         elements.heroDetail.textContent = checkpointLabel(elements.stationId.value);

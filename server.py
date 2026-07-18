@@ -815,11 +815,11 @@ def checkpoint_metadata(checkpoint: str) -> dict:
 def expected_auto_transition(
     latest_checkpoint: str | None,
     checkpoints: list[str] | None = None,
-    finish_role: str = "RUN_OUT",
+    finish_role: str = "RUN_IN",
 ) -> tuple[str, str] | None:
     checkpoints = checkpoints or CHECKPOINT_SEQUENCE
     if latest_checkpoint is None:
-        return ("RUN_OUT", checkpoints[0])
+        return ("RUN_IN", checkpoints[0])
     if latest_checkpoint == "END":
         return None
     try:
@@ -828,13 +828,13 @@ def expected_auto_transition(
         return None
 
     if next_checkpoint == "START":
-        return ("RUN_OUT", next_checkpoint)
+        return ("RUN_IN", next_checkpoint)
     if next_checkpoint == "END":
         return (finish_role, next_checkpoint)
     if next_checkpoint.endswith("_ENTER"):
-        return ("RUN_IN", next_checkpoint)
-    if next_checkpoint.endswith("_EXIT"):
         return ("RUN_OUT", next_checkpoint)
+    if next_checkpoint.endswith("_EXIT"):
+        return ("RUN_IN", next_checkpoint)
     return None
 
 
@@ -842,7 +842,7 @@ def resolve_auto_transition(
     latest_checkpoint: str | None,
     gate_role: str,
     checkpoints: list[str] | None = None,
-    finish_role: str = "RUN_OUT",
+    finish_role: str = "RUN_IN",
 ) -> dict:
     if latest_checkpoint == "END":
         return {
@@ -1748,7 +1748,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 finish_role = (
                     "FINISH"
                     if profile["mode"] == "three_reader_auto"
-                    else "RUN_OUT"
+                    else "RUN_IN"
                 )
                 latest_checkpoint = self.latest_accepted_checkpoint(
                     db,
@@ -1851,7 +1851,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 finish_role = (
                     "FINISH"
                     if profile["mode"] == "three_reader_auto"
-                    else "RUN_OUT"
+                    else "RUN_IN"
                 )
                 next_transition = expected_auto_transition(
                     normalized["station_id"],

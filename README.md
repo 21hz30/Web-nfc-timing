@@ -180,11 +180,11 @@ Supported modes:
 
 ```text
 two_reader_auto
-  Two phones alternate RUN_OUT and RUN_IN.
+  Two phones alternate RUN_IN and RUN_OUT. RUN_IN starts a run; RUN_OUT ends a run and enters the station.
   The server assigns START, station transitions, and END.
 
 three_reader_auto
-  RUN_OUT and RUN_IN advance the course; only FINISH can assign END.
+  RUN_IN and RUN_OUT advance the course; only FINISH can assign END.
 
 station_checkpoints
   Each phone has one fixed checkpoint.

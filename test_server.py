@@ -46,9 +46,9 @@ class AutoTransitionTests(unittest.TestCase):
         )
 
     def test_wrong_gate_does_not_assign_checkpoint(self):
-        result = server.resolve_auto_transition("START", "RUN_OUT")
+        result = server.resolve_auto_transition("START", "RUN_IN")
         self.assertEqual(result["status"], "wrong_gate")
-        self.assertEqual(result["expectedRole"], "RUN_IN")
+        self.assertEqual(result["expectedRole"], "RUN_OUT")
         self.assertNotIn("assignedCheckpoint", result)
 
     def test_three_reader_mode_reserves_end_for_finish_gate(self):
@@ -170,7 +170,7 @@ class TimingApiTests(unittest.TestCase):
     def test_reset_race_requires_admin_code_and_preserves_profile(self):
         event = self.request_json(
             "/api/timing-events",
-            self.timing_payload(0, "RUN_OUT"),
+            self.timing_payload(0, "RUN_IN"),
         )
         self.assertEqual(event["status"], "accepted")
 
@@ -222,7 +222,7 @@ class TimingApiTests(unittest.TestCase):
     def test_delete_participant_requires_code_and_only_deletes_selected_card(self):
         event = self.request_json(
             "/api/timing-events",
-            self.timing_payload(0, "RUN_OUT"),
+            self.timing_payload(0, "RUN_IN"),
         )
         self.assertEqual(event["status"], "accepted")
         other = self.request_json(
@@ -317,46 +317,46 @@ class TimingApiTests(unittest.TestCase):
     def test_wrong_gate_is_stored_without_advancing_progress(self):
         start = self.request_json(
             "/api/timing-events",
-            self.timing_payload(0, "RUN_OUT"),
+            self.timing_payload(0, "RUN_IN"),
         )
         self.assertEqual(start["stationId"], "START")
 
         wrong_gate = self.request_json(
             "/api/timing-events",
-            self.timing_payload(2, "RUN_OUT"),
+            self.timing_payload(2, "RUN_IN"),
         )
         self.assertEqual(wrong_gate["status"], "wrong_gate")
-        self.assertEqual(wrong_gate["expectedRole"], "RUN_IN")
+        self.assertEqual(wrong_gate["expectedRole"], "RUN_OUT")
 
-        run_in = self.request_json(
+        run_out = self.request_json(
             "/api/timing-events",
-            self.timing_payload(3, "RUN_IN"),
+            self.timing_payload(3, "RUN_OUT"),
         )
-        self.assertEqual(run_in["status"], "accepted")
-        self.assertEqual(run_in["stationId"], "STATION_1_ENTER")
+        self.assertEqual(run_out["status"], "accepted")
+        self.assertEqual(run_out["stationId"], "STATION_1_ENTER")
 
     def test_duplicate_tap_within_ten_seconds_keeps_checkpoint(self):
         start = self.request_json(
             "/api/timing-events",
-            self.timing_payload(0, "RUN_OUT"),
+            self.timing_payload(0, "RUN_IN"),
         )
         self.assertEqual(start["status"], "accepted")
         self.assertEqual(start["stationId"], "START")
 
         duplicate = self.request_json(
             "/api/timing-events",
-            self.timing_payload(1, "RUN_OUT"),
+            self.timing_payload(1, "RUN_IN"),
         )
         self.assertEqual(duplicate["status"], "duplicate_tap")
         self.assertEqual(duplicate["stationId"], "START")
         self.assertEqual(duplicate["duplicateWindowSeconds"], 10)
 
-        run_in = self.request_json(
+        run_out = self.request_json(
             "/api/timing-events",
-            self.timing_payload(2, "RUN_IN"),
+            self.timing_payload(2, "RUN_OUT"),
         )
-        self.assertEqual(run_in["status"], "accepted")
-        self.assertEqual(run_in["stationId"], "STATION_1_ENTER")
+        self.assertEqual(run_out["status"], "accepted")
+        self.assertEqual(run_out["stationId"], "STATION_1_ENTER")
 
     def test_manual_checkpoint_mode_remains_compatible(self):
         payload = self.timing_payload(0, "RUN_OUT")
@@ -457,13 +457,13 @@ class TimingApiTests(unittest.TestCase):
 
         start = self.request_json(
             "/api/timing-events",
-            self.timing_payload(0, "RUN_OUT"),
+            self.timing_payload(0, "RUN_IN"),
         )
         self.assertEqual(start["stationId"], "START")
 
         station = self.request_json(
             "/api/timing-events",
-            self.timing_payload(2, "RUN_IN"),
+            self.timing_payload(2, "RUN_OUT"),
         )
         self.assertEqual(station["stationId"], "STATION_1_ENTER")
 

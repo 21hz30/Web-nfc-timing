@@ -833,7 +833,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
   if (route === "/timing-events") {
     const raceId = requiredRaceId(payload.raceId);
     await ensureRaceProfile(raceId);
-    const result = await databaseRequest("rpc/process_timing_event_v2", {
+    const result = await databaseRequest("rpc/process_timing_event_v3", {
       method: "POST",
       body: { p_payload: payload },
     });
