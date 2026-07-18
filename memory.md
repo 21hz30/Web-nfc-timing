@@ -161,22 +161,22 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
   - `SIM-099`
   - old `HYROX-B001` / `Hyrox-Peter-b001`
 - These are local prototype records only.
-- Add a proper reset/cleanup admin action before serious testing.
+- The leaderboard now has protected per-race cleanup. It requires the exact Race ID
+  plus the server-only `LEADERBOARD_CLEAR_CODE`; it preserves the race profile.
 
 ## Active Follow-up Priorities
 
-1. Remove race ID input from the public leaderboard and read `raceId` from URL query/default config.
-2. Add reset/delete tools for test data, with clear confirmation.
-3. Add wave start management for mass-start or grouped heats.
-4. Improve admin workflow:
+1. Add full administrator authentication and rate limiting around the protected reset action.
+2. Add wave start management for mass-start or grouped heats.
+3. Improve admin workflow:
    - search participant
    - edit participant
    - unbind/rebind NFC card
    - import participant CSV
-5. Add race-day exception tools for missed taps and wrong-gate review without deleting raw events.
-6. Add a persistent client retry queue for temporary network loss.
-7. Move production backend from SQLite to managed PostgreSQL/MySQL.
-8. Prepare deployment for China network conditions:
+4. Add race-day exception tools for missed taps and wrong-gate review without deleting raw events.
+5. Add a persistent client retry queue for temporary network loss.
+6. Move production backend from SQLite to managed PostgreSQL/MySQL.
+7. Prepare deployment for China network conditions:
    - TOS or similar static hosting
    - Function Service/ECS API
    - custom HTTPS domain

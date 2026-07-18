@@ -7,7 +7,8 @@ It contains:
 - `web-nfc-timing-test.html`: Android Chrome Web NFC timing gate with automatic race progression.
 - `server.py`: local Python API with SQLite storage and a Supabase cloud mirror.
 - `admin.html`: race admin page for athlete info, check-in, and NFC card binding.
-- `leaderboard.html`: live timing board with rank, current checkpoint, and station splits.
+- `leaderboard.html`: live timing board with race selection, rank, station splits,
+  and protected per-race cleanup.
 
 ## Live Frontend
 
@@ -56,7 +57,8 @@ http://localhost:8787/leaderboard.html
 The admin page loads all race profiles from the API, keeps the two official races at
 the top, and shows participant, check-in, finish, event, and error totals for the
 selected race. Its data-board button carries the selected `raceId` into the live
-leaderboard. Empty races show explicit empty states in both data tables.
+leaderboard. The leaderboard selector contains one browser-only mock race and the
+two official database-backed races. Empty races show explicit empty states.
 
 API endpoint:
 
@@ -104,6 +106,9 @@ python3 server.py --sync-only
 Set `TIMING_SERVER_PORT` when the default port is already in use, for example
 `TIMING_SERVER_PORT=8788 python3 server.py`.
 
+Set a 12-or-more-character `LEADERBOARD_CLEAR_CODE` when the local leaderboard
+needs to clear a race. The code is read by the server and must not be committed.
+
 Local-server Supabase access is protected by RLS and a server-only token stored in
 `.timing-api-key`. That file is ignored by Git and must never be sent to a browser or
 committed. For a deployed server, configure `SUPABASE_URL`,
@@ -117,10 +122,16 @@ No `.env` change is needed for the hosted frontend. The Supabase project route a
 public application key are already fixed in the tracked deployment configuration.
 Do not add a service-role key to `.env` files used by Vercel or to browser code.
 
-The test Edge Function currently runs without JWT verification. Consequently, a
-cloud reset/delete action must not be exposed on the public admin page: anyone who
-can open the site could invoke it. Add administrator authentication or a protected
-server-side reset credential before implementing destructive Supabase cleanup.
+The test Edge Function currently runs without JWT verification. The leaderboard's
+destructive action is protected separately by the server-only
+`LEADERBOARD_CLEAR_CODE` Supabase Function Secret and an exact Race ID confirmation.
+The clear code is never stored in the frontend, Vercel, or tracked files. Clearing a
+race deletes its participants and timing events while preserving its race profile.
+Rotate the hosted code with:
+
+```bash
+npx supabase secrets set LEADERBOARD_CLEAR_CODE=<new-12+-character-code>
+```
 
 ## Race Profiles
 
@@ -138,6 +149,18 @@ Registration supports three entry types. One NFC card represents one timed entry
 
 Fitmonster defaults to `individual`. Hoka defaults to `team`. The leaderboard ranks
 the entry once and displays the pair/team name with its member names.
+
+Leaderboard race choices:
+
+```text
+src-hyrox                   browser-only mock data
+fitmonster-hyrox-single     official Supabase data
+hoka-race                   official Supabase data
+```
+
+The mock race cannot be cleared because it never writes to the database. An official
+race requires the exact Race ID and administrator clear code before
+`POST /api/reset-race` deletes its participants and timing events.
 
 Supported modes:
 

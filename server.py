@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import sqlite3
@@ -629,6 +630,10 @@ def timing_api_key() -> str:
         return ""
 
 
+def leaderboard_clear_code() -> str:
+    return os.environ.get("LEADERBOARD_CLEAR_CODE", "").strip()
+
+
 def supabase_configured() -> bool:
     return bool(
         SUPABASE_SYNC_ENABLED
@@ -924,6 +929,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/reset-race":
+            self.handle_post_reset_race()
+            return
+
         if parsed.path == "/api/timing-events":
             self.handle_post_timing_event()
             return
@@ -937,6 +946,62 @@ class TimingHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def handle_post_reset_race(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            confirmation = str(payload.get("confirmation") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 12:
+                self.send_json(
+                    {"ok": False, "error": "Race clearing is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if confirmation != race_id:
+                raise ValueError("Race ID confirmation does not match")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator clear code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            with connect_db() as db:
+                event_count = db.execute(
+                    "SELECT COUNT(*) FROM timing_events WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
+                participant_count = db.execute(
+                    "SELECT COUNT(*) FROM participants WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
+                db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
+                db.execute("DELETE FROM participants WHERE race_id = ?", (race_id,))
+
+            self.send_json(
+                {
+                    "ok": True,
+                    "raceId": race_id,
+                    "deleted": {
+                        "timingEvents": event_count,
+                        "participants": participant_count,
+                    },
+                    "raceProfilePreserved": True,
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
     def read_json_body(self) -> dict:
         content_length = int(self.headers.get("Content-Length", "0"))

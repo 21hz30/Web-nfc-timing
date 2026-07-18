@@ -114,6 +114,21 @@ function requiredRaceId(value: unknown): string {
   return raceId;
 }
 
+async function secretsMatch(supplied: string, expected: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [suppliedDigest, expectedDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(supplied)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  const suppliedBytes = new Uint8Array(suppliedDigest);
+  const expectedBytes = new Uint8Array(expectedDigest);
+  let difference = 0;
+  for (let index = 0; index < suppliedBytes.length; index += 1) {
+    difference |= suppliedBytes[index] ^ expectedBytes[index];
+  }
+  return difference === 0;
+}
+
 function normalizeEntryType(value: unknown): string {
   const requested = String(value || "individual").trim().toLowerCase();
   const entryType = requested === "single"
@@ -524,6 +539,43 @@ async function handleGet(route: string, url: URL): Promise<Response> {
 
 async function handlePost(route: string, request: Request): Promise<Response> {
   const payload = await readJsonBody(request);
+
+  if (route === "/reset-race") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 12) {
+      return jsonResponse({ ok: false, error: "Race clearing is not configured" }, 503);
+    }
+
+    const raceId = requiredRaceId(payload.raceId);
+    const confirmation = String(payload.confirmation || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (confirmation !== raceId) {
+      return jsonResponse({ ok: false, error: "Race ID confirmation does not match" }, 400);
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator clear code" }, 403);
+    }
+
+    const deletedEvents = await databaseRequest("timing_events", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
+    const deletedParticipants = await databaseRequest("participants", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      raceId,
+      deleted: {
+        timingEvents: deletedEvents.length,
+        participants: deletedParticipants.length,
+      },
+      raceProfilePreserved: true,
+    });
+  }
 
   if (route === "/race-config") {
     const raceId = requiredRaceId(payload.raceId);

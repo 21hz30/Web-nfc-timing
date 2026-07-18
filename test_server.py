@@ -1,10 +1,13 @@
 import json
+import os
 import tempfile
 import threading
 import unittest
 from datetime import datetime, timedelta, timezone
+from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import server
@@ -74,8 +77,10 @@ class TimingApiTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.original_db_path = server.DB_PATH
         self.original_supabase_sync_enabled = server.SUPABASE_SYNC_ENABLED
+        self.original_clear_code = os.environ.get("LEADERBOARD_CLEAR_CODE")
         server.DB_PATH = Path(self.tempdir.name) / "timing.sqlite3"
         server.SUPABASE_SYNC_ENABLED = False
+        os.environ["LEADERBOARD_CLEAR_CODE"] = "test-clear-code-1234"
         server.init_db()
 
         now = server.utc_now()
@@ -106,6 +111,10 @@ class TimingApiTests(unittest.TestCase):
         self.thread.join(timeout=2)
         server.DB_PATH = self.original_db_path
         server.SUPABASE_SYNC_ENABLED = self.original_supabase_sync_enabled
+        if self.original_clear_code is None:
+            os.environ.pop("LEADERBOARD_CLEAR_CODE", None)
+        else:
+            os.environ["LEADERBOARD_CLEAR_CODE"] = self.original_clear_code
         self.tempdir.cleanup()
 
     def request_json(self, path, payload=None):
@@ -152,6 +161,48 @@ class TimingApiTests(unittest.TestCase):
         self.assertEqual(result["status"], "finished")
         self.assertEqual(result["latestCheckpoint"], "END")
         self.assertEqual(result["stationSplits"]["station8Ms"], 10000)
+
+    def test_reset_race_requires_admin_code_and_preserves_profile(self):
+        event = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(0, "RUN_OUT"),
+        )
+        self.assertEqual(event["status"], "accepted")
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/reset-race",
+                {
+                    "raceId": "auto-test",
+                    "confirmation": "auto-test",
+                    "adminCode": "wrong-code",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            len(self.request_json("/api/participants?raceId=auto-test")["participants"]),
+            1,
+        )
+
+        result = self.request_json(
+            "/api/reset-race",
+            {
+                "raceId": "auto-test",
+                "confirmation": "auto-test",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["deleted"], {"timingEvents": 1, "participants": 1})
+        self.assertTrue(result["raceProfilePreserved"])
+        self.assertEqual(
+            self.request_json("/api/leaderboard?raceId=auto-test")["leaderboard"],
+            [],
+        )
+        self.assertEqual(
+            self.request_json("/api/race-config?raceId=auto-test")["race"]["raceId"],
+            "auto-test",
+        )
 
     def test_wrong_gate_is_stored_without_advancing_progress(self):
         start = self.request_json(

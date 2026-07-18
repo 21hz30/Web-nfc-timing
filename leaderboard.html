@@ -195,7 +195,7 @@
 
     .toolbar {
       display: grid;
-      grid-template-columns: minmax(180px, 260px) 1fr;
+      grid-template-columns: minmax(280px, 360px) auto 1fr;
       gap: 12px;
       align-items: end;
       margin-bottom: 12px;
@@ -210,7 +210,8 @@
       text-transform: uppercase;
     }
 
-    input {
+    input,
+    select {
       width: 100%;
       border: 1px solid var(--input-border);
       border-radius: 6px;
@@ -218,6 +219,126 @@
       font: inherit;
       background: var(--input-bg);
       color: var(--text);
+    }
+
+    .race-select-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .race-kind {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      padding: 0 10px;
+      border: 1px solid var(--brand-accent);
+      border-radius: 6px;
+      color: var(--brand-accent);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .race-kind[data-kind="mock"] {
+      border-color: #d6a84b;
+      color: #e1b85e;
+    }
+
+    body[data-theme="light"] .race-kind[data-kind="mock"] {
+      color: #8a5c00;
+    }
+
+    .toolbar-action {
+      display: flex;
+      align-items: end;
+    }
+
+    .danger-button,
+    .dialog-button {
+      min-height: 40px;
+      border: 1px solid #b42318;
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: transparent;
+      color: #f97066;
+      font: inherit;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    body[data-theme="light"] .danger-button,
+    body[data-theme="light"] .dialog-button {
+      color: #9f1d15;
+    }
+
+    .danger-button:disabled {
+      border-color: var(--line);
+      color: var(--muted);
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
+    dialog {
+      width: min(460px, calc(100% - 28px));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0;
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+    }
+
+    dialog::backdrop {
+      background: rgba(0, 0, 0, 0.68);
+    }
+
+    .clear-form {
+      display: grid;
+      gap: 16px;
+      padding: 20px;
+    }
+
+    .clear-form h2,
+    .clear-form p {
+      margin: 0;
+    }
+
+    .clear-form h2 {
+      font-size: 20px;
+    }
+
+    .clear-form p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .clear-form label {
+      text-transform: none;
+    }
+
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .dialog-button.secondary {
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    .dialog-status {
+      min-height: 20px;
+      color: #f97066;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .dialog-status.success {
+      color: var(--brand-accent);
     }
 
     .summary {
@@ -853,6 +974,16 @@
         grid-template-columns: 1fr;
         justify-items: start;
       }
+
+      .toolbar-action,
+      .danger-button {
+        width: 100%;
+      }
+
+      .dialog-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -898,9 +1029,23 @@
   <main>
     <div class="toolbar">
       <label>
-        <span data-i18n="raceId">Race ID</span>
-        <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+        <span data-i18n="raceId">选择比赛</span>
+        <span class="race-select-row">
+          <select id="raceId" autocomplete="off">
+            <optgroup label="模拟比赛">
+              <option value="src-hyrox">SRC 排行榜演示</option>
+            </optgroup>
+            <optgroup label="正式比赛">
+              <option value="fitmonster-hyrox-single" selected>Fitmonster Hyrox Single Simulation Race</option>
+              <option value="hoka-race">Hoka Race</option>
+            </optgroup>
+          </select>
+          <span class="race-kind" id="raceKind" data-kind="live">正式数据</span>
+        </span>
       </label>
+      <div class="toolbar-action">
+        <button class="danger-button" type="button" id="clearRaceButton">清空本场数据</button>
+      </div>
       <div class="summary">
         <div class="metric">
           <span data-i18n="total">Total</span>
@@ -1000,6 +1145,26 @@
     </div>
   </main>
 
+  <dialog id="clearRaceDialog" aria-labelledby="clearRaceTitle">
+    <form class="clear-form" id="clearRaceForm">
+      <h2 id="clearRaceTitle" data-i18n="clearRaceTitle">清空本场数据</h2>
+      <p id="clearRaceDescription"></p>
+      <label>
+        <span data-i18n="confirmRaceId">输入 Race ID 确认</span>
+        <input id="clearRaceConfirmation" autocomplete="off" required>
+      </label>
+      <label>
+        <span data-i18n="adminCode">管理员清空码</span>
+        <input id="clearAdminCode" type="password" autocomplete="current-password" required>
+      </label>
+      <div class="dialog-status" id="clearRaceStatus" role="status" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" type="button" id="cancelClearButton" data-i18n="cancel">取消</button>
+        <button class="dialog-button" type="submit" id="confirmClearButton" data-i18n="confirmClear">确认清空</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
@@ -1008,6 +1173,16 @@
     const totalCount = document.querySelector("#totalCount");
     const racingCount = document.querySelector("#racingCount");
     const finishedCount = document.querySelector("#finishedCount");
+    const raceKind = document.querySelector("#raceKind");
+    const clearRaceButton = document.querySelector("#clearRaceButton");
+    const clearRaceDialog = document.querySelector("#clearRaceDialog");
+    const clearRaceForm = document.querySelector("#clearRaceForm");
+    const clearRaceDescription = document.querySelector("#clearRaceDescription");
+    const clearRaceConfirmation = document.querySelector("#clearRaceConfirmation");
+    const clearAdminCode = document.querySelector("#clearAdminCode");
+    const clearRaceStatus = document.querySelector("#clearRaceStatus");
+    const cancelClearButton = document.querySelector("#cancelClearButton");
+    const confirmClearButton = document.querySelector("#confirmClearButton");
     const adDeck = document.querySelector("#adDeck");
     const adStageContent = document.querySelector("#adStageContent");
     const adBadge = document.querySelector("#adBadge");
@@ -1036,9 +1211,33 @@
     const forceDemoData = ["1", "true", "yes"].includes(
       String(pageParams.get("demo") || pageParams.get("mock") || "").toLowerCase()
     );
-    const initialRaceId = String(pageParams.get("raceId") || pageParams.get("race") || "").trim();
-    const demoRaceIds = new Set(["src-hyrox"]);
-    let useDemoFallback = forceDemoData;
+    const requestedRaceId = String(pageParams.get("raceId") || pageParams.get("race") || "").trim();
+    const raceCatalog = [
+      {
+        raceId: "src-hyrox",
+        kind: "mock",
+        zh: "SRC 排行榜演示",
+        en: "SRC Leaderboard Demo"
+      },
+      {
+        raceId: "fitmonster-hyrox-single",
+        kind: "live",
+        zh: "Fitmonster Hyrox 单人模拟赛",
+        en: "Fitmonster Hyrox Single Simulation Race"
+      },
+      {
+        raceId: "hoka-race",
+        kind: "live",
+        zh: "Hoka 团队赛",
+        en: "Hoka Team Race"
+      }
+    ];
+    const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
+    const initialRaceId = forceDemoData
+      ? "src-hyrox"
+      : knownRaceIds.has(requestedRaceId)
+        ? requestedRaceId
+        : "fitmonster-hyrox-single";
 
     const i18n = {
       zh: {
@@ -1046,7 +1245,22 @@
         title: "SRC 模拟赛",
         subtitle: "SRC 品牌模拟赛实时排名、进度和每站用时。",
         live: "LIVE",
-        raceId: "Race ID",
+        raceId: "选择比赛",
+        mockGroup: "模拟比赛",
+        liveGroup: "正式比赛",
+        mockKind: "模拟数据",
+        liveKind: "正式数据",
+        clearRace: "清空本场数据",
+        clearDisabled: "模拟数据不会写入数据库",
+        clearRaceTitle: "清空本场数据",
+        confirmRaceId: "输入 Race ID 确认",
+        adminCode: "管理员清空码",
+        cancel: "取消",
+        confirmClear: "确认清空",
+        clearing: "正在清空...",
+        clearSuccess: "本场数据已清空。",
+        clearDescription: "这会永久删除 {race} 的所有选手和计时记录，但保留比赛配置。",
+        confirmationMismatch: "请输入完全一致的 Race ID。",
         total: "参赛单位",
         racing: "比赛中",
         finished: "已完赛",
@@ -1095,7 +1309,22 @@
         title: "SRC Simulation Race",
         subtitle: "Live ranking, progress, and station splits for the SRC brand race.",
         live: "LIVE",
-        raceId: "Race ID",
+        raceId: "Select race",
+        mockGroup: "Mock race",
+        liveGroup: "Live races",
+        mockKind: "Mock data",
+        liveKind: "Live data",
+        clearRace: "Clear race data",
+        clearDisabled: "Mock data is not stored in the database",
+        clearRaceTitle: "Clear race data",
+        confirmRaceId: "Enter Race ID to confirm",
+        adminCode: "Administrator clear code",
+        cancel: "Cancel",
+        confirmClear: "Clear data",
+        clearing: "Clearing...",
+        clearSuccess: "Race data cleared.",
+        clearDescription: "This permanently deletes all entries and timing records for {race}, while keeping the race profile.",
+        confirmationMismatch: "Enter the exact Race ID to continue.",
         total: "Entries",
         racing: "Racing",
         finished: "Finished",
@@ -1253,7 +1482,46 @@
     }
 
     function isDemoRaceId(raceId) {
-      return demoRaceIds.has(String(raceId || "").trim().toLowerCase());
+      return String(raceId || "").trim().toLowerCase() === "src-hyrox";
+    }
+
+    function selectedRace() {
+      return raceCatalog.find((race) => race.raceId === raceIdInput.value) || raceCatalog[1];
+    }
+
+    function buildRaceOptions() {
+      const selectedId = raceIdInput.value || initialRaceId;
+      const groups = [
+        { kind: "mock", label: t("mockGroup") },
+        { kind: "live", label: t("liveGroup") }
+      ].map(({ kind, label }) => {
+        const group = document.createElement("optgroup");
+        group.label = label;
+        raceCatalog.filter((race) => race.kind === kind).forEach((race) => {
+          group.append(new Option(race[language], race.raceId));
+        });
+        return group;
+      });
+      raceIdInput.replaceChildren(...groups);
+      raceIdInput.value = knownRaceIds.has(selectedId) ? selectedId : initialRaceId;
+    }
+
+    function updateRaceControls(updateUrl = true) {
+      const race = selectedRace();
+      const isMock = race.kind === "mock";
+      raceKind.dataset.kind = race.kind;
+      raceKind.textContent = t(isMock ? "mockKind" : "liveKind");
+      clearRaceButton.textContent = t("clearRace");
+      clearRaceButton.disabled = isMock;
+      clearRaceButton.title = isMock ? t("clearDisabled") : t("clearRace");
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("raceId", race.raceId);
+        url.searchParams.delete("race");
+        url.searchParams.delete("demo");
+        url.searchParams.delete("mock");
+        window.history.replaceState({}, "", url);
+      }
     }
 
     function escapeHtml(value) {
@@ -1285,6 +1553,8 @@
       document.querySelectorAll("[data-lang-button]").forEach((button) => {
         button.classList.toggle("active", button.dataset.langButton === language);
       });
+      buildRaceOptions();
+      updateRaceControls(false);
       renderAd();
     }
 
@@ -1714,11 +1984,30 @@
 
     async function fetchLeaderboardPayload(raceId) {
       const response = await window.timingApiFetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
-      const payload = await response.json();
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        throw new Error(`HTTP ${response.status}: API did not return JSON`);
+      }
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
       return payload;
+    }
+
+    function renderLeaderboardError(error) {
+      const race = selectedRace();
+      const stationCount = race.raceId === "hoka-race" ? 5 : 8;
+      configureSplitColumns({ stationCount });
+      totalCount.textContent = "0";
+      racingCount.textContent = "0";
+      finishedCount.textContent = "0";
+      updatedAt.textContent = `${t("error")}: ${error.message}`;
+      leaderboardBody.innerHTML = `
+        <tr><td class="empty" colspan="${5 + stationCount}">${escapeHtml(error.message)}</td></tr>
+      `;
     }
 
     function renderLeaderboard(payload, isDemoData) {
@@ -1772,23 +2061,11 @@
     }
 
     async function loadLeaderboard() {
-      const raceId = raceIdInput.value.trim() || "hyrox-sim-001";
-      const shouldUseDemoData = useDemoFallback || isDemoRaceId(raceId);
-      let payload;
-      let isDemoData = shouldUseDemoData;
-
-      if (shouldUseDemoData) {
-        payload = mockLeaderboardPayload(raceId);
-      } else {
-        try {
-          payload = await fetchLeaderboardPayload(raceId);
-        } catch (error) {
-          useDemoFallback = true;
-          isDemoData = true;
-          payload = mockLeaderboardPayload(raceId);
-        }
-      }
-
+      const raceId = raceIdInput.value || initialRaceId;
+      const isDemoData = isDemoRaceId(raceId);
+      const payload = isDemoData
+        ? mockLeaderboardPayload(raceId)
+        : await fetchLeaderboardPayload(raceId);
       renderLeaderboard(payload, isDemoData);
     }
 
@@ -1796,7 +2073,70 @@
       try {
         await loadLeaderboard();
       } catch (error) {
-        updatedAt.textContent = `${t("error")}: ${error.message}`;
+        renderLeaderboardError(error);
+      }
+    }
+
+    function openClearDialog() {
+      const race = selectedRace();
+      if (race.kind === "mock") return;
+      clearRaceDescription.textContent = t("clearDescription").replace("{race}", `${race[language]} (${race.raceId})`);
+      clearRaceConfirmation.value = "";
+      clearAdminCode.value = "";
+      clearRaceStatus.textContent = "";
+      clearRaceStatus.classList.remove("success");
+      confirmClearButton.disabled = false;
+      cancelClearButton.disabled = false;
+      clearRaceDialog.showModal();
+      clearRaceConfirmation.focus();
+    }
+
+    function closeClearDialog() {
+      if (clearRaceDialog.open) clearRaceDialog.close();
+    }
+
+    async function submitClearRace(event) {
+      event.preventDefault();
+      const raceId = selectedRace().raceId;
+      if (clearRaceConfirmation.value.trim() !== raceId) {
+        clearRaceStatus.textContent = t("confirmationMismatch");
+        clearRaceConfirmation.focus();
+        return;
+      }
+
+      confirmClearButton.disabled = true;
+      cancelClearButton.disabled = true;
+      clearRaceStatus.classList.remove("success");
+      clearRaceStatus.textContent = t("clearing");
+      try {
+        const response = await window.timingApiFetch("/api/reset-race", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId,
+            confirmation: clearRaceConfirmation.value.trim(),
+            adminCode: clearAdminCode.value
+          })
+        });
+        const responseText = await response.text();
+        let payload;
+        try {
+          payload = JSON.parse(responseText);
+        } catch {
+          throw new Error(`HTTP ${response.status}: API did not return JSON`);
+        }
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        previousSignatures = null;
+        clearRaceStatus.classList.add("success");
+        clearRaceStatus.textContent = t("clearSuccess");
+        await refreshLoop();
+        window.setTimeout(closeClearDialog, 700);
+      } catch (error) {
+        clearRaceStatus.textContent = error.message;
+        confirmClearButton.disabled = false;
+        cancelClearButton.disabled = false;
       }
     }
 
@@ -1813,19 +2153,25 @@
 
     raceIdInput.addEventListener("change", () => {
       previousSignatures = null;
+      updateRaceControls();
       refreshLoop();
+    });
+
+    clearRaceButton.addEventListener("click", openClearDialog);
+    cancelClearButton.addEventListener("click", closeClearDialog);
+    clearRaceForm.addEventListener("submit", submitClearRace);
+    clearRaceDialog.addEventListener("click", (event) => {
+      if (event.target === clearRaceDialog) closeClearDialog();
     });
 
     adPreviousButton.addEventListener("click", () => setAdIndex(adIndex - 1));
     adNextButton.addEventListener("click", () => setAdIndex(adIndex + 1));
     adPlayButton.addEventListener("click", toggleAdPlayback);
 
-    if (initialRaceId) {
-      raceIdInput.value = initialRaceId;
-    }
-
     applyTheme(theme);
     applyLanguage(language);
+    raceIdInput.value = initialRaceId;
+    updateRaceControls();
     refreshLoop();
     setInterval(refreshLoop, 1000);
     setInterval(tickAds, 120);

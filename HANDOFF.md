@@ -14,7 +14,8 @@ The current proof of concept supports:
 - Live same-origin `/api/*` routing through Vercel to Supabase, with PostgreSQL as
   the authoritative online race engine.
 - Individual, doubles, and team registration with one NFC card per timed entry.
-- Live leaderboard with theme toggle, Chinese/English toggle, and F1-style row update flash.
+- Live leaderboard with one mock race, two official races, explicit mock/live labels,
+  protected per-race cleanup, theme/language toggles, and F1-style row update flash.
 - Full-screen accepted/error feedback, sound, vibration, and screen wake lock on timing devices.
 - Configurable 3-60 second duplicate protection, defaulting to 10 seconds.
 - Bundled `assets/check-in-success.wav` announcement after server-confirmed accepted events,
@@ -53,6 +54,7 @@ supabase/migrations/20260716060000_enable_cloud_timing_api.sql
 supabase/migrations/20260717010000_add_three_reader_finish_mode.sql
 supabase/migrations/20260717020000_seed_official_race_profiles.sql
 supabase/migrations/20260718010000_configure_hoka_station_boundaries.sql
+supabase/migrations/20260718020000_add_participant_entry_types.sql
 ```
 
 It creates these RLS-protected tables:
@@ -146,6 +148,7 @@ Optional variables:
 ```
 SUPABASE_SYNC_ENABLED=0       # disable cloud mirroring; default is enabled
 TIMING_SERVER_PORT=8788       # default is 8787
+LEADERBOARD_CLEAR_CODE=...    # 12+ characters; required for local race cleanup
 ```
 
 Use the publishable/anon key only for the REST client. Never use a Supabase
@@ -155,6 +158,12 @@ The current Vercel deployment needs no private environment variables. Static pag
 send the public key from `timing-api.js`; the Supabase Edge Function validates it
 against `SUPABASE_PUBLISHABLE_KEYS` and reads server credentials from Supabase-managed
 function secrets.
+
+The protected leaderboard cleanup uses the Supabase Function Secret
+`LEADERBOARD_CLEAR_CODE`. It is not a Vercel variable and must never be placed in
+browser code or committed. The user must enter both the exact Race ID and the clear
+code. The endpoint deletes only that race's participants and timing events and keeps
+the race profile.
 
 No `.env` change is needed for the current hosted frontend. Do not add a Supabase
 service-role key to Vercel or any browser-visible environment variable.
@@ -231,6 +240,9 @@ Purpose:
 - Show selected-race totals for participants, check-ins, finishes, timing events,
   and rejected/error events.
 - Link directly to the selected race's live leaderboard.
+- The leaderboard selector exposes one browser-only mock race plus the Fitmonster
+  and Hoka official Supabase races.
+- Official race cleanup requires the exact Race ID and administrator clear code.
 - Show explicit empty states when a race has no participants or timing events.
 - Store:
   - race ID
@@ -581,9 +593,8 @@ Important production correction:
 - The JWT-disabled Edge API is suitable only for test data until authentication is added.
 - No participant search/edit workflow beyond save/upsert.
 - No card unbind/rebind flow.
-- No cloud reset/cleanup action. Do not add one to the public JWT-disabled API;
-  implement it only after administrator authentication or a protected server-side
-  reset credential is available.
+- Race cleanup has a dedicated server-side clear code, but full administrator
+  authentication and rate limiting are still required before production use.
 - No central device registry or configuration lock yet.
 - No CSV import for participant list.
 - No admin correction workflow for missed/wrong taps.
@@ -592,27 +603,25 @@ Important production correction:
 - The local Python API still uses SQLite as its primary race engine; cloud-created
   participants are not pulled back into SQLite automatically.
 - No official deployment config for 火山云 yet.
-- Leaderboard still has a visible race ID input; public board should probably use URL parameter/default config instead.
+- Leaderboard selection is limited to one mock profile and the two official profiles.
 - Local database currently contains test records from development.
 
 ## Recommended Next Steps
 
-1. Remove or hide the race ID input from `leaderboard.html`; read `raceId` from `?raceId=` or default to `hyrox-sim-001`.
-2. Add authenticated reset/delete tools for test data; keep destructive Supabase
-   operations unavailable to anonymous browser clients.
-3. Add participant search and edit in `admin.html`.
-4. Add NFC card unbind/rebind.
-5. Add wave-start management and race exception review for missed/wrong taps.
-6. Add a persistent device retry queue for temporary network loss.
-7. Add a central device registry and configuration lock.
-8. Refactor backend storage behind a small repository layer so SQLite can be replaced by
+1. Add full administrator authentication and rate limiting around destructive actions.
+2. Add participant search and edit in `admin.html`.
+3. Add NFC card unbind/rebind.
+4. Add wave-start management and race exception review for missed/wrong taps.
+5. Add a persistent device retry queue for temporary network loss.
+6. Add a central device registry and configuration lock.
+7. Refactor backend storage behind a small repository layer so SQLite can be replaced by
    a fully remote PostgreSQL implementation.
-9. Prepare deployment variant for 火山云:
+8. Prepare deployment variant for 火山云:
    - static frontend on TOS
    - API on Function Service or ECS
    - managed DB
    - HTTPS custom domain
-10. Test a full race path:
+9. Test a full race path:
    - START
    - STATION_1_ENTER
    - STATION_1_EXIT
