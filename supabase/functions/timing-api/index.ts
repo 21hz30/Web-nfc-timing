@@ -1,6 +1,6 @@
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, apikey",
   "Cache-Control": "no-store",
 };
@@ -534,6 +534,18 @@ async function handleGet(route: string, url: URL): Promise<Response> {
     return jsonResponse({ ok: true, participants: await raceParticipants(raceId) });
   }
 
+  if (route === "/device-bindings") {
+    const raceId = requiredRaceId(url.searchParams.get("raceId"));
+    const bindings = await databaseRequest("device_bindings", {
+      query: {
+        select: "race_id,device_id,assignment,created_at,updated_at",
+        race_id: `eq.${raceId}`,
+        order: "assignment.asc",
+      },
+    });
+    return jsonResponse({ ok: true, raceId, bindings });
+  }
+
   if (route === "/timing-events") {
     const raceId = requiredRaceId(url.searchParams.get("raceId") || "hyrox-sim-001");
     const requestedLimit = Number(url.searchParams.get("limit") || "100");
@@ -770,6 +782,52 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
       cloudError: null,
     });
+  }
+
+  if (route === "/device-bindings") {
+    const raceId = requiredRaceId(payload.raceId);
+    const deviceId = String(payload.deviceId || "").trim();
+    const assignment = String(payload.assignment || "").trim().toUpperCase();
+    if (!deviceId || deviceId.length > 100) throw new Error("deviceId is required");
+    if (!assignment || assignment.length > 100) throw new Error("assignment is required");
+    await ensureRaceProfile(raceId);
+    const existing = await databaseRequest("device_bindings", {
+      query: {
+        select: "*",
+        race_id: `eq.${raceId}`,
+        device_id: `eq.${deviceId}`,
+        limit: "1",
+      },
+    });
+    const occupied = await databaseRequest("device_bindings", {
+      query: {
+        select: "device_id,assignment",
+        race_id: `eq.${raceId}`,
+        assignment: `eq.${assignment}`,
+        limit: "1",
+      },
+    });
+    if (occupied[0] && occupied[0].device_id !== deviceId) {
+      return jsonResponse({
+        ok: false,
+        error: "This role is already bound to another device",
+        binding: occupied[0],
+      }, 409);
+    }
+    const now = new Date().toISOString();
+    const rows = await databaseRequest("device_bindings", {
+      method: "POST",
+      query: { on_conflict: "race_id,device_id" },
+      body: {
+        race_id: raceId,
+        device_id: deviceId,
+        assignment,
+        created_at: existing[0]?.created_at || now,
+        updated_at: now,
+      },
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+    return jsonResponse({ ok: true, raceId, binding: rows[0] });
   }
 
   if (route === "/timing-events") {

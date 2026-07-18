@@ -278,6 +278,42 @@ class TimingApiTests(unittest.TestCase):
             "auto-test",
         )
 
+    def test_device_binding_requires_explicit_confirmation_and_reserves_assignment(self):
+        self.assertEqual(
+            self.request_json("/api/device-bindings?raceId=auto-test")["bindings"],
+            [],
+        )
+        binding = self.request_json(
+            "/api/device-bindings",
+            {
+                "raceId": "auto-test",
+                "deviceId": "reader-out-01",
+                "assignment": "RUN_OUT",
+            },
+        )["binding"]
+        self.assertEqual(binding["assignment"], "RUN_OUT")
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/device-bindings",
+                {
+                    "raceId": "auto-test",
+                    "deviceId": "reader-out-02",
+                    "assignment": "RUN_OUT",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.CONFLICT)
+
+        updated = self.request_json(
+            "/api/device-bindings",
+            {
+                "raceId": "auto-test",
+                "deviceId": "reader-out-01",
+                "assignment": "RUN_IN",
+            },
+        )["binding"]
+        self.assertEqual(updated["assignment"], "RUN_IN")
+
     def test_wrong_gate_is_stored_without_advancing_progress(self):
         start = self.request_json(
             "/api/timing-events",

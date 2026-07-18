@@ -654,8 +654,8 @@
         <label id="gateRoleField">
           本机角色
           <select id="gateRole">
-            <option value="RUN_OUT">跑步出发口 / RUN OUT</option>
-            <option value="RUN_IN">跑步结束口 / RUN IN</option>
+            <option value="RUN_OUT">跑步出口（离开站点） / RUN OUT</option>
+            <option value="RUN_IN">跑步入口（进入站点） / RUN IN</option>
             <option value="FINISH" hidden disabled>终点 / FINISH</option>
           </select>
         </label>
@@ -695,6 +695,13 @@
             </span>
           </label>
           <button id="testVoiceButton" class="setting-button" type="button">测试语音</button>
+        </div>
+        <div class="voice-setting">
+          <div>
+            <strong>设备绑定</strong>
+            <small id="deviceBindingStatus">请确认 Device ID 与本机角色后再开始扫描。</small>
+          </div>
+          <button id="bindDeviceButton" class="setting-button" type="button">绑定本机角色</button>
         </div>
       </div>
     </details>
@@ -766,6 +773,8 @@
       timingMode: document.querySelector("#timingMode"),
       voiceEnabled: document.querySelector("#voiceEnabled"),
       raceProfileStatus: document.querySelector("#raceProfileStatus")
+      ,deviceBindingStatus: document.querySelector("#deviceBindingStatus")
+      ,bindDeviceButton: document.querySelector("#bindDeviceButton")
     };
 
     const settingsKey = "srcNfcTimingSettingsV2";
@@ -803,19 +812,21 @@
     let speechTimer = null;
     let wakeLock = null;
     let raceProfile = null;
+    let deviceBindings = [];
+    let bindingConfirmed = false;
 
     function roleLabel(role) {
       return {
-        RUN_IN: "跑步结束口 / RUN IN",
-        RUN_OUT: "跑步出发口 / RUN OUT",
+        RUN_IN: "跑步入口（进入站点） / RUN IN",
+        RUN_OUT: "跑步出口（离开站点） / RUN OUT",
         FINISH: "终点 / FINISH"
       }[role] || role;
     }
 
     function shortRoleLabel(role) {
       return {
-        RUN_IN: "跑步结束口",
-        RUN_OUT: "跑步出发口",
+        RUN_IN: "跑步入口",
+        RUN_OUT: "跑步出口",
         FINISH: "终点"
       }[role] || role;
     }
@@ -827,8 +838,8 @@
         return usesStationBoundaries ? "第 1 站开始 / START" : "开始第 1 圈跑步";
       }
       if (checkpoint === "END") return "正式完赛";
-      if (checkpoint === "AUTO_RUN_OUT") return "跑步出发口 · 未推进";
-      if (checkpoint === "AUTO_RUN_IN") return "跑步结束口 · 未推进";
+      if (checkpoint === "AUTO_RUN_OUT") return "跑步出口 · 未推进";
+      if (checkpoint === "AUTO_RUN_IN") return "跑步入口 · 未推进";
       if (checkpoint === "AUTO_FINISH") return "终点 · 未推进";
       if (checkpoint === "AUTO") return "等待服务器自动判定";
 
@@ -1012,11 +1023,78 @@
         raceProfile.checkpoints,
         params.get("checkpoint") || params.get("stationId") || elements.stationId.value
       );
+      await loadDeviceBindings();
       elements.raceProfileStatus.textContent =
         raceProfile.name + " · " + raceProfile.mode
         + " · " + raceProfile.stationCount + " stations";
       elements.raceProfileStatus.dataset.tone = "success";
       renderConfiguration();
+    }
+
+    function bindingAssignment() {
+      return elements.timingMode.value === "auto"
+        ? elements.gateRole.value
+        : elements.stationId.value;
+    }
+
+    function currentDeviceBinding() {
+      const deviceId = elements.deviceId.value.trim();
+      return deviceBindings.find((binding) => binding.device_id === deviceId) || null;
+    }
+
+    function renderDeviceBindingAvailability() {
+      const deviceId = elements.deviceId.value.trim();
+      const ownBinding = currentDeviceBinding();
+      if (ownBinding) {
+        elements.deviceBindingStatus.textContent = `已绑定：${ownBinding.device_id} · ${ownBinding.assignment}`;
+        elements.deviceBindingStatus.dataset.tone = "success";
+        elements.bindDeviceButton.textContent = "重新确认绑定";
+      } else if (deviceId) {
+        elements.deviceBindingStatus.textContent = "尚未确认；请点击“绑定本机角色”锁定当前选择。";
+        elements.deviceBindingStatus.dataset.tone = "warning";
+        elements.bindDeviceButton.textContent = "绑定本机角色";
+      } else {
+        elements.deviceBindingStatus.textContent = "请先填写 Device ID。";
+        elements.bindDeviceButton.textContent = "绑定本机角色";
+      }
+    }
+
+    async function loadDeviceBindings() {
+      const raceId = elements.raceId.value.trim();
+      if (!raceId) return;
+      const response = await window.timingApiFetch(
+        "/api/device-bindings?raceId=" + encodeURIComponent(raceId)
+      );
+      const payload = await readApiResponse(response);
+      if (!response.ok || !payload.ok) throw new Error(payload.error || ("HTTP " + response.status));
+      deviceBindings = Array.isArray(payload.bindings) ? payload.bindings : [];
+      bindingConfirmed = Boolean(currentDeviceBinding());
+      renderDeviceBindingAvailability();
+    }
+
+    async function bindDevice() {
+      const deviceId = elements.deviceId.value.trim();
+      const assignment = bindingAssignment();
+      if (!deviceId) throw new Error("请先填写 Device ID");
+      const response = await window.timingApiFetch("/api/device-bindings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raceId: elements.raceId.value.trim(), deviceId, assignment })
+      });
+      const payload = await readApiResponse(response);
+      if (!response.ok || !payload.ok) throw new Error(payload.error || ("HTTP " + response.status));
+      await loadDeviceBindings();
+      bindingConfirmed = true;
+      setStatus(`设备绑定成功：${deviceId} · ${assignment}`, "success");
+    }
+
+    async function ensureDeviceBinding() {
+      await loadDeviceBindings();
+      const assignment = bindingAssignment();
+      const ownBinding = currentDeviceBinding();
+      if (!bindingConfirmed || !ownBinding || ownBinding.assignment !== assignment) {
+        throw new Error("请先点击“绑定本机角色”，确认当前 Device ID 和角色");
+      }
     }
 
     function showRaceProfileError(error) {
@@ -1478,6 +1556,7 @@
       try {
         await loadRaceProfile();
         validateConfiguration();
+        await ensureDeviceBinding();
         saveSettings();
         await unlockAudio();
         await unlockSuccessVoice();
@@ -1547,6 +1626,10 @@
       }
     });
 
+    elements.bindDeviceButton.addEventListener("click", () => {
+      bindDevice().catch((error) => setStatus(`设备绑定失败：${error.message}`, "error"));
+    });
+
     [
       elements.deviceId,
       elements.duplicateProtectionSeconds,
@@ -1564,6 +1647,17 @@
 
     elements.raceId.addEventListener("change", () => {
       refreshRaceData().catch(showRaceProfileError);
+    });
+
+    [elements.deviceId, elements.gateRole, elements.stationId].forEach((control) => {
+      control.addEventListener("change", () => {
+        bindingConfirmed = false;
+        renderDeviceBindingAvailability();
+      });
+      control.addEventListener("input", () => {
+        bindingConfirmed = false;
+        renderDeviceBindingAvailability();
+      });
     });
 
     document.addEventListener("visibilitychange", () => {

@@ -30,6 +30,10 @@ The current proof of concept supports:
   progression and fixed per-station checkpoints.
 - Fixed same-origin `/api/*` routing on the timing phone page; operators cannot edit
   or accidentally replace the Supabase upload URL.
+- Timing devices require explicit operator confirmation of Device ID plus role or
+  checkpoint before scanning. The selected assignment is reserved per race, so
+  another device cannot confirm an occupied assignment. The UI does not infer a
+  physical location from a role, allowing venues with multiple checkpoints.
 - Admin race selector and data overview for participants, check-ins, finishes,
   timing events, rejected events, empty data states, and race-specific leaderboard links.
 
@@ -65,6 +69,7 @@ It creates these RLS-protected tables:
 public.participants
 public.timing_events
 public.race_profiles
+public.device_bindings
 ```
 
 Current verified cloud data:
@@ -395,7 +400,9 @@ https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&devic
 ~~~
 
 The scanner fetches `GET /api/race-config?raceId=...` on startup and automatically
-selects auto/manual mode and the profile's checkpoint list. Hoka needs 6 devices:
+selects auto/manual mode and the profile's checkpoint list. The operator must then
+confirm the Device ID and selected role/checkpoint with **绑定本机角色** before
+starting NFC. Hoka needs 6 devices:
 Station 1 also records START, Stations 2-5 each end the previous segment and start
 the next, and END closes Station 5. FitMonster needs 3 devices: RUN_OUT, RUN_IN, and
 FINISH. The scanner Race ID dropdown lists these two official races first and groups

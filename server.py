@@ -197,6 +197,17 @@ def init_db() -> None:
               updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS device_bindings (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              race_id TEXT NOT NULL,
+              device_id TEXT NOT NULL,
+              assignment TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE (race_id, device_id),
+              UNIQUE (race_id, assignment)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_participants_race
               ON participants (race_id, card_code);
 
@@ -913,6 +924,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_get_races()
             return
 
+        if parsed.path == "/api/device-bindings":
+            self.handle_get_device_bindings(parsed.query)
+            return
+
         if parsed.path == "/api/timing-events":
             self.handle_get_timing_events(parsed.query)
             return
@@ -943,6 +958,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/race-config":
             self.handle_post_race_config()
+            return
+
+        if parsed.path == "/api/device-bindings":
+            self.handle_post_device_binding()
             return
 
         if parsed.path == "/api/participants":
@@ -1070,6 +1089,63 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "raceProfilePreserved": True,
                 }
             )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_get_device_bindings(self, query: str) -> None:
+        race_id = parse_qs(query).get("raceId", [""])[0].strip()
+        if not race_id:
+            self.send_json({"ok": False, "error": "raceId is required"}, HTTPStatus.BAD_REQUEST)
+            return
+        with connect_db() as db:
+            rows = db.execute(
+                "SELECT race_id, device_id, assignment, created_at, updated_at "
+                "FROM device_bindings WHERE race_id = ? ORDER BY assignment",
+                (race_id,),
+            ).fetchall()
+        self.send_json({"ok": True, "raceId": race_id, "bindings": [row_to_dict(row) for row in rows]})
+
+    def handle_post_device_binding(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            device_id = str(payload.get("deviceId") or "").strip()
+            assignment = str(payload.get("assignment") or "").strip().upper()
+            if not race_id or len(race_id) > 80 or not all(c.isalnum() or c in "-_" for c in race_id):
+                raise ValueError("raceId must contain only letters, numbers, hyphens, or underscores")
+            if not device_id or len(device_id) > 100:
+                raise ValueError("deviceId is required")
+            if not assignment or len(assignment) > 100:
+                raise ValueError("assignment is required")
+            now = utc_now()
+            with connect_db() as db:
+                occupied = db.execute(
+                    "SELECT device_id, assignment FROM device_bindings "
+                    "WHERE race_id = ? AND assignment = ?",
+                    (race_id, assignment),
+                ).fetchone()
+                if occupied and occupied["device_id"] != device_id:
+                    self.send_json(
+                        {"ok": False, "error": "This role is already bound to another device", "binding": row_to_dict(occupied)},
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                existing = db.execute(
+                    "SELECT created_at FROM device_bindings WHERE race_id = ? AND device_id = ?",
+                    (race_id, device_id),
+                ).fetchone()
+                db.execute(
+                    "INSERT INTO device_bindings (race_id, device_id, assignment, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT (race_id, device_id) DO UPDATE SET assignment = excluded.assignment, updated_at = excluded.updated_at",
+                    (race_id, device_id, assignment, existing["created_at"] if existing else now, now),
+                )
+                row = db.execute(
+                    "SELECT race_id, device_id, assignment, created_at, updated_at FROM device_bindings "
+                    "WHERE race_id = ? AND device_id = ?",
+                    (race_id, device_id),
+                ).fetchone()
+            self.send_json({"ok": True, "raceId": race_id, "binding": row_to_dict(row)})
         except (json.JSONDecodeError, ValueError) as error:
             self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
