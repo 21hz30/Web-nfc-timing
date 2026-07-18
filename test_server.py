@@ -328,6 +328,19 @@ class TimingApiTests(unittest.TestCase):
         self.assertEqual(existing["entry_type"], "individual")
         self.assertEqual(existing["member_names"], ["Test Athlete"])
 
+        no_bib = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "NO-BIB-001",
+                "athleteName": "No Bib Athlete",
+                "entryType": "individual",
+                "memberNames": ["No Bib Athlete"],
+                "checkInStatus": "checked_in",
+            },
+        )["participant"]
+        self.assertIsNone(no_bib["bib_number"])
+
         leaderboard = self.request_json(
             "/api/leaderboard?raceId=auto-test"
         )["leaderboard"]

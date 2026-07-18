@@ -361,10 +361,6 @@
           <input id="cardCode" placeholder="SIM-001" autocomplete="off" required>
         </label>
         <label>
-          Bib
-          <input id="bibNumber" placeholder="001" autocomplete="off">
-        </label>
-        <label>
           <span id="displayNameLabel">选手姓名</span>
           <input id="athleteName" placeholder="Peter Zhang" autocomplete="off" required>
         </label>
@@ -457,7 +453,6 @@
         <table>
           <thead>
             <tr>
-              <th>Bib</th>
               <th>Type</th>
               <th>参赛名称</th>
               <th>成员</th>
@@ -470,7 +465,7 @@
             </tr>
           </thead>
           <tbody id="participantsBody">
-            <tr class="empty-row"><td colspan="10">正在读取选手数据。</td></tr>
+            <tr class="empty-row"><td colspan="9">正在读取选手数据。</td></tr>
           </tbody>
         </table>
       </div>
@@ -742,7 +737,6 @@
           : [participant.athlete_name];
         return `
           <tr>
-            <td class="mono">${escapeHtml(participant.bib_number || "-")}</td>
             <td>${escapeHtml(entryTypeLabel(entryType))}</td>
             <td>${escapeHtml(participant.athlete_name)}</td>
             <td>${entryType === "individual" ? "-" : escapeHtml(memberNames.join(" / "))}</td>
@@ -809,7 +803,6 @@
         const payload = {
           raceId: selectedRaceId(),
           cardCode: document.querySelector("#cardCode").value.trim().toUpperCase(),
-          bibNumber: document.querySelector("#bibNumber").value.trim(),
           athleteName: displayName,
           entryType,
           memberNames,
