@@ -216,6 +216,61 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(response["storage"]["localSaved"])
         self.assertFalse(response["storage"]["supabaseSaved"])
 
+    def test_participant_entries_support_individual_doubles_and_team(self):
+        doubles = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "PAIR-001",
+                "bibNumber": "D01",
+                "athleteName": "Fast Pair",
+                "entryType": "doubles",
+                "memberNames": ["Runner One", "Runner Two"],
+                "phone": "13800000000",
+                "gender": "mixed",
+                "division": "Doubles",
+                "checkInStatus": "checked_in",
+            },
+        )["participant"]
+        self.assertEqual(doubles["entry_type"], "doubles")
+        self.assertEqual(doubles["member_names"], ["Runner One", "Runner Two"])
+        self.assertEqual(doubles["member_count"], 2)
+        self.assertIsNone(doubles["phone"])
+        self.assertIsNone(doubles["gender"])
+        self.assertIsNone(doubles["division"])
+
+        team = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "TEAM-001",
+                "bibNumber": "T01",
+                "athleteName": "SRC Team",
+                "entryType": "team",
+                "memberNames": ["A", "B", "C", "D"],
+                "checkInStatus": "checked_in",
+            },
+        )["participant"]
+        self.assertEqual(team["entry_type"], "team")
+        self.assertEqual(team["member_names"], ["A", "B", "C", "D"])
+        self.assertEqual(team["member_count"], 4)
+
+        participants = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"]
+        existing = next(row for row in participants if row["card_code"] == "SIM-001")
+        self.assertEqual(existing["entry_type"], "individual")
+        self.assertEqual(existing["member_names"], ["Test Athlete"])
+
+        leaderboard = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"]
+        team_row = next(row for row in leaderboard if row["cardCode"] == "TEAM-001")
+        self.assertEqual(team_row["athleteName"], "SRC Team")
+        self.assertEqual(team_row["entryType"], "team")
+        self.assertEqual(team_row["memberNames"], ["A", "B", "C", "D"])
+        self.assertEqual(team_row["memberCount"], 4)
+
     def test_three_reader_api_requires_finish_role_for_end(self):
         server.save_race_profile(
             server.make_race_profile(
@@ -344,6 +399,8 @@ class RaceProfileTests(TimingApiTests):
             ["START", "STATION_1_START", "STATION_2_START", "STATION_3_START",
              "STATION_4_START", "STATION_5_START", "END"],
         )
+        hoka = self.request_json("/api/race-config?raceId=hoka-race")["race"]
+        self.assertEqual(hoka["entryType"], "team")
 
     def test_boundary_station_mode_uses_six_devices_and_adjacent_splits(self):
         race_id = "hoka-boundary-test"

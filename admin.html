@@ -125,6 +125,28 @@
       align-items: end;
     }
 
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    .field-hidden {
+      display: none;
+    }
+
+    .member-fields {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid #d7dee7;
+      border-radius: 6px;
+      background: #f7f9fb;
+    }
+
+    .member-fields[hidden] {
+      display: none;
+    }
+
     .overview-header {
       display: flex;
       align-items: center;
@@ -200,7 +222,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 760px;
+      min-width: 1080px;
     }
 
     .table-scroll {
@@ -256,6 +278,10 @@
         grid-template-columns: 1fr;
       }
 
+      .member-fields {
+        grid-template-columns: 1fr;
+      }
+
       .overview-header {
         align-items: stretch;
         flex-direction: column;
@@ -301,7 +327,7 @@
         <a id="leaderboardLink" class="button-link" href="./leaderboard.html" target="_blank" rel="noopener">打开数据大屏</a>
       </div>
       <div class="metrics" aria-live="polite">
-        <div class="metric"><span>参赛选手</span><strong id="metricParticipants">0</strong></div>
+        <div class="metric"><span>参赛单位</span><strong id="metricParticipants">0</strong></div>
         <div class="metric"><span>已签到</span><strong id="metricCheckedIn">0</strong></div>
         <div class="metric"><span>已完赛</span><strong id="metricFinished">0</strong></div>
         <div class="metric"><span>计时记录</span><strong id="metricEvents">0</strong></div>
@@ -310,8 +336,8 @@
     </section>
 
     <section>
-      <h2>选手登记 / NFC 绑定</h2>
-      <p>NFC tag 只写卡号，例如 SIM-001；姓名、手机、性别和组别只存后台。</p>
+      <h2>参赛登记 / NFC 绑定</h2>
+      <p>一张 NFC 卡对应一个参赛单位；个人资料或团队成员只存后台。</p>
       <form id="participantForm" class="grid">
         <label>
           比赛 / Race ID
@@ -323,22 +349,35 @@
           </select>
         </label>
         <label>
+          参赛类型
+          <select id="entryType">
+            <option value="individual">个人比赛</option>
+            <option value="doubles">双人比赛</option>
+            <option value="team">团队比赛</option>
+          </select>
+        </label>
+        <label>
           Card Code
-          <input id="cardCode" placeholder="SIM-001" autocomplete="off">
+          <input id="cardCode" placeholder="SIM-001" autocomplete="off" required>
         </label>
         <label>
           Bib
           <input id="bibNumber" placeholder="001" autocomplete="off">
         </label>
         <label>
-          Name
-          <input id="athleteName" placeholder="Peter Zhang" autocomplete="off">
+          <span id="displayNameLabel">选手姓名</span>
+          <input id="athleteName" placeholder="Peter Zhang" autocomplete="off" required>
         </label>
-        <label>
+        <label id="memberCountField">
+          参赛人数
+          <input id="memberCount" type="number" min="1" max="12" step="1" value="1">
+        </label>
+        <div id="memberFields" class="member-fields wide" hidden></div>
+        <label data-individual-field>
           Phone
           <input id="phone" placeholder="13800000000" autocomplete="off">
         </label>
-        <label>
+        <label data-individual-field>
           Gender
           <select id="gender">
             <option value="">-</option>
@@ -347,7 +386,7 @@
             <option value="mixed">Mixed</option>
           </select>
         </label>
-        <label>
+        <label data-individual-field>
           Division
           <select id="division">
             <option value="">-</option>
@@ -394,6 +433,14 @@
           </select>
         </label>
         <label>
+          默认参赛类型
+          <select id="raceEntryType">
+            <option value="individual">个人比赛</option>
+            <option value="doubles">双人比赛</option>
+            <option value="team">团队比赛</option>
+          </select>
+        </label>
+        <label>
           站点数量
           <input id="raceStationCount" type="number" min="1" max="20" step="1" value="8">
         </label>
@@ -411,7 +458,9 @@
           <thead>
             <tr>
               <th>Bib</th>
-              <th>Name</th>
+              <th>Type</th>
+              <th>参赛名称</th>
+              <th>成员</th>
               <th>Phone</th>
               <th>Gender</th>
               <th>Division</th>
@@ -421,7 +470,7 @@
             </tr>
           </thead>
           <tbody id="participantsBody">
-            <tr class="empty-row"><td colspan="8">正在读取选手数据。</td></tr>
+            <tr class="empty-row"><td colspan="10">正在读取选手数据。</td></tr>
           </tbody>
         </table>
       </div>
@@ -436,7 +485,7 @@
               <th>Received</th>
               <th>Status</th>
               <th>Card</th>
-              <th>Athlete</th>
+              <th>参赛单位</th>
               <th>Station</th>
               <th>Device</th>
             </tr>
@@ -466,21 +515,31 @@
     const metricFinished = document.querySelector("#metricFinished");
     const metricEvents = document.querySelector("#metricEvents");
     const metricErrors = document.querySelector("#metricErrors");
+    const entryTypeSelect = document.querySelector("#entryType");
+    const raceEntryTypeSelect = document.querySelector("#raceEntryType");
+    const memberCountInput = document.querySelector("#memberCount");
+    const memberFields = document.querySelector("#memberFields");
+    const displayNameLabel = document.querySelector("#displayNameLabel");
+    const athleteNameInput = document.querySelector("#athleteName");
+    const individualFields = Array.from(document.querySelectorAll("[data-individual-field]"));
     const pageParams = new URLSearchParams(window.location.search);
     const officialRaces = [
       {
         raceId: "fitmonster-hyrox-single",
         name: "Fitmonster Hyrox Single",
         stationCount: 8,
-        deviceCount: 3
+        deviceCount: 3,
+        entryType: "individual"
       },
       {
         raceId: "hoka-race",
         name: "Hoka Race",
         stationCount: 5,
-        deviceCount: 6
+        deviceCount: 6,
+        entryType: "team"
       }
     ];
+    let activeEntryType = "individual";
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -504,6 +563,76 @@
       formStatus.classList.toggle("error", isError);
     }
 
+    function entryTypeLabel(entryType) {
+      return {
+        individual: "个人比赛",
+        doubles: "双人比赛",
+        team: "团队比赛"
+      }[entryType] || "个人比赛";
+    }
+
+    function currentMemberNames() {
+      return Array.from(memberFields.querySelectorAll("input[data-member-name]"))
+        .map((input) => input.value.trim());
+    }
+
+    function renderMemberFields(count, preferredNames = []) {
+      const existingNames = currentMemberNames();
+      const names = preferredNames.length ? preferredNames : existingNames;
+      memberFields.innerHTML = Array.from({ length: count }, (_, index) => `
+        <label>
+          成员 ${index + 1} 姓名
+          <input
+            data-member-name
+            value="${escapeHtml(names[index] || "")}"
+            placeholder="成员 ${index + 1}"
+            autocomplete="off"
+            required>
+        </label>
+      `).join("");
+    }
+
+    function applyEntryType(entryType, preferredNames = []) {
+      const normalized = ["individual", "doubles", "team"].includes(entryType)
+        ? entryType
+        : "individual";
+      const previousEntryType = activeEntryType;
+      entryTypeSelect.value = normalized;
+      const isIndividual = normalized === "individual";
+      const memberCount = isIndividual
+        ? 1
+        : normalized === "doubles"
+          ? 2
+          : previousEntryType === "team"
+            ? Math.max(2, Math.min(Number(memberCountInput.value) || 4, 12))
+            : 4;
+      memberCountInput.value = String(memberCount);
+      memberCountInput.disabled = normalized !== "team";
+      displayNameLabel.textContent = isIndividual
+        ? "选手姓名"
+        : normalized === "doubles"
+          ? "双人组名称"
+          : "团队名称";
+      athleteNameInput.placeholder = isIndividual
+        ? "Peter Zhang"
+        : normalized === "doubles"
+          ? "Fast Pair"
+          : "SRC Team";
+      individualFields.forEach((field) => {
+        field.classList.toggle("field-hidden", !isIndividual);
+        field.querySelectorAll("input, select").forEach((control) => {
+          control.disabled = !isIndividual;
+        });
+      });
+      memberFields.hidden = isIndividual;
+      if (isIndividual) {
+        memberFields.replaceChildren();
+      } else {
+        renderMemberFields(memberCount, preferredNames);
+      }
+      activeEntryType = normalized;
+    }
+
     async function requestJson(url, options) {
       const response = await window.timingApiFetch(url, options);
       const responseText = await response.text();
@@ -525,10 +654,11 @@
 
     function raceOptionLabel(race) {
       const official = officialRaces.find((item) => item.raceId === race.raceId);
+      const category = entryTypeLabel(race.entryType || official?.entryType || "individual");
       if (official) {
-        return `${race.name || official.name} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
+        return `${race.name || official.name} · ${category} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
       }
-      return `${race.name || race.raceId} · ${race.stationCount || "?"} 站`;
+      return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站`;
     }
 
     function updateRaceLinks(raceId) {
@@ -581,6 +711,8 @@
       document.querySelector("#raceConfigName").value = race.name || race.raceId;
       document.querySelector("#raceMode").value = race.mode;
       document.querySelector("#raceStationCount").value = race.stationCount;
+      raceEntryTypeSelect.value = race.entryType || "individual";
+      applyEntryType(race.entryType || "individual");
       overviewRaceName.textContent = raceOptionLabel(race);
       updateRaceLinks(raceId);
       raceConfigStatus.textContent =
@@ -599,22 +731,30 @@
       ).length;
       if (!participants.length) {
         participantsBody.innerHTML = `
-          <tr class="empty-row"><td colspan="8">当前比赛还没有选手，请先在上方登记并绑定 NFC 卡。</td></tr>
+          <tr class="empty-row"><td colspan="10">当前比赛还没有参赛单位，请先在上方登记并绑定 NFC 卡。</td></tr>
         `;
         return;
       }
-      participantsBody.innerHTML = participants.map((participant) => `
-        <tr>
-          <td class="mono">${escapeHtml(participant.bib_number || "-")}</td>
-          <td>${escapeHtml(participant.athlete_name)}</td>
-          <td class="mono">${escapeHtml(participant.phone || "-")}</td>
-          <td>${escapeHtml(participant.gender || "-")}</td>
-          <td>${escapeHtml(participant.division || "-")}</td>
-          <td class="mono">${escapeHtml(participant.card_code)}</td>
-          <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
-          <td class="mono">${formatTime(participant.updated_at)}</td>
-        </tr>
-      `).join("");
+      participantsBody.innerHTML = participants.map((participant) => {
+        const entryType = participant.entry_type || "individual";
+        const memberNames = Array.isArray(participant.member_names)
+          ? participant.member_names
+          : [participant.athlete_name];
+        return `
+          <tr>
+            <td class="mono">${escapeHtml(participant.bib_number || "-")}</td>
+            <td>${escapeHtml(entryTypeLabel(entryType))}</td>
+            <td>${escapeHtml(participant.athlete_name)}</td>
+            <td>${entryType === "individual" ? "-" : escapeHtml(memberNames.join(" / "))}</td>
+            <td class="mono">${escapeHtml(participant.phone || "-")}</td>
+            <td>${escapeHtml(participant.gender || "-")}</td>
+            <td>${escapeHtml(participant.division || "-")}</td>
+            <td class="mono">${escapeHtml(participant.card_code)}</td>
+            <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
+            <td class="mono">${formatTime(participant.updated_at)}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     async function loadEvents(raceId = selectedRaceId()) {
@@ -625,7 +765,7 @@
       metricErrors.textContent = events.filter((event) => event.status !== "accepted").length;
       if (!events.length) {
         eventsBody.innerHTML = `
-          <tr class="empty-row"><td colspan="6">当前比赛还没有刷卡记录，首位选手打卡后会自动显示。</td></tr>
+          <tr class="empty-row"><td colspan="6">当前比赛还没有刷卡记录，首个参赛单位打卡后会自动显示。</td></tr>
         `;
         return;
       }
@@ -661,14 +801,21 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
+        const entryType = entryTypeSelect.value;
+        const displayName = athleteNameInput.value.trim();
+        const memberNames = entryType === "individual"
+          ? [displayName]
+          : currentMemberNames();
         const payload = {
           raceId: selectedRaceId(),
           cardCode: document.querySelector("#cardCode").value.trim().toUpperCase(),
           bibNumber: document.querySelector("#bibNumber").value.trim(),
-          athleteName: document.querySelector("#athleteName").value.trim(),
-          phone: document.querySelector("#phone").value.trim(),
-          gender: document.querySelector("#gender").value,
-          division: document.querySelector("#division").value,
+          athleteName: displayName,
+          entryType,
+          memberNames,
+          phone: entryType === "individual" ? document.querySelector("#phone").value.trim() : "",
+          gender: entryType === "individual" ? document.querySelector("#gender").value : "",
+          division: entryType === "individual" ? document.querySelector("#division").value : "",
           checkInStatus: document.querySelector("#checkInStatus").value
         };
         await requestJson("/api/participants", {
@@ -693,6 +840,7 @@
             raceId: document.querySelector("#raceConfigId").value.trim(),
             name: document.querySelector("#raceConfigName").value.trim(),
             mode: document.querySelector("#raceMode").value,
+            entryType: raceEntryTypeSelect.value,
             stationCount: Number(document.querySelector("#raceStationCount").value)
           })
         });
@@ -710,6 +858,8 @@
 
     raceIdSelect.addEventListener("change", () => {
       const raceId = selectedRaceId();
+      const officialRace = officialRaces.find((race) => race.raceId === raceId);
+      applyEntryType(officialRace?.entryType || "individual");
       raceConfigId.value = raceId;
       overviewRaceName.textContent = "正在读取比赛数据。";
       updateRaceLinks(raceId);
@@ -720,7 +870,18 @@
       });
     });
 
+    entryTypeSelect.addEventListener("change", () => {
+      applyEntryType(entryTypeSelect.value);
+    });
+
+    memberCountInput.addEventListener("input", () => {
+      if (entryTypeSelect.value !== "team") return;
+      const count = Math.max(2, Math.min(Number(memberCountInput.value) || 4, 12));
+      renderMemberFields(count);
+    });
+
     async function initialize() {
+      applyEntryType("individual");
       await loadRaceOptions();
       await Promise.all([loadRaceConfig(), refresh()]);
     }

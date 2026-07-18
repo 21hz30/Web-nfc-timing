@@ -114,6 +114,56 @@ function requiredRaceId(value: unknown): string {
   return raceId;
 }
 
+function normalizeEntryType(value: unknown): string {
+  const requested = String(value || "individual").trim().toLowerCase();
+  const entryType = requested === "single"
+    ? "individual"
+    : requested === "double"
+      ? "doubles"
+      : requested;
+  if (!new Set(["individual", "doubles", "team"]).has(entryType)) {
+    throw new Error("entryType must be individual, doubles, or team");
+  }
+  return entryType;
+}
+
+function normalizeMemberNames(value: unknown, fallbackName = ""): string[] {
+  const source = Array.isArray(value) ? value : [];
+  const names = source.map((name) => String(name).trim()).filter(Boolean);
+  if (!names.length && fallbackName) names.push(fallbackName);
+  if (names.some((name) => name.length > 100)) {
+    throw new Error("each member name must be 100 characters or fewer");
+  }
+  return names;
+}
+
+function normalizeParticipantEntry(payload: JsonObject): {
+  entryType: string;
+  displayName: string;
+  memberNames: string[];
+} {
+  const entryType = normalizeEntryType(payload.entryType);
+  let displayName = String(payload.athleteName || "").trim();
+  const memberNames = normalizeMemberNames(payload.memberNames, displayName);
+  if (entryType === "individual") {
+    if (memberNames.length !== 1) {
+      throw new Error("individual entries require exactly one member name");
+    }
+    displayName = memberNames[0];
+  } else if (entryType === "doubles") {
+    if (!displayName) throw new Error("doubles entries require a team name");
+    if (memberNames.length !== 2) {
+      throw new Error("doubles entries require exactly two member names");
+    }
+  } else {
+    if (!displayName) throw new Error("team entries require a team name");
+    if (memberNames.length < 2 || memberNames.length > 12) {
+      throw new Error("team entries require between 2 and 12 member names");
+    }
+  }
+  return { entryType, displayName, memberNames };
+}
+
 function buildCheckpoints(mode: string, stationCount: number): string[] {
   if (mode === "station_checkpoints") {
     return [
@@ -157,6 +207,7 @@ function defaultRaceProfile(raceId: string): DatabaseRow {
     mode: "two_reader_auto",
     station_count: 8,
     checkpoints: buildCheckpoints("two_reader_auto", 8),
+    entry_type: raceId === "hoka-race" ? "team" : "individual",
     created_at: now,
     updated_at: now,
   };
@@ -170,6 +221,7 @@ function raceResponse(profile: DatabaseRow): JsonObject {
     stationCount: Number(profile.station_count),
     checkpoints: profile.checkpoints,
     checkpointLayout: checkpointLayout(profile),
+    entryType: profile.entry_type || "individual",
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -240,6 +292,11 @@ function mergeParticipantDetails(
       division: participant.division || null,
       phone: participant.phone || null,
       gender: participant.gender || null,
+      entry_type: participant.entry_type || "individual",
+      member_names: normalizeMemberNames(
+        participant.member_names,
+        String(participant.athlete_name || ""),
+      ),
       check_in_status: participant.check_in_status || null,
     };
   });
@@ -341,6 +398,15 @@ function buildLeaderboard(
       athleteName: participant.athlete_name,
       bibNumber: participant.bib_number,
       cardCode: participant.card_code,
+      entryType: participant.entry_type || "individual",
+      memberNames: normalizeMemberNames(
+        participant.member_names,
+        String(participant.athlete_name || ""),
+      ),
+      memberCount: normalizeMemberNames(
+        participant.member_names,
+        String(participant.athlete_name || ""),
+      ).length,
       phone: participant.phone,
       gender: participant.gender,
       division: participant.division,
@@ -477,6 +543,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       throw new Error("stationCount must be between 1 and 20");
     }
     const existing = await findRaceProfile(raceId);
+    const entryType = normalizeEntryType(payload.entryType || existing?.entry_type);
     const requestedLayout = String(payload.checkpointLayout || "").trim().toLowerCase();
     if (!new Set(["", "station_starts", "station_boundaries"]).has(requestedLayout)) {
       throw new Error("checkpointLayout must be station_starts or station_boundaries");
@@ -503,6 +570,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       mode,
       station_count: stationCount,
       checkpoints,
+      entry_type: entryType,
       created_at: existing?.created_at || now,
       updated_at: now,
     };
@@ -523,7 +591,8 @@ async function handlePost(route: string, request: Request): Promise<Response> {
   if (route === "/participants") {
     const raceId = requiredRaceId(payload.raceId || "hyrox-sim-001");
     const cardCode = String(payload.cardCode || "").trim().toUpperCase();
-    const athleteName = String(payload.athleteName || "").trim();
+    const entry = normalizeParticipantEntry(payload);
+    const athleteName = entry.displayName;
     const checkInStatus = String(payload.checkInStatus || "checked_in").trim();
     if (!cardCode || !athleteName) {
       throw new Error("raceId, cardCode and athleteName are required");
@@ -546,9 +615,17 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       card_code: cardCode,
       athlete_name: athleteName,
       bib_number: String(payload.bibNumber || "").trim() || null,
-      phone: String(payload.phone || "").trim() || null,
-      gender: String(payload.gender || "").trim() || null,
-      division: String(payload.division || "").trim() || null,
+      entry_type: entry.entryType,
+      member_names: entry.memberNames,
+      phone: entry.entryType === "individual"
+        ? String(payload.phone || "").trim() || null
+        : null,
+      gender: entry.entryType === "individual"
+        ? String(payload.gender || "").trim() || null
+        : null,
+      division: entry.entryType === "individual"
+        ? String(payload.division || "").trim() || null
+        : null,
       check_in_status: checkInStatus,
       created_at: existingRows[0]?.created_at || now,
       updated_at: now,

@@ -135,6 +135,12 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
 - Backend is `server.py`, using Python standard library HTTP server plus SQLite.
 - Static pages are plain HTML/CSS/JS.
 - `admin.html` is the race admin/check-in/card binding page.
+- Registration supports `individual`, `doubles`, and `team` entries. One NFC card
+  represents one timed entry; grouped entries store a display name plus member names.
+- Fitmonster defaults to individual registration. Hoka defaults to a four-person team;
+  teams can use 2-12 members and doubles require exactly two.
+- Phone, gender, and division are stored only for individuals. The leaderboard shows
+  pair/team member names below the entry display name.
 - `web-nfc-timing-test.html` is the Android Web NFC station timing page.
 - The timing page supports automatic two-reader progression, manual checkpoint fallback,
   configurable duplicate protection, full-screen feedback, Chinese speech, sound,

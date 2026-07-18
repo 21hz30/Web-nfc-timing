@@ -13,7 +13,7 @@ The current proof of concept supports:
 - Local SQLite timing storage with a Supabase cloud mirror.
 - Live same-origin `/api/*` routing through Vercel to Supabase, with PostgreSQL as
   the authoritative online race engine.
-- Participant/card binding through an admin page.
+- Individual, doubles, and team registration with one NFC card per timed entry.
 - Live leaderboard with theme toggle, Chinese/English toggle, and F1-style row update flash.
 - Full-screen accepted/error feedback, sound, vibration, and screen wake lock on timing devices.
 - Configurable 3-60 second duplicate protection, defaulting to 10 seconds.
@@ -236,10 +236,10 @@ Purpose:
   - race ID
   - card code
   - bib number
-  - athlete name
-  - phone
-  - gender
-  - division
+  - entry type (`individual`, `doubles`, or `team`)
+  - athlete, pair, or team display name
+  - member name list
+  - phone, gender, and division for individuals only
   - check-in status
 - Show latest timing events.
 
@@ -352,8 +352,8 @@ station_checkpoints
 Official live profiles:
 
 ~~~text
-fitmonster-hyrox-single three_reader_auto    8 HYROX stations
-hoka-race                station_checkpoints 5 boundary-timed stations
+fitmonster-hyrox-single three_reader_auto    individual 8 HYROX stations
+hoka-race                station_checkpoints team       5 boundary-timed stations
 ~~~
 
 Fitmonster scanner URLs:
@@ -436,6 +436,7 @@ name
 mode
 station_count
 checkpoints
+entry_type
 created_at
 updated_at
 ```
@@ -447,6 +448,8 @@ race_id
 card_code
 athlete_name
 bib_number
+entry_type
+member_names
 phone
 gender
 division
@@ -454,6 +457,13 @@ check_in_status
 created_at
 updated_at
 ```
+
+`athlete_name` remains the backward-compatible display-name column: it is the athlete
+name for an individual and the pair/team name for grouped entries. `member_names` is
+a JSON array. Fitmonster defaults to `individual`; Hoka defaults to `team` with four
+member inputs. Doubles require two member names, while teams allow 2-12. Phone, gender,
+and division are forced to null for doubles and teams. The leaderboard ranks each NFC
+entry once and renders the member list below its display name.
 
 Timing events include:
 

@@ -33,6 +33,8 @@ PARTICIPANT_COLUMNS = (
     "card_code",
     "athlete_name",
     "bib_number",
+    "entry_type",
+    "member_names",
     "phone",
     "gender",
     "division",
@@ -67,10 +69,12 @@ RACE_PROFILE_COLUMNS = (
     "mode",
     "station_count",
     "checkpoints",
+    "entry_type",
     "created_at",
     "updated_at",
 )
 RACE_MODES = {"two_reader_auto", "three_reader_auto", "station_checkpoints"}
+ENTRY_TYPES = {"individual", "doubles", "team"}
 LAST_SUPABASE_SYNC = {
     "attemptedAt": None,
     "saved": None,
@@ -150,6 +154,8 @@ def init_db() -> None:
               card_code TEXT NOT NULL,
               athlete_name TEXT NOT NULL,
               bib_number TEXT,
+              entry_type TEXT NOT NULL DEFAULT 'individual',
+              member_names TEXT NOT NULL DEFAULT '[]',
               division TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
@@ -185,6 +191,7 @@ def init_db() -> None:
               mode TEXT NOT NULL,
               station_count INTEGER NOT NULL,
               checkpoints_json TEXT NOT NULL,
+              entry_type TEXT NOT NULL DEFAULT 'individual',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -200,6 +207,7 @@ def init_db() -> None:
             """
         )
         ensure_participant_columns(db)
+        ensure_race_profile_columns(db)
         ensure_timing_event_columns(db)
         ensure_default_race_profiles(db)
         db.execute(
@@ -223,6 +231,14 @@ def ensure_participant_columns(db: sqlite3.Connection) -> None:
     migrations = {
         "phone": "ALTER TABLE participants ADD COLUMN phone TEXT",
         "gender": "ALTER TABLE participants ADD COLUMN gender TEXT",
+        "entry_type": (
+            "ALTER TABLE participants "
+            "ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'individual'"
+        ),
+        "member_names": (
+            "ALTER TABLE participants "
+            "ADD COLUMN member_names TEXT NOT NULL DEFAULT '[]'"
+        ),
         "check_in_status": (
             "ALTER TABLE participants "
             "ADD COLUMN check_in_status TEXT NOT NULL DEFAULT 'not_checked_in'"
@@ -231,6 +247,30 @@ def ensure_participant_columns(db: sqlite3.Connection) -> None:
     for column_name, statement in migrations.items():
         if column_name not in existing_columns:
             db.execute(statement)
+    rows = db.execute(
+        "SELECT id, athlete_name, member_names FROM participants"
+    ).fetchall()
+    for row in rows:
+        try:
+            member_names = json.loads(row["member_names"] or "[]")
+        except json.JSONDecodeError:
+            member_names = []
+        if not member_names:
+            db.execute(
+                "UPDATE participants SET member_names = ? WHERE id = ?",
+                (json.dumps([row["athlete_name"]], ensure_ascii=False), row["id"]),
+            )
+
+
+def ensure_race_profile_columns(db: sqlite3.Connection) -> None:
+    existing_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(race_profiles)").fetchall()
+    }
+    if "entry_type" not in existing_columns:
+        db.execute(
+            "ALTER TABLE race_profiles "
+            "ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'individual'"
+        )
 
 
 def ensure_timing_event_columns(db: sqlite3.Connection) -> None:
@@ -261,6 +301,7 @@ def make_race_profile(
     created_at: str | None = None,
     updated_at: str | None = None,
     checkpoints: list[str] | None = None,
+    entry_type: str = "individual",
 ) -> dict:
     if mode not in RACE_MODES:
         raise ValueError(
@@ -268,6 +309,8 @@ def make_race_profile(
         )
     if not 1 <= station_count <= 20:
         raise ValueError("stationCount must be between 1 and 20")
+    if entry_type not in ENTRY_TYPES:
+        raise ValueError("entryType must be individual, doubles, or team")
     profile_checkpoints = list(checkpoints) if checkpoints is not None else build_checkpoints(
         mode,
         station_count,
@@ -286,26 +329,42 @@ def make_race_profile(
         "mode": mode,
         "station_count": station_count,
         "checkpoints": profile_checkpoints,
+        "entry_type": entry_type,
         "created_at": created_at or now,
         "updated_at": updated_at or now,
     }
 
 
 def default_race_profile(race_id: str) -> dict:
-    return make_race_profile(race_id, race_id, "two_reader_auto", 8)
+    entry_type = "team" if race_id == "hoka-race" else "individual"
+    return make_race_profile(
+        race_id,
+        race_id,
+        "two_reader_auto",
+        8,
+        entry_type=entry_type,
+    )
 
 
 def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
-    for race_id, name, mode, station_count, checkpoints in (
-        ("hyrox-sim-001", "HYROX Simulation", "two_reader_auto", 8, None),
-        ("nfc-test-001", "NFC Test", "two_reader_auto", 8, None),
-        ("supabase-e2e-20260716", "Supabase E2E Test", "two_reader_auto", 8, None),
+    for race_id, name, mode, station_count, checkpoints, entry_type in (
+        ("hyrox-sim-001", "HYROX Simulation", "two_reader_auto", 8, None, "individual"),
+        ("nfc-test-001", "NFC Test", "two_reader_auto", 8, None, "individual"),
+        (
+            "supabase-e2e-20260716",
+            "Supabase E2E Test",
+            "two_reader_auto",
+            8,
+            None,
+            "individual",
+        ),
         (
             "fitmonster-hyrox-single",
             "Fitmonster Hyrox Single Simulation Race",
             "three_reader_auto",
             8,
             None,
+            "individual",
         ),
         (
             "hoka-race",
@@ -313,6 +372,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
             "station_checkpoints",
             5,
             build_station_boundary_checkpoints(5),
+            "team",
         ),
     ):
         profile = make_race_profile(
@@ -321,14 +381,15 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
             mode,
             station_count,
             checkpoints=checkpoints,
+            entry_type=entry_type,
         )
         db.execute(
             """
             INSERT INTO race_profiles (
               race_id, name, mode, station_count, checkpoints_json,
-              created_at, updated_at
+              entry_type, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (race_id) DO NOTHING
             """,
             (
@@ -337,16 +398,17 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
                 profile["mode"],
                 profile["station_count"],
                 json.dumps(profile["checkpoints"]),
+                profile["entry_type"],
                 profile["created_at"],
                 profile["updated_at"],
             ),
         )
-        if race_id == "hoka-race":
+        if race_id in {"fitmonster-hyrox-single", "hoka-race"}:
             db.execute(
                 """
                 UPDATE race_profiles
                 SET name = ?, mode = ?, station_count = ?, checkpoints_json = ?,
-                    updated_at = ?
+                    entry_type = ?, updated_at = ?
                 WHERE race_id = ?
                 """,
                 (
@@ -354,6 +416,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
                     profile["mode"],
                     profile["station_count"],
                     json.dumps(profile["checkpoints"]),
+                    profile["entry_type"],
                     profile["updated_at"],
                     profile["race_id"],
                 ),
@@ -374,6 +437,7 @@ def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
         "mode": source["mode"],
         "station_count": int(source["station_count"]),
         "checkpoints": checkpoints,
+        "entry_type": source.get("entry_type") or "individual",
         "created_at": source["created_at"],
         "updated_at": source["updated_at"],
     }
@@ -394,6 +458,7 @@ def race_profile_response(profile: dict) -> dict:
         "stationCount": profile["station_count"],
         "checkpoints": profile["checkpoints"],
         "checkpointLayout": checkpoint_layout,
+        "entryType": profile.get("entry_type") or "individual",
         "createdAt": profile["created_at"],
         "updatedAt": profile["updated_at"],
     }
@@ -414,14 +479,15 @@ def save_race_profile(profile: dict) -> dict:
             """
             INSERT INTO race_profiles (
               race_id, name, mode, station_count, checkpoints_json,
-              created_at, updated_at
+              entry_type, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (race_id) DO UPDATE SET
               name = excluded.name,
               mode = excluded.mode,
               station_count = excluded.station_count,
               checkpoints_json = excluded.checkpoints_json,
+              entry_type = excluded.entry_type,
               updated_at = excluded.updated_at
             """,
             (
@@ -430,6 +496,7 @@ def save_race_profile(profile: dict) -> dict:
                 profile["mode"],
                 profile["station_count"],
                 json.dumps(profile["checkpoints"]),
+                profile.get("entry_type") or "individual",
                 profile["created_at"],
                 profile["updated_at"],
             ),
@@ -456,6 +523,9 @@ def normalize_race_profile_payload(payload: dict) -> dict:
     except (TypeError, ValueError):
         raise ValueError("stationCount must be an integer")
     existing = get_race_profile(race_id)
+    entry_type = str(
+        payload.get("entryType") or existing.get("entry_type") or "individual"
+    ).strip().lower()
     checkpoint_layout = str(payload.get("checkpointLayout") or "").strip().lower()
     if checkpoint_layout not in {"", "station_starts", "station_boundaries"}:
         raise ValueError("checkpointLayout must be station_starts or station_boundaries")
@@ -477,11 +547,76 @@ def normalize_race_profile_payload(payload: dict) -> dict:
         created_at=existing["created_at"],
         updated_at=utc_now(),
         checkpoints=checkpoints,
+        entry_type=entry_type,
     )
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
     return {key: row[key] for key in row.keys()}
+
+
+def parse_member_names(value, fallback_name: str = "") -> list[str]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            value = []
+    if not isinstance(value, list):
+        value = []
+    names = [str(name).strip() for name in value if str(name).strip()]
+    if not names and fallback_name:
+        names = [fallback_name]
+    return names
+
+
+def normalize_participant_entry(payload: dict) -> dict:
+    entry_type = str(payload.get("entryType") or "individual").strip().lower()
+    entry_type = {"single": "individual", "double": "doubles"}.get(
+        entry_type,
+        entry_type,
+    )
+    if entry_type not in ENTRY_TYPES:
+        raise ValueError("entryType must be individual, doubles, or team")
+
+    display_name = str(payload.get("athleteName") or "").strip()
+    member_names = parse_member_names(payload.get("memberNames"), display_name)
+    if any(len(name) > 100 for name in member_names):
+        raise ValueError("each member name must be 100 characters or fewer")
+    if entry_type == "individual":
+        if len(member_names) != 1:
+            raise ValueError("individual entries require exactly one member name")
+        display_name = member_names[0]
+    elif entry_type == "doubles":
+        if not display_name:
+            raise ValueError("doubles entries require a team name")
+        if len(member_names) != 2:
+            raise ValueError("doubles entries require exactly two member names")
+    else:
+        if not display_name:
+            raise ValueError("team entries require a team name")
+        if not 2 <= len(member_names) <= 12:
+            raise ValueError("team entries require between 2 and 12 member names")
+
+    return {
+        "entry_type": entry_type,
+        "display_name": display_name,
+        "member_names": member_names,
+    }
+
+
+def participant_response(row: sqlite3.Row | dict) -> dict:
+    source = row_to_dict(row) if isinstance(row, sqlite3.Row) else dict(row)
+    entry_type = source.get("entry_type") or "individual"
+    if entry_type not in ENTRY_TYPES:
+        entry_type = "individual"
+    member_names = parse_member_names(
+        source.get("member_names"),
+        str(source.get("athlete_name") or "").strip(),
+    )
+    source["entry_type"] = entry_type
+    source["member_names"] = member_names
+    source["member_count"] = len(member_names)
+    return source
 
 
 def timing_api_key() -> str:
@@ -511,6 +646,8 @@ def supabase_row(row: sqlite3.Row | dict, columns: tuple[str, ...]) -> dict:
             result["raw_json"] = json.loads(result["raw_json"])
         except json.JSONDecodeError:
             result["raw_json"] = {"unparsed": result["raw_json"]}
+    if "member_names" in result and isinstance(result["member_names"], str):
+        result["member_names"] = parse_member_names(result["member_names"])
     return result
 
 
@@ -909,7 +1046,12 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 (race_id,),
             ).fetchall()
 
-        self.send_json({"ok": True, "participants": [row_to_dict(row) for row in rows]})
+        self.send_json(
+            {
+                "ok": True,
+                "participants": [participant_response(row) for row in rows],
+            }
+        )
 
     def handle_get_leaderboard(self, query: str) -> None:
         params = parse_qs(query)
@@ -972,6 +1114,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         generated_at = utc_now()
         results = []
         for participant in participant_rows:
+            participant_data = participant_response(participant)
             checkpoint_times = self.build_checkpoint_map(
                 events_by_participant.get(participant["id"], []),
                 checkpoint_index,
@@ -990,6 +1133,9 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "athleteName": participant["athlete_name"],
                     "bibNumber": participant["bib_number"],
                     "cardCode": participant["card_code"],
+                    "entryType": participant_data["entry_type"],
+                    "memberNames": participant_data["member_names"],
+                    "memberCount": participant_data["member_count"],
                     "phone": participant["phone"],
                     "gender": participant["gender"],
                     "division": participant["division"],
@@ -1151,11 +1297,26 @@ class TimingHandler(SimpleHTTPRequestHandler):
             payload = self.read_json_body()
             race_id = str(payload.get("raceId") or "hyrox-sim-001").strip()
             card_code = normalize_card_code(payload.get("cardCode"))
-            athlete_name = str(payload.get("athleteName") or "").strip()
+            entry = normalize_participant_entry(payload)
+            athlete_name = entry["display_name"]
+            entry_type = entry["entry_type"]
+            member_names = entry["member_names"]
             bib_number = str(payload.get("bibNumber") or "").strip() or None
-            phone = str(payload.get("phone") or "").strip() or None
-            gender = str(payload.get("gender") or "").strip() or None
-            division = str(payload.get("division") or "").strip() or None
+            phone = (
+                str(payload.get("phone") or "").strip() or None
+                if entry_type == "individual"
+                else None
+            )
+            gender = (
+                str(payload.get("gender") or "").strip() or None
+                if entry_type == "individual"
+                else None
+            )
+            division = (
+                str(payload.get("division") or "").strip() or None
+                if entry_type == "individual"
+                else None
+            )
             check_in_status = str(payload.get("checkInStatus") or "checked_in").strip()
             if not race_id or not card_code or not athlete_name:
                 raise ValueError("raceId, cardCode and athleteName are required")
@@ -1175,6 +1336,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                       card_code,
                       athlete_name,
                       bib_number,
+                      entry_type,
+                      member_names,
                       phone,
                       gender,
                       division,
@@ -1182,10 +1345,12 @@ class TimingHandler(SimpleHTTPRequestHandler):
                       created_at,
                       updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (race_id, card_code) DO UPDATE SET
                       athlete_name = excluded.athlete_name,
                       bib_number = excluded.bib_number,
+                      entry_type = excluded.entry_type,
+                      member_names = excluded.member_names,
                       phone = excluded.phone,
                       gender = excluded.gender,
                       division = excluded.division,
@@ -1197,6 +1362,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         card_code,
                         athlete_name,
                         bib_number,
+                        entry_type,
+                        json.dumps(member_names, ensure_ascii=False),
                         phone,
                         gender,
                         division,
@@ -1210,8 +1377,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     (race_id, card_code),
                 ).fetchone()
 
-            participant = row_to_dict(row)
-            cloud = sync_supabase_record("participants", participant)
+            cloud = sync_supabase_record("participants", row)
+            participant = participant_response(row)
             self.send_json(
                 {
                     "ok": True,

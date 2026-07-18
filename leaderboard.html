@@ -764,6 +764,11 @@
       font-size: 12px;
     }
 
+    .athlete .members {
+      color: var(--text);
+      font-weight: 750;
+    }
+
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
@@ -1042,17 +1047,20 @@
         subtitle: "SRC 品牌模拟赛实时排名、进度和每站用时。",
         live: "LIVE",
         raceId: "Race ID",
-        total: "总人数",
+        total: "参赛单位",
         racing: "比赛中",
         finished: "已完赛",
         pos: "排名",
-        athlete: "选手",
+        athlete: "个人 / 队伍",
         status: "状态",
         current: "当前",
         elapsed: "用时",
-        noParticipants: "还没有选手。",
+        noParticipants: "还没有参赛单位。",
         waitingData: "等待计时数据...",
         bib: "号码",
+        individual: "个人",
+        doubles: "双人",
+        team: "团队",
         error: "错误",
         demoData: "演示数据",
         statusText: {
@@ -1088,17 +1096,20 @@
         subtitle: "Live ranking, progress, and station splits for the SRC brand race.",
         live: "LIVE",
         raceId: "Race ID",
-        total: "Total",
+        total: "Entries",
         racing: "Racing",
         finished: "Finished",
         pos: "Pos",
-        athlete: "Athlete",
+        athlete: "Athlete / Team",
         status: "Status",
         current: "Current",
         elapsed: "Elapsed",
-        noParticipants: "No participants yet.",
+        noParticipants: "No entries yet.",
         waitingData: "Waiting for timing data...",
         bib: "Bib",
+        individual: "Individual",
+        doubles: "Doubles",
+        team: "Team",
         error: "Error",
         demoData: "Demo data",
         statusText: {
@@ -1457,6 +1468,12 @@
       return current || "-";
     }
 
+    function entryTypeLabel(entryType) {
+      return t(["individual", "doubles", "team"].includes(entryType)
+        ? entryType
+        : "individual");
+    }
+
     function configureSplitColumns(race) {
       const stationCount = Math.max(1, Math.min(Number(race?.stationCount) || 8, 8));
       const usesSegments = race?.mode === "station_checkpoints";
@@ -1483,6 +1500,9 @@
         .sort(([checkpointA], [checkpointB]) => checkpointA.localeCompare(checkpointB));
 
       return JSON.stringify({
+        athleteName: row.athleteName,
+        entryType: row.entryType,
+        memberNames: row.memberNames,
         status: row.status,
         current: row.current,
         progressIndex: row.progressIndex,
@@ -1582,6 +1602,8 @@
         {
           participantId: 9004,
           athleteName: "SRC Relay Team",
+          entryType: "team",
+          memberNames: ["Ming Chen", "Lina Wang", "Zhang Wei", "Ada Liu"],
           bibNumber: "203",
           cardCode: "SIM-DEMO-203",
           phone: "",
@@ -1719,6 +1741,16 @@
           row.rank === 1 ? "leader" : "",
           changed.has(String(row.participantId)) ? "flash" : ""
         ].filter(Boolean).join(" ");
+        const entryType = row.entryType || "individual";
+        const memberNames = Array.isArray(row.memberNames) && row.memberNames.length
+          ? row.memberNames
+          : [row.athleteName];
+        const memberLine = entryType === "individual"
+          ? ""
+          : `<span class="members">${escapeHtml(memberNames.join(" / "))}</span>`;
+        const detail = entryType === "individual"
+          ? `${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}`
+          : `${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(entryTypeLabel(entryType))}`;
 
         return `
           <tr class="${rowClasses}">
@@ -1726,7 +1758,8 @@
             <td>
               <div class="athlete">
                 <strong>${escapeHtml(row.athleteName)}</strong>
-                <span>${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}</span>
+                ${memberLine}
+                <span>${detail}</span>
               </div>
             </td>
             <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>

@@ -129,6 +129,16 @@ The timing page lists the two official races first in its Race ID dropdown and k
 older development profiles in a separate group. The admin page can create or update
 a profile through the Race Profile section.
 
+Registration supports three entry types. One NFC card represents one timed entry:
+
+- `individual`: one athlete name plus optional phone, gender, and division.
+- `doubles`: one pair name and exactly two member names; personal detail fields are cleared.
+- `team`: one team name and 2-12 member names, defaulting to four in the admin UI;
+  personal detail fields are cleared.
+
+Fitmonster defaults to `individual`. Hoka defaults to `team`. The leaderboard ranks
+the entry once and displays the pair/team name with its member names.
+
 Supported modes:
 
 ```text
@@ -147,8 +157,8 @@ station_checkpoints
 Official live profiles:
 
 ```text
-fitmonster-hyrox-single three_reader_auto    8 HYROX stations
-hoka-race                station_checkpoints 5 boundary-timed stations
+fitmonster-hyrox-single three_reader_auto    individual 8 HYROX stations
+hoka-race                station_checkpoints team       5 boundary-timed stations
 ```
 
 Fitmonster phone URLs:
