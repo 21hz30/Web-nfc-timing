@@ -25,6 +25,10 @@ The current proof of concept supports:
   server-only request token.
 - Race profiles selected by race ID, supporting two-reader/three-reader automatic
   progression and fixed per-station checkpoints.
+- Fixed same-origin `/api/*` routing on the timing phone page; operators cannot edit
+  or accidentally replace the Supabase upload URL.
+- Admin race selector and data overview for participants, check-ins, finishes,
+  timing events, rejected events, empty data states, and race-specific leaderboard links.
 
 The current implementation is suitable for controlled rehearsal testing. Authentication,
 offline device retry, and race-day correction tools are still required before handling
@@ -152,6 +156,9 @@ send the public key from `timing-api.js`; the Supabase Edge Function validates i
 against `SUPABASE_PUBLISHABLE_KEYS` and reads server credentials from Supabase-managed
 function secrets.
 
+No `.env` change is needed for the current hosted frontend. Do not add a Supabase
+service-role key to Vercel or any browser-visible environment variable.
+
 The Edge Function is deployed with Supabase JWT verification disabled so the static
 scanner can call it with the publishable key. Because that key is visible in browser
 source, the current API is effectively public and must contain test data only until
@@ -221,6 +228,11 @@ Purpose:
 
 - Register/check participant details.
 - Bind NFC card code to participant.
+- Load Supabase race profiles into a selector with the official races first.
+- Show selected-race totals for participants, check-ins, finishes, timing events,
+  and rejected/error events.
+- Link directly to the selected race's live leaderboard.
+- Show explicit empty states when a race has no participants or timing events.
 - Store:
   - race ID
   - card code
@@ -244,6 +256,7 @@ Purpose:
 
 - Android Chrome Web NFC timing gate.
 - Select race ID, device ID, timing mode, and fixed reader role.
+- Use the fixed same-origin `/api/*` endpoint; the upload API URL is intentionally hidden.
 - Read NDEF text from tag.
 - Normalize card code to uppercase.
 - Upload timing event to `/api/timing-events`.
@@ -573,7 +586,9 @@ Important production correction:
 - The JWT-disabled Edge API is suitable only for test data until authentication is added.
 - No participant search/edit workflow beyond save/upsert.
 - No card unbind/rebind flow.
-- No reset/cleanup test data action.
+- No cloud reset/cleanup action. Do not add one to the public JWT-disabled API;
+  implement it only after administrator authentication or a protected server-side
+  reset credential is available.
 - No central device registry or configuration lock yet.
 - No CSV import for participant list.
 - No admin correction workflow for missed/wrong taps.
@@ -588,7 +603,8 @@ Important production correction:
 ## Recommended Next Steps
 
 1. Remove or hide the race ID input from `leaderboard.html`; read `raceId` from `?raceId=` or default to `hyrox-sim-001`.
-2. Add reset/delete tools for local test data.
+2. Add authenticated reset/delete tools for test data; keep destructive Supabase
+   operations unavailable to anonymous browser clients.
 3. Add participant search and edit in `admin.html`.
 4. Add NFC card unbind/rebind.
 5. Add wave-start management and race exception review for missed/wrong taps.

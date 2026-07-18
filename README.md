@@ -23,6 +23,11 @@ serves the static frontend from Vercel and rewrites `/api/*` to the Supabase
 `timing-api` Edge Function. The live API uses Supabase as its primary store and the
 `process_timing_event_v2` PostgreSQL function serializes timing writes per athlete.
 
+The timing phone page no longer exposes an editable API URL. All scanner and admin
+requests use the fixed same-origin `/api/*` routes, so operators only need to select
+the race and device role. Use the HTTPS site on Android; opening the HTML as a
+`file://` page does not provide a same-origin API route or Web NFC secure context.
+
 Live health check:
 
 ```text
@@ -49,6 +54,11 @@ http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
 http://localhost:8787/local-dashboard.html
 ```
+
+The admin page loads all race profiles from the API, keeps the two official races at
+the top, and shows participant, check-in, finish, event, and error totals for the
+selected race. Its data-board button carries the selected `raceId` into the live
+leaderboard. Empty races show explicit empty states in both data tables.
 
 API endpoint:
 
@@ -104,6 +114,15 @@ committed. For a deployed server, configure `SUPABASE_URL`,
 The live Edge Function validates the public application key from `timing-api.js` and
 uses Supabase-managed server credentials internally. No private Supabase key is
 stored in the repository or configured in Vercel.
+
+No `.env` change is needed for the hosted frontend. The Supabase project route and
+public application key are already fixed in the tracked deployment configuration.
+Do not add a service-role key to `.env` files used by Vercel or to browser code.
+
+The test Edge Function currently runs without JWT verification. Consequently, a
+cloud reset/delete action must not be exposed on the public admin page: anyone who
+can open the site could invoke it. Add administrator authentication or a protected
+server-side reset credential before implementing destructive Supabase cleanup.
 
 ## Race Profiles
 

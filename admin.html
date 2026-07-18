@@ -125,6 +125,64 @@
       align-items: end;
     }
 
+    .overview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .button-link {
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: #ffffff;
+      background: #121820;
+      font-weight: 800;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-top: 16px;
+      border-block: 1px solid #d7dee7;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 14px;
+      border-right: 1px solid #d7dee7;
+    }
+
+    .metric:last-child {
+      border-right: 0;
+    }
+
+    .metric span {
+      display: block;
+      color: #647181;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .empty-row td {
+      padding: 22px 10px;
+      color: #647181;
+      text-align: center;
+    }
+
     .status {
       margin-top: 12px;
       padding: 10px;
@@ -142,7 +200,12 @@
     table {
       width: 100%;
       border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    .table-scroll {
       margin-top: 12px;
+      overflow-x: auto;
     }
 
     th,
@@ -192,6 +255,28 @@
       .grid {
         grid-template-columns: 1fr;
       }
+
+      .overview-header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .metric {
+        border-bottom: 1px solid #d7dee7;
+      }
+
+      .metric:nth-child(2n) {
+        border-right: 0;
+      }
+
+      .metric:last-child {
+        grid-column: 1 / -1;
+        border-bottom: 0;
+      }
     }
   </style>
 </head>
@@ -208,12 +293,34 @@
 
   <main>
     <section>
+      <div class="overview-header">
+        <div>
+          <h2>比赛数据概览</h2>
+          <p id="overviewRaceName">正在读取比赛数据。</p>
+        </div>
+        <a id="leaderboardLink" class="button-link" href="./leaderboard.html" target="_blank" rel="noopener">打开数据大屏</a>
+      </div>
+      <div class="metrics" aria-live="polite">
+        <div class="metric"><span>参赛选手</span><strong id="metricParticipants">0</strong></div>
+        <div class="metric"><span>已签到</span><strong id="metricCheckedIn">0</strong></div>
+        <div class="metric"><span>已完赛</span><strong id="metricFinished">0</strong></div>
+        <div class="metric"><span>计时记录</span><strong id="metricEvents">0</strong></div>
+        <div class="metric"><span>异常记录</span><strong id="metricErrors">0</strong></div>
+      </div>
+    </section>
+
+    <section>
       <h2>选手登记 / NFC 绑定</h2>
       <p>NFC tag 只写卡号，例如 SIM-001；姓名、手机、性别和组别只存后台。</p>
       <form id="participantForm" class="grid">
         <label>
-          Race ID
-          <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+          比赛 / Race ID
+          <select id="raceId">
+            <optgroup label="当前比赛">
+              <option value="fitmonster-hyrox-single">Fitmonster Hyrox Single · 8 站 / 3 手机</option>
+              <option value="hoka-race">Hoka Race · 5 站 / 6 手机</option>
+            </optgroup>
+          </select>
         </label>
         <label>
           Card Code
@@ -299,38 +406,46 @@
 
     <section>
       <h2>选手与卡绑定</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Bib</th>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Gender</th>
-            <th>Division</th>
-            <th>Card</th>
-            <th>Check-in</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-      <tbody id="participantsBody"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Bib</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Gender</th>
+              <th>Division</th>
+              <th>Card</th>
+              <th>Check-in</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="participantsBody">
+            <tr class="empty-row"><td colspan="8">正在读取选手数据。</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section>
       <h2>最新刷卡事件</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Received</th>
-            <th>Status</th>
-            <th>Card</th>
-            <th>Athlete</th>
-            <th>Station</th>
-            <th>Device</th>
-          </tr>
-        </thead>
-        <tbody id="eventsBody"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Received</th>
+              <th>Status</th>
+              <th>Card</th>
+              <th>Athlete</th>
+              <th>Station</th>
+              <th>Device</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody">
+            <tr class="empty-row"><td colspan="6">正在读取计时记录。</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 
@@ -340,8 +455,32 @@
     const formStatus = document.querySelector("#formStatus");
     const participantsBody = document.querySelector("#participantsBody");
     const eventsBody = document.querySelector("#eventsBody");
+    const raceIdSelect = document.querySelector("#raceId");
     const raceConfigForm = document.querySelector("#raceConfigForm");
     const raceConfigStatus = document.querySelector("#raceConfigStatus");
+    const raceConfigId = document.querySelector("#raceConfigId");
+    const overviewRaceName = document.querySelector("#overviewRaceName");
+    const leaderboardLink = document.querySelector("#leaderboardLink");
+    const metricParticipants = document.querySelector("#metricParticipants");
+    const metricCheckedIn = document.querySelector("#metricCheckedIn");
+    const metricFinished = document.querySelector("#metricFinished");
+    const metricEvents = document.querySelector("#metricEvents");
+    const metricErrors = document.querySelector("#metricErrors");
+    const pageParams = new URLSearchParams(window.location.search);
+    const officialRaces = [
+      {
+        raceId: "fitmonster-hyrox-single",
+        name: "Fitmonster Hyrox Single",
+        stationCount: 8,
+        deviceCount: 3
+      },
+      {
+        raceId: "hoka-race",
+        name: "Hoka Race",
+        stationCount: 5,
+        deviceCount: 6
+      }
+    ];
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -367,36 +506,104 @@
 
     async function requestJson(url, options) {
       const response = await window.timingApiFetch(url, options);
-      const payload = await response.json();
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(`服务器返回了非 JSON 响应（HTTP ${response.status}）`);
+      }
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
       return payload;
     }
 
+    function selectedRaceId() {
+      return raceIdSelect.value.trim() || officialRaces[0].raceId;
+    }
+
+    function raceOptionLabel(race) {
+      const official = officialRaces.find((item) => item.raceId === race.raceId);
+      if (official) {
+        return `${race.name || official.name} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
+      }
+      return `${race.name || race.raceId} · ${race.stationCount || "?"} 站`;
+    }
+
+    function updateRaceLinks(raceId) {
+      leaderboardLink.href = `./leaderboard.html?raceId=${encodeURIComponent(raceId)}`;
+    }
+
+    function buildRaceGroup(label, races) {
+      const group = document.createElement("optgroup");
+      group.label = label;
+      for (const race of races) {
+        group.append(new Option(raceOptionLabel(race), race.raceId));
+      }
+      return group;
+    }
+
+    async function loadRaceOptions(preferredRaceId = "") {
+      const payload = await requestJson("/api/races");
+      const racesById = new Map((payload.races || []).map((race) => [race.raceId, race]));
+      const currentRaces = officialRaces.map((official) => ({
+        ...official,
+        ...(racesById.get(official.raceId) || {})
+      }));
+      const officialIds = new Set(officialRaces.map((race) => race.raceId));
+      const otherRaces = (payload.races || [])
+        .filter((race) => !officialIds.has(race.raceId))
+        .sort((left, right) => (left.name || left.raceId).localeCompare(right.name || right.raceId));
+      const groups = [buildRaceGroup("当前比赛", currentRaces)];
+      if (otherRaces.length) groups.push(buildRaceGroup("其他 / 测试比赛", otherRaces));
+      raceIdSelect.replaceChildren(...groups);
+
+      const requestedRaceId = preferredRaceId
+        || pageParams.get("raceId")
+        || pageParams.get("race")
+        || officialRaces[0].raceId;
+      raceIdSelect.value = racesById.has(requestedRaceId) || officialIds.has(requestedRaceId)
+        ? requestedRaceId
+        : officialRaces[0].raceId;
+      raceConfigId.value = selectedRaceId();
+      updateRaceLinks(selectedRaceId());
+    }
+
     async function loadRaceConfig() {
-      const participantRaceId = document.querySelector("#raceId").value.trim();
-      const raceId = document.querySelector("#raceConfigId").value.trim()
-        || participantRaceId
-        || "hyrox-sim-001";
-      document.querySelector("#raceConfigId").value = raceId;
+      const raceId = selectedRaceId();
+      raceConfigId.value = raceId;
       const payload = await requestJson(
         "/api/race-config?raceId=" + encodeURIComponent(raceId)
       );
+      if (selectedRaceId() !== raceId) return;
       const race = payload.race;
       document.querySelector("#raceConfigName").value = race.name || race.raceId;
       document.querySelector("#raceMode").value = race.mode;
       document.querySelector("#raceStationCount").value = race.stationCount;
+      overviewRaceName.textContent = raceOptionLabel(race);
+      updateRaceLinks(raceId);
       raceConfigStatus.textContent =
         race.name + " · " + race.mode + " · " + race.stationCount
         + " stations · " + race.checkpoints.length + " checkpoints";
       raceConfigStatus.classList.remove("error");
     }
 
-    async function loadParticipants() {
-      const raceId = document.querySelector("#raceId").value.trim() || "hyrox-sim-001";
+    async function loadParticipants(raceId = selectedRaceId()) {
       const payload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
-      participantsBody.innerHTML = payload.participants.map((participant) => `
+      if (selectedRaceId() !== raceId) return;
+      const participants = payload.participants || [];
+      metricParticipants.textContent = participants.length;
+      metricCheckedIn.textContent = participants.filter(
+        (participant) => participant.check_in_status === "checked_in"
+      ).length;
+      if (!participants.length) {
+        participantsBody.innerHTML = `
+          <tr class="empty-row"><td colspan="8">当前比赛还没有选手，请先在上方登记并绑定 NFC 卡。</td></tr>
+        `;
+        return;
+      }
+      participantsBody.innerHTML = participants.map((participant) => `
         <tr>
           <td class="mono">${escapeHtml(participant.bib_number || "-")}</td>
           <td>${escapeHtml(participant.athlete_name)}</td>
@@ -410,10 +617,19 @@
       `).join("");
     }
 
-    async function loadEvents() {
-      const raceId = document.querySelector("#raceId").value.trim() || "hyrox-sim-001";
-      const payload = await requestJson(`/api/timing-events?raceId=${encodeURIComponent(raceId)}&limit=20`);
-      eventsBody.innerHTML = payload.events.map((event) => `
+    async function loadEvents(raceId = selectedRaceId()) {
+      const payload = await requestJson(`/api/timing-events?raceId=${encodeURIComponent(raceId)}&limit=500`);
+      if (selectedRaceId() !== raceId) return;
+      const events = payload.events || [];
+      metricEvents.textContent = events.length;
+      metricErrors.textContent = events.filter((event) => event.status !== "accepted").length;
+      if (!events.length) {
+        eventsBody.innerHTML = `
+          <tr class="empty-row"><td colspan="6">当前比赛还没有刷卡记录，首位选手打卡后会自动显示。</td></tr>
+        `;
+        return;
+      }
+      eventsBody.innerHTML = events.slice(0, 20).map((event) => `
         <tr>
           <td class="mono">${formatTime(event.received_at)}</td>
           <td><span class="pill ${escapeHtml(event.status)}">${escapeHtml(event.status)}</span></td>
@@ -425,15 +641,28 @@
       `).join("");
     }
 
+    async function loadLeaderboardSummary(raceId = selectedRaceId()) {
+      const payload = await requestJson(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
+      if (selectedRaceId() !== raceId) return;
+      metricFinished.textContent = (payload.leaderboard || []).filter(
+        (participant) => participant.status === "finished"
+      ).length;
+    }
+
     async function refresh() {
-      await Promise.all([loadParticipants(), loadEvents()]);
+      const raceId = selectedRaceId();
+      await Promise.all([
+        loadParticipants(raceId),
+        loadEvents(raceId),
+        loadLeaderboardSummary(raceId)
+      ]);
     }
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
         const payload = {
-          raceId: document.querySelector("#raceId").value.trim() || "hyrox-sim-001",
+          raceId: selectedRaceId(),
           cardCode: document.querySelector("#cardCode").value.trim().toUpperCase(),
           bibNumber: document.querySelector("#bibNumber").value.trim(),
           athleteName: document.querySelector("#athleteName").value.trim(),
@@ -467,31 +696,40 @@
             stationCount: Number(document.querySelector("#raceStationCount").value)
           })
         });
-        document.querySelector("#raceId").value = payload.race.raceId;
+        await loadRaceOptions(payload.race.raceId);
         raceConfigStatus.textContent =
           "已保存：" + payload.race.name + " · " + payload.race.mode
           + " · " + payload.race.stationCount + " stations";
         raceConfigStatus.classList.remove("error");
-        await refresh();
+        await Promise.all([loadRaceConfig(), refresh()]);
       } catch (error) {
         raceConfigStatus.textContent = "保存失败：" + error.message;
         raceConfigStatus.classList.add("error");
       }
     });
 
-    document.querySelector("#raceId").addEventListener("change", () => {
-      document.querySelector("#raceConfigId").value =
-        document.querySelector("#raceId").value.trim();
-      loadRaceConfig().catch((error) => {
+    raceIdSelect.addEventListener("change", () => {
+      const raceId = selectedRaceId();
+      raceConfigId.value = raceId;
+      overviewRaceName.textContent = "正在读取比赛数据。";
+      updateRaceLinks(raceId);
+      Promise.all([loadRaceConfig(), refresh()]).catch((error) => {
         raceConfigStatus.textContent = "读取失败：" + error.message;
         raceConfigStatus.classList.add("error");
+        setStatus(`刷新失败：${error.message}`, true);
       });
     });
 
-    Promise.all([loadRaceConfig(), refresh()]).catch((error) => {
+    async function initialize() {
+      await loadRaceOptions();
+      await Promise.all([loadRaceConfig(), refresh()]);
+    }
+
+    initialize().catch((error) => {
+      overviewRaceName.textContent = "比赛数据读取失败。";
       setStatus(`刷新失败：${error.message}`, true);
     });
-    setInterval(() => refresh().catch(() => {}), 2000);
+    setInterval(() => refresh().catch(() => {}), 5000);
   </script>
 </body>
 </html>

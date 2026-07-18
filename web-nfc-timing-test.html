@@ -683,10 +683,6 @@
           </select>
         </label>
         <label>
-          Upload API URL
-          <input id="apiUrl" placeholder="https://timing.example.com/api/timing-events" autocomplete="off">
-        </label>
-        <label>
           重复刷卡保护（秒）
           <input id="duplicateProtectionSeconds" type="number" min="3" max="60" step="1" value="10" inputmode="numeric">
         </label>
@@ -738,7 +734,6 @@
   <script src="./timing-api.js"></script>
   <script>
     const elements = {
-      apiUrl: document.querySelector("#apiUrl"),
       clearButton: document.querySelector("#clearButton"),
       deviceId: document.querySelector("#deviceId"),
       deviceMeta: document.querySelector("#deviceMeta"),
@@ -775,7 +770,7 @@
 
     const settingsKey = "srcNfcTimingSettingsV2";
     const duplicateWindowMs = 2500;
-    const defaultApiUrl = `${window.location.origin}/api/timing-events`;
+    const defaultApiUrl = "/api/timing-events";
     const officialRaces = [
       {
         raceId: "fitmonster-hyrox-single",
@@ -881,7 +876,6 @@
         || params.get("stationId")
         || saved.stationId
         || "START";
-      elements.apiUrl.value = params.get("apiUrl") || saved.apiUrl || defaultApiUrl;
       elements.duplicateProtectionSeconds.value = params.get("duplicateWindowSeconds") || saved.duplicateProtectionSeconds || "10";
       const voiceParam = params.get("voice");
       elements.voiceEnabled.checked = voiceParam === null
@@ -891,7 +885,6 @@
 
     function saveSettings() {
       localStorage.setItem(settingsKey, JSON.stringify({
-        apiUrl: elements.apiUrl.value.trim(),
         deviceId: elements.deviceId.value.trim(),
         duplicateProtectionSeconds: elements.duplicateProtectionSeconds.value,
         gateRole: elements.gateRole.value,
@@ -903,13 +896,11 @@
     }
 
     function raceConfigUrl() {
-      const apiUrl = elements.apiUrl.value.trim() || defaultApiUrl;
-      return apiUrl.replace(/\/api\/timing-events\/?$/, "/api/race-config");
+      return "/api/race-config";
     }
 
     function racesUrl() {
-      const apiUrl = elements.apiUrl.value.trim() || defaultApiUrl;
-      return apiUrl.replace(/\/api\/timing-events\/?$/, "/api/races");
+      return "/api/races";
     }
 
     async function readApiResponse(response) {
@@ -1144,20 +1135,7 @@
     }
 
     async function uploadEvent(payload) {
-      const apiUrl = elements.apiUrl.value.trim();
-      if (!apiUrl) {
-        if (payload.timingMode === "auto") {
-          throw new Error("自动模式必须连接计时服务器");
-        }
-        return {
-          status: "local_only",
-          stationId: payload.stationId,
-          stationLabel: payload.stationLabel,
-          cardCode: payload.cardCode
-        };
-      }
-
-      const response = await window.timingApiFetch(apiUrl, {
+      const response = await window.timingApiFetch(defaultApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -1471,14 +1449,10 @@
       if (!Number.isInteger(duplicateProtectionSeconds) || duplicateProtectionSeconds < 3 || duplicateProtectionSeconds > 60) {
         throw new Error("重复刷卡保护必须是 3 到 60 秒的整数");
       }
-      if (elements.timingMode.value === "auto" && !elements.apiUrl.value.trim()) {
-        throw new Error("自动共享闸机必须填写 API URL");
-      }
     }
 
     function lockConfiguration(locked) {
       [
-        elements.apiUrl,
         elements.deviceId,
         elements.duplicateProtectionSeconds,
         elements.gateRole,
@@ -1574,7 +1548,6 @@
     });
 
     [
-      elements.apiUrl,
       elements.deviceId,
       elements.duplicateProtectionSeconds,
       elements.gateRole,
@@ -1591,10 +1564,6 @@
 
     elements.raceId.addEventListener("change", () => {
       refreshRaceData().catch(showRaceProfileError);
-    });
-
-    elements.apiUrl.addEventListener("change", () => {
-      refreshRaceData({ reloadOptions: true }).catch(showRaceProfileError);
     });
 
     document.addEventListener("visibilitychange", () => {
