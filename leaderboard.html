@@ -449,7 +449,7 @@
       white-space: nowrap;
     }
     .fit-card-meta { color: var(--muted-strong); font-size: 12px; }
-    .fit-card-current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fit-card-current { margin-bottom: 3px; overflow: hidden; color: var(--muted-strong); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
     .fit-card-time strong {
       color: var(--time);
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -481,11 +481,12 @@
       font-size: 20px;
       font-weight: 950;
     }
-    .fit-stations { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 8px; }
-    .fit-station {
+    .fit-segment-pairs { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 8px; }
+    .fit-segment-pair { display: grid; gap: 3px; min-width: 0; }
+    .fit-segment {
       display: grid;
       min-width: 0;
-      min-height: 40px;
+      min-height: 35px;
       place-items: center;
       gap: 1px;
       border: 1px solid var(--line);
@@ -494,10 +495,11 @@
       font-size: 9px;
       font-weight: 900;
     }
-    .fit-station strong { font-size: 10px; }
-    .fit-station span { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
-    .fit-station.complete { border-color: var(--brand-accent); color: var(--text); background: rgba(138, 184, 79, 0.12); }
-    .fit-station.current { outline: 2px solid var(--brand-accent); outline-offset: 1px; color: var(--brand-accent); }
+    .fit-segment.run { background: var(--table-head); }
+    .fit-segment strong { font-size: 10px; }
+    .fit-segment span { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+    .fit-segment.complete { border-color: var(--brand-accent); color: var(--text); background: rgba(138, 184, 79, 0.12); }
+    .fit-segment.current { outline: 2px solid var(--brand-accent); outline-offset: 1px; color: var(--brand-accent); }
 
     .scoreboard-layout {
       display: grid;
@@ -1955,21 +1957,39 @@
       const stationSegments = Array.isArray(row.segmentSplits)
         ? row.segmentSplits.filter((segment) => segment.type === "station")
         : [];
-      const currentMatch = String(row.current || "").match(/^Station (\d+)$/);
-      const currentStation = currentMatch ? Number(currentMatch[1]) : null;
-      const stationTrack = Array.from({ length: 8 }, (_, index) => {
+      const runSegments = Array.isArray(row.segmentSplits)
+        ? row.segmentSplits.filter((segment) => segment.type === "run")
+        : [];
+      const currentStationMatch = String(row.current || "").match(/^Station (\d+)$/);
+      const currentRunMatch = String(row.current || "").match(/^Run (\d+)$/);
+      const currentStation = currentStationMatch ? Number(currentStationMatch[1]) : null;
+      const currentRun = currentRunMatch ? Number(currentRunMatch[1]) : null;
+      const segmentPairs = Array.from({ length: 8 }, (_, index) => {
         const stationNumber = index + 1;
-        const segment = stationSegments.find((item) => Number(item.number) === stationNumber);
-        const complete = segment?.elapsedMs !== null && segment?.elapsedMs !== undefined;
-        const classes = ["fit-station", complete ? "complete" : "", currentStation === stationNumber ? "current" : ""]
+        const runSegment = runSegments.find((item) => Number(item.number) === stationNumber);
+        const stationSegment = stationSegments.find((item) => Number(item.number) === stationNumber);
+        const runComplete = runSegment?.elapsedMs !== null && runSegment?.elapsedMs !== undefined;
+        const stationComplete = stationSegment?.elapsedMs !== null && stationSegment?.elapsedMs !== undefined;
+        const runClasses = ["fit-segment", "run", runComplete ? "complete" : "", currentRun === stationNumber ? "current" : ""]
+          .filter(Boolean).join(" ");
+        const stationClasses = ["fit-segment", "station", stationComplete ? "complete" : "", currentStation === stationNumber ? "current" : ""]
           .filter(Boolean).join(" ");
         return `
-          <div class="${classes}">
-            <strong>S${stationNumber}</strong>
-            <span>${complete ? compactStationDuration(segment.elapsedMs) : "-"}</span>
+          <div class="fit-segment-pair">
+            <div class="${runClasses}">
+              <strong>R${stationNumber}</strong>
+              <span>${runComplete ? compactStationDuration(runSegment.elapsedMs) : "-"}</span>
+            </div>
+            <div class="${stationClasses}">
+              <strong>S${stationNumber}</strong>
+              <span>${stationComplete ? compactStationDuration(stationSegment.elapsedMs) : "-"}</span>
+            </div>
           </div>
         `;
       }).join("");
+      const currentLabel = row.status === "finished"
+        ? ""
+        : `<div class="fit-card-current">${escapeHtml(translateCurrent(row.current))}</div>`;
       const cardClasses = [
         "fit-card",
         row.rank === 1 ? "leader" : "",
@@ -1987,10 +2007,7 @@
           </div>
           <div class="fit-card-summary">
             <div>
-              <div class="fit-card-meta">
-                <span class="fit-card-current">${escapeHtml(translateCurrent(row.current))}</span>
-                <span>${completedSegments}/${detailRows || 16} ${escapeHtml(t("segments"))}</span>
-              </div>
+              ${currentLabel}
               <div class="fit-card-time">
                 <span>${escapeHtml(t("elapsed"))}</span>
                 <strong>${formatDuration(row.elapsedMs)}</strong>
@@ -2000,7 +2017,7 @@
           </div>
           <div>
             <div class="fit-card-progress" aria-label="${progress}%"><span style="width:${progress}%"></span></div>
-            <div class="fit-stations">${stationTrack}</div>
+            <div class="fit-segment-pairs">${segmentPairs}</div>
           </div>
         </article>
       `;
