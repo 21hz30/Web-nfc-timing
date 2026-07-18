@@ -8,7 +8,6 @@ It contains:
 - `server.py`: local Python API with SQLite storage and a Supabase cloud mirror.
 - `admin.html`: race admin page for athlete info, check-in, and NFC card binding.
 - `leaderboard.html`: live timing board with rank, current checkpoint, and station splits.
-- `local-dashboard.html`: older local debug page for quick card bindings and event checks.
 
 ## Live Frontend
 
@@ -52,7 +51,6 @@ Useful pages:
 http://localhost:8787/admin.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
-http://localhost:8787/local-dashboard.html
 ```
 
 The admin page loads all race profiles from the API, keeps the two official races at

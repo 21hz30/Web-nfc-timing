@@ -203,7 +203,6 @@ Main pages:
 http://localhost:8787/admin.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
-http://localhost:8787/local-dashboard.html
 ```
 
 SQLite database:
@@ -306,20 +305,6 @@ Purpose:
   - dark/light theme
   - Chinese/English toggle
   - row flash when rank/status/checkpoint/split changes
-
-### Local Debug Dashboard
-
-File:
-
-```text
-local-dashboard.html
-```
-
-Purpose:
-
-- Older quick debug page.
-- Useful for checking raw bindings and timing events.
-- Not the preferred long-term admin UI.
 
 ## API
 

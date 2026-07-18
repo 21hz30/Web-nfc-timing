@@ -99,7 +99,6 @@ Useful pages:
 http://localhost:8787/admin.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
-http://localhost:8787/local-dashboard.html
 ```
 
 Temporary HTTPS tunnel for phone testing:
@@ -146,7 +145,6 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
 - Two readers require a course where every athlete crosses the same run-out and run-in points.
 - Individual start taps imply staggered/time-trial starts. Mass starts need a wave-start feature.
 - `leaderboard.html` is the live timing board.
-- `local-dashboard.html` is an older debug page.
 - `index.html` is a local hub for the main pages.
 
 ## Current Known Test Data
