@@ -241,8 +241,10 @@ Purpose:
 - Show selected-race totals for participants, check-ins, finishes, timing events,
   and rejected/error events.
 - Link directly to the selected race's live leaderboard.
-- The leaderboard selector exposes one browser-only mock race plus the Fitmonster
+- The leaderboard selector exposes one browser-only mock race plus the FitMonster
   and Hoka official Supabase races.
+- FitMonster rows expose alternating 500m run and named station segments; Wall Ball
+  is the final segment and ends the race.
 - Official race cleanup requires the administrator clear code and two confirmation clicks.
 - Show explicit empty states when a race has no participants or timing events.
 - Store:
@@ -369,7 +371,7 @@ fitmonster-hyrox-single three_reader_auto    individual 8 HYROX stations
 hoka-race                station_checkpoints team       5 boundary-timed stations
 ~~~
 
-Fitmonster scanner URLs:
+FitMonster scanner URLs:
 
 ~~~text
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-out&role=RUN_OUT
@@ -391,7 +393,7 @@ https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&devic
 The scanner fetches `GET /api/race-config?raceId=...` on startup and automatically
 selects auto/manual mode and the profile's checkpoint list. Hoka needs 6 devices:
 Station 1 also records START, Stations 2-5 each end the previous segment and start
-the next, and END closes Station 5. Fitmonster needs 3 devices: RUN_OUT, RUN_IN, and
+the next, and END closes Station 5. FitMonster needs 3 devices: RUN_OUT, RUN_IN, and
 FINISH. The scanner Race ID dropdown lists these two official races first and groups
 older development profiles under **其他 / 测试比赛**.
 
@@ -473,7 +475,7 @@ updated_at
 
 `athlete_name` remains the backward-compatible display-name column: it is the athlete
 name for an individual and the pair/team name for grouped entries. `member_names` is
-a JSON array. Fitmonster defaults to `individual`; Hoka defaults to `team` with four
+a JSON array. FitMonster defaults to `individual`; Hoka defaults to `team` with four
 member inputs. Doubles require two member names, while teams allow 2-12. Phone, gender,
 and division are forced to null for doubles and teams. The leaderboard ranks each NFC
 entry once and renders the member list below its display name.
@@ -524,7 +526,7 @@ documented as permanent.
 
 ## Physical Reader Layout
 
-- For Fitmonster, mount Android readers at the shared run-course exit (`RUN_OUT`),
+- For FitMonster, mount Android readers at the shared run-course exit (`RUN_OUT`),
   shared return (`RUN_IN`), and race finish (`FINISH`).
 - For Hoka, Station 1 records START, Stations 2-5 mark adjacent boundaries, and
   the final reader records END.

@@ -361,7 +361,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
         ),
         (
             "fitmonster-hyrox-single",
-            "Fitmonster Hyrox Single Simulation Race",
+            "FitMonster Hyrox Single Simulation Race",
             "three_reader_auto",
             8,
             None,
@@ -1224,6 +1224,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         profile_mode,
                         checkpoint_sequence,
                     ),
+                    "segmentSplits": self.segment_splits(
+                        checkpoint_times,
+                        station_count,
+                        profile_mode,
+                    ),
                 }
             )
 
@@ -1345,6 +1350,49 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 exit_ = checkpoints.get("END")
             splits[f"station{station_number}Ms"] = milliseconds_between(enter, exit_)
         return splits
+
+    def segment_splits(
+        self,
+        checkpoints: dict[str, str],
+        station_count: int,
+        profile_mode: str,
+    ) -> list[dict]:
+        if profile_mode == "station_checkpoints":
+            return []
+        segments = []
+        for station_number in range(1, station_count + 1):
+            enter_checkpoint = f"STATION_{station_number}_ENTER"
+            exit_checkpoint = (
+                "END"
+                if station_number == station_count
+                else f"STATION_{station_number}_EXIT"
+            )
+            run_start_checkpoint = (
+                "START"
+                if station_number == 1
+                else f"STATION_{station_number - 1}_EXIT"
+            )
+            segments.append(
+                {
+                    "type": "run",
+                    "number": station_number,
+                    "elapsedMs": milliseconds_between(
+                        checkpoints.get(run_start_checkpoint),
+                        checkpoints.get(enter_checkpoint),
+                    ),
+                }
+            )
+            segments.append(
+                {
+                    "type": "station",
+                    "number": station_number,
+                    "elapsedMs": milliseconds_between(
+                        checkpoints.get(enter_checkpoint),
+                        checkpoints.get(exit_checkpoint),
+                    ),
+                }
+            )
+        return segments
 
     def leaderboard_sort_key(self, result: dict) -> tuple:
         status_order = {"finished": 0, "racing": 1, "not_started": 2}

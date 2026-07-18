@@ -161,6 +161,11 @@ class TimingApiTests(unittest.TestCase):
         self.assertEqual(result["status"], "finished")
         self.assertEqual(result["latestCheckpoint"], "END")
         self.assertEqual(result["stationSplits"]["station8Ms"], 10000)
+        self.assertEqual(len(result["segmentSplits"]), 16)
+        self.assertEqual(result["segmentSplits"][0]["type"], "run")
+        self.assertEqual(result["segmentSplits"][0]["number"], 1)
+        self.assertEqual(result["segmentSplits"][-1]["type"], "station")
+        self.assertEqual(result["segmentSplits"][-1]["number"], 8)
 
     def test_reset_race_requires_admin_code_and_preserves_profile(self):
         event = self.request_json(

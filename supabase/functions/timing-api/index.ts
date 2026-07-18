@@ -325,6 +325,35 @@ function millisecondsBetween(start: string | null, end: string | null): number |
   return Math.max(0, endMs - startMs);
 }
 
+function buildSegmentSplits(
+  checkpointTimes: Record<string, string>,
+  stationCount: number,
+): DatabaseRow[] {
+  const segments: DatabaseRow[] = [];
+  for (let station = 1; station <= stationCount; station += 1) {
+    const enterCheckpoint = `STATION_${station}_ENTER`;
+    const exitCheckpoint = station === stationCount ? "END" : `STATION_${station}_EXIT`;
+    const runStartCheckpoint = station === 1 ? "START" : `STATION_${station - 1}_EXIT`;
+    segments.push({
+      type: "run",
+      number: station,
+      elapsedMs: millisecondsBetween(
+        checkpointTimes[runStartCheckpoint] || null,
+        checkpointTimes[enterCheckpoint] || null,
+      ),
+    });
+    segments.push({
+      type: "station",
+      number: station,
+      elapsedMs: millisecondsBetween(
+        checkpointTimes[enterCheckpoint] || null,
+        checkpointTimes[exitCheckpoint] || null,
+      ),
+    });
+  }
+  return segments;
+}
+
 function buildLeaderboard(
   participants: DatabaseRow[],
   events: DatabaseRow[],
@@ -378,6 +407,9 @@ function buildLeaderboard(
     }
 
     const stationSplits: Record<string, number | null> = {};
+    const segmentSplits = profile.mode === "station_checkpoints"
+      ? []
+      : buildSegmentSplits(checkpointTimes, Number(profile.station_count));
     if (profile.mode === "station_checkpoints") {
       const stationCount = Number(profile.station_count);
       if (usesStationBoundaries) {
@@ -435,6 +467,7 @@ function buildLeaderboard(
       elapsedMs: startTime ? millisecondsBetween(startTime, finishTime || generatedAt) : null,
       checkpointTimes,
       stationSplits,
+      segmentSplits,
     };
   });
 

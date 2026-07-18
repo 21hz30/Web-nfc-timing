@@ -24,9 +24,9 @@ serves the static frontend from Vercel and rewrites `/api/*` to the Supabase
 `process_timing_event_v2` PostgreSQL function serializes timing writes per athlete.
 
 The timing phone page no longer exposes an editable API URL. All scanner and admin
-requests use the fixed same-origin `/api/*` routes, so operators only need to select
-the race and device role. Use the HTTPS site on Android; opening the HTML as a
-`file://` page does not provide a same-origin API route or Web NFC secure context.
+requests use the fixed `/api/*` routes, so operators only need to select the race and
+device role. A `file://` page now falls back to the hosted HTTPS API for testing, but
+Web NFC itself still requires the HTTPS site on Android.
 
 Live health check:
 
@@ -148,8 +148,13 @@ Registration supports three entry types. One NFC card represents one timed entry
 - `team`: one team name and 2-12 member names, defaulting to four in the admin UI;
   personal detail fields are cleared.
 
-Fitmonster defaults to `individual`. Hoka defaults to `team`. The leaderboard ranks
+FitMonster defaults to `individual`. Hoka defaults to `team`. The leaderboard ranks
 the entry once and displays the pair/team name with its member names.
+
+FitMonster's detailed leaderboard shows 16 segments in order: an initial 500m run,
+each named station, and a 500m run between stations. The named stations are SkiErg,
+Sled Push, Sled Pull, Burpee Broad Jump, RowErg, Farmers Carry, Lunges, and Wall
+Ball. Wall Ball is the final segment; there is no run after it.
 
 Leaderboard race choices:
 
@@ -186,7 +191,7 @@ fitmonster-hyrox-single three_reader_auto    individual 8 HYROX stations
 hoka-race                station_checkpoints team       5 boundary-timed stations
 ```
 
-Fitmonster phone URLs:
+FitMonster phone URLs:
 
 ```text
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyrox-single&deviceId=fitmonster-run-out&role=RUN_OUT
@@ -267,7 +272,7 @@ as raw timing events for later review.
 
 ## Reader Setup
 
-- Fitmonster uses `RUN_OUT`, `RUN_IN`, and a dedicated `FINISH` reader.
+- FitMonster uses `RUN_OUT`, `RUN_IN`, and a dedicated `FINISH` reader.
 - Hoka uses Station 1 as START, boundary readers at Stations 2-5, and a final END reader.
 - Every athlete must pass the configured readers in checkpoint order.
 - A missed tap cannot be inferred safely. The next wrong-role tap is rejected for staff review.

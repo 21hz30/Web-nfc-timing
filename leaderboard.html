@@ -222,32 +222,7 @@
     }
 
     .race-select-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .race-kind {
-      display: inline-flex;
-      min-height: 38px;
-      align-items: center;
-      padding: 0 10px;
-      border: 1px solid var(--brand-accent);
-      border-radius: 6px;
-      color: var(--brand-accent);
-      font-size: 12px;
-      font-weight: 900;
-      white-space: nowrap;
-    }
-
-    .race-kind[data-kind="mock"] {
-      border-color: #d6a84b;
-      color: #e1b85e;
-    }
-
-    body[data-theme="light"] .race-kind[data-kind="mock"] {
-      color: #8a5c00;
+      display: block;
     }
 
     .toolbar-action {
@@ -266,6 +241,41 @@
       font: inherit;
       font-weight: 900;
       cursor: pointer;
+    }
+
+    .danger-button {
+      height: 42px;
+    }
+
+    .segment-detail {
+      min-width: 230px;
+      padding: 4px 0;
+    }
+
+    .segment-line {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      min-height: 26px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted-strong);
+      font-size: 12px;
+    }
+
+    .segment-line:last-child {
+      border-bottom: 0;
+    }
+
+    .segment-line[data-kind="station"] {
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    .segment-line strong {
+      color: var(--time);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
     }
 
     body[data-theme="light"] .danger-button,
@@ -1036,11 +1046,10 @@
               <option value="src-hyrox">SRC 排行榜演示</option>
             </optgroup>
             <optgroup label="正式比赛">
-              <option value="fitmonster-hyrox-single" selected>Fitmonster Hyrox Single Simulation Race</option>
+              <option value="fitmonster-hyrox-single" selected>FitMonster Hyrox Single Simulation Race</option>
               <option value="hoka-race">Hoka Race</option>
             </optgroup>
           </select>
-          <span class="race-kind" id="raceKind" data-kind="live">正式数据</span>
         </span>
       </label>
       <div class="toolbar-action">
@@ -1072,6 +1081,7 @@
               <th data-i18n="status">Status</th>
               <th data-i18n="current">Current</th>
               <th data-i18n="elapsed">Elapsed</th>
+              <th id="segmentHeader" data-i18n="segmentDetails" hidden>分段明细</th>
               <th data-split-column="1">S1</th>
               <th data-split-column="2">S2</th>
               <th data-split-column="3">S3</th>
@@ -1175,7 +1185,6 @@
     const totalCount = document.querySelector("#totalCount");
     const racingCount = document.querySelector("#racingCount");
     const finishedCount = document.querySelector("#finishedCount");
-    const raceKind = document.querySelector("#raceKind");
     const clearRaceButton = document.querySelector("#clearRaceButton");
     const clearRaceDialog = document.querySelector("#clearRaceDialog");
     const clearRaceForm = document.querySelector("#clearRaceForm");
@@ -1227,8 +1236,8 @@
       {
         raceId: "fitmonster-hyrox-single",
         kind: "live",
-        zh: "Fitmonster Hyrox 单人模拟赛",
-        en: "Fitmonster Hyrox Single Simulation Race"
+        zh: "FitMonster Hyrox 单人模拟赛",
+        en: "FitMonster Hyrox Single Simulation Race"
       },
       {
         raceId: "hoka-race",
@@ -1237,6 +1246,10 @@
         en: "Hoka Team Race"
       }
     ];
+    const fitMonsterStationNames = {
+      zh: ["滑雪机", "推雪橇", "拉雪橇", "波比跳", "划船机", "农夫行走", "弓箭步", "药球"],
+      en: ["SkiErg", "Sled Push", "Sled Pull", "Burpee Broad Jump", "RowErg", "Farmers Carry", "Lunges", "Wall Ball"]
+    };
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
     const initialRaceId = forceDemoData
       ? "src-hyrox"
@@ -1253,8 +1266,6 @@
         raceId: "选择比赛",
         mockGroup: "模拟比赛",
         liveGroup: "正式比赛",
-        mockKind: "模拟数据",
-        liveKind: "正式数据",
         clearRace: "清空本场数据",
         clearDisabled: "模拟数据不会写入数据库",
         clearRaceTitle: "清空本场数据",
@@ -1276,6 +1287,8 @@
         status: "状态",
         current: "当前",
         elapsed: "用时",
+        segmentDetails: "分段明细",
+        run500: "500m 跑步",
         noParticipants: "还没有参赛单位。",
         waitingData: "等待计时数据...",
         bib: "号码",
@@ -1319,8 +1332,6 @@
         raceId: "Select race",
         mockGroup: "Mock race",
         liveGroup: "Live races",
-        mockKind: "Mock data",
-        liveKind: "Live data",
         clearRace: "Clear race data",
         clearDisabled: "Mock data is not stored in the database",
         clearRaceTitle: "Clear race data",
@@ -1342,6 +1353,8 @@
         status: "Status",
         current: "Current",
         elapsed: "Elapsed",
+        segmentDetails: "Segment details",
+        run500: "500m Run",
         noParticipants: "No entries yet.",
         waitingData: "Waiting for timing data...",
         bib: "Bib",
@@ -1518,8 +1531,6 @@
     function updateRaceControls(updateUrl = true) {
       const race = selectedRace();
       const isMock = race.kind === "mock";
-      raceKind.dataset.kind = race.kind;
-      raceKind.textContent = t(isMock ? "mockKind" : "liveKind");
       clearRaceButton.textContent = t("clearRace");
       clearRaceButton.disabled = isMock;
       clearRaceButton.title = isMock ? t("clearDisabled") : t("clearRace");
@@ -1755,23 +1766,47 @@
 
     function configureSplitColumns(race) {
       const stationCount = Math.max(1, Math.min(Number(race?.stationCount) || 8, 8));
-      const usesSegments = race?.mode === "station_checkpoints";
+      const usesDetailedSegments = race?.raceId === "fitmonster-hyrox-single";
+      const usesStationBoundaries = race?.mode === "station_checkpoints";
+      document.querySelector("#segmentHeader").hidden = !usesDetailedSegments;
       document.querySelectorAll("[data-split-column]").forEach((header) => {
         const stationNumber = Number(header.dataset.splitColumn);
-        header.hidden = stationNumber > stationCount;
-        header.textContent = usesSegments
+        header.hidden = usesDetailedSegments || stationNumber > stationCount;
+        header.textContent = usesStationBoundaries
           ? (stationNumber === 1 ? "Start→S1" : `S${stationNumber - 1}→S${stationNumber}`)
           : `S${stationNumber}`;
       });
-      return stationCount;
+      return {
+        stationCount,
+        usesDetailedSegments,
+        visibleDetailColumns: usesDetailedSegments ? 1 : stationCount
+      };
     }
 
-    function splitCells(splits, stationCount) {
+    function stationSplitCells(splits, stationCount) {
       let html = "";
       for (let stationNumber = 1; stationNumber <= stationCount; stationNumber += 1) {
         html += `<td class="split mono">${formatDuration(splits[`station${stationNumber}Ms`])}</td>`;
       }
       return html;
+    }
+
+    function segmentDetailCell(segments) {
+      const stationNames = fitMonsterStationNames[language] || fitMonsterStationNames.en;
+      const rows = Array.isArray(segments) ? segments : [];
+      const detailRows = rows.map((segment) => {
+        const number = Number(segment.number) || 0;
+        const label = segment.type === "run"
+          ? `${t("run500")} ${number}`
+          : `S${number} · ${stationNames[number - 1] || `${t("station")} ${number}`}`;
+        return `
+          <div class="segment-line" data-kind="${escapeHtml(segment.type)}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${formatDuration(segment.elapsedMs)}</strong>
+          </div>
+        `;
+      }).join("");
+      return `<td class="segment-detail">${detailRows || "-"}</td>`;
     }
 
     function timingEventSignature(row) {
@@ -1787,7 +1822,8 @@
         progressIndex: row.progressIndex,
         latestCheckpoint: row.latestCheckpoint,
         checkpointTimes,
-        splits: row.stationSplits
+        splits: row.stationSplits,
+        segments: row.segmentSplits
       });
     }
 
@@ -2009,19 +2045,23 @@
     function renderLeaderboardError(error) {
       const race = selectedRace();
       const stationCount = race.raceId === "hoka-race" ? 5 : 8;
-      configureSplitColumns({ stationCount });
+      const columns = configureSplitColumns({
+        raceId: race.raceId,
+        stationCount,
+        mode: race.raceId === "hoka-race" ? "station_checkpoints" : "three_reader_auto"
+      });
       totalCount.textContent = "0";
       racingCount.textContent = "0";
       finishedCount.textContent = "0";
       updatedAt.textContent = `${t("error")}: ${error.message}`;
       leaderboardBody.innerHTML = `
-        <tr><td class="empty" colspan="${5 + stationCount}">${escapeHtml(error.message)}</td></tr>
+        <tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${escapeHtml(error.message)}</td></tr>
       `;
     }
 
     function renderLeaderboard(payload, isDemoData) {
       const rows = payload.leaderboard || [];
-      const stationCount = configureSplitColumns(payload.race);
+      const columns = configureSplitColumns(payload.race);
       const changed = changedRows(rows);
       totalCount.textContent = rows.length;
       racingCount.textContent = rows.filter((row) => row.status === "racing").length;
@@ -2030,7 +2070,7 @@
       updatedAt.textContent = isDemoData ? `${t("demoData")} · ${generatedAt}` : generatedAt;
 
       if (rows.length === 0) {
-        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + stationCount}">${t("noParticipants")}</td></tr>`;
+        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${t("noParticipants")}</td></tr>`;
         return;
       }
 
@@ -2063,7 +2103,9 @@
             <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>
             <td class="current">${escapeHtml(translateCurrent(row.current))}</td>
             <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
-            ${splitCells(row.stationSplits, stationCount)}
+            ${columns.usesDetailedSegments
+              ? segmentDetailCell(row.segmentSplits)
+              : stationSplitCells(row.stationSplits, columns.stationCount)}
           </tr>
         `;
       }).join("");
