@@ -220,8 +220,10 @@ as raw timing events for later review.
 The timing page provides full-screen success/error feedback, sound, vibration, and
 screen wake lock. Green success and the bundled Chinese "打卡成功" recording happen
 only after the API confirms storage. The fixed WAV asset avoids dependence on Android
-or Google speech services; system TTS remains a fallback. Duplicate protection defaults
-to 10 seconds and can be configured from 3 to 60 seconds on each timing device.
+or Google speech services; system TTS remains a fallback. Rejected scans and local
+read/upload failures use Chinese system TTS to announce the reason and next action.
+Duplicate protection defaults to 10 seconds and can be configured from 3 to 60 seconds
+on each timing device.
 
 Reader settings can be prefilled through the URL:
 

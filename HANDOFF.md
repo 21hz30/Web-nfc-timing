@@ -19,6 +19,8 @@ The current proof of concept supports:
 - Configurable 3-60 second duplicate protection, defaulting to 10 seconds.
 - Bundled `assets/check-in-success.wav` announcement after server-confirmed accepted events,
   with system TTS and the tone retained as fallbacks.
+- Chinese TTS for rejected scans and local read/upload failures, including the reason
+  and the next action for the timing operator.
 - Supabase persistence for participants and timing events, protected by RLS and a
   server-only request token.
 - Race profiles selected by race ID, supporting two-reader/three-reader automatic

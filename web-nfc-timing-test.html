@@ -690,7 +690,7 @@
             <input id="voiceEnabled" type="checkbox" checked>
             <span>
               语音播报
-              <small>成功后播放“打卡成功”</small>
+              <small>播报成功结果、错误原因和下一步操作</small>
             </span>
           </label>
           <button id="testVoiceButton" class="setting-button" type="button">测试语音</button>
@@ -1129,6 +1129,14 @@
       }, 320);
     }
 
+    function announceVoice(message, delay = 220) {
+      if (!elements.voiceEnabled.checked || !message) return;
+      window.clearTimeout(speechTimer);
+      speechTimer = window.setTimeout(() => {
+        speakSystemMessage(message);
+      }, delay);
+    }
+
     function vibrate(tone) {
       if (!("vibrate" in navigator)) return;
       navigator.vibrate(tone === "success" ? [90, 60, 90] : tone === "warning" ? [140] : [280]);
@@ -1167,9 +1175,25 @@
         invalid_progress: "进度异常",
         local_only: "仅本机",
         unbound_card: "卡片未绑定",
+        upload_failed: "上传失败",
+        wrong_checkpoint: "刷卡位置错误",
         wrong_gate: "刷卡位置错误"
       };
       return labels[status] || status;
+    }
+
+    function responseVoiceMessage(status, feedback) {
+      if (status === "wrong_gate" || status === "wrong_checkpoint") {
+        return `刷卡位置错误，${feedback.detail}`;
+      }
+      if (status === "unbound_card") return "卡片未绑定，请联系工作人员";
+      if (status === "duplicate_tap" || status === "duplicate_event_id") {
+        return "重复刷卡，上一条已经记录";
+      }
+      if (status === "already_finished") return "该选手已经完赛";
+      if (status === "invalid_progress") return "计时进度异常，请联系工作人员";
+      if (status === "local_only") return "服务器未连接，本次记录只保存在本机";
+      return "刷卡失败，请联系工作人员";
     }
 
     function handleResponse(response, payload) {
@@ -1188,7 +1212,14 @@
       };
 
       if (status === "wrong_gate") {
-        feedback.detail = `请到${shortRoleLabel(response.expectedRole)}刷卡`;
+        const expectedRole = shortRoleLabel(response.expectedRole);
+        feedback.detail = expectedRole
+          ? `请到${expectedRole}刷卡`
+          : "请到正确闸机刷卡";
+      } else if (status === "wrong_checkpoint") {
+        feedback.detail = response.expectedCheckpoint
+          ? `请到${checkpointLabel(response.expectedCheckpoint)}刷卡`
+          : "请到正确站点刷卡";
       } else if (status === "unbound_card") {
         feedback.detail = `${payload.cardCode} 尚未绑定选手`;
       } else if (status === "duplicate_tap" || status === "duplicate_event_id") {
@@ -1206,7 +1237,11 @@
       elements.scanner.dataset.tone = tone === "warning" ? "busy" : tone;
       setStatus(`${responseLabel(status)}：${athlete} · ${feedback.detail}`, tone);
       showFeedback(feedback);
-      if (status === "accepted") announceSuccess();
+      if (status === "accepted") {
+        announceSuccess();
+      } else {
+        announceVoice(responseVoiceMessage(status, feedback));
+      }
       addRow(payload, response, tone);
     }
 
@@ -1232,6 +1267,7 @@
       const cardCode = readCardCode(event.message);
       if (!cardCode) {
         setStatus("读到了 NFC，但没有找到卡号文本。", "error");
+        announceVoice("没有读取到卡号，请将卡片移开后重新贴卡");
         showFeedback({
           tone: "error",
           mark: "X",
@@ -1251,6 +1287,7 @@
       const previous = recentScans.get(duplicateKey) || 0;
       if (now - previous < duplicateWindowMs) {
         setStatus(`卡片仍在感应区，已忽略：${cardCode}`, "warning");
+        announceVoice("卡片仍在感应区，请移开后再贴卡");
         return;
       }
       recentScans.set(duplicateKey, now);
@@ -1267,6 +1304,7 @@
           elements.lastResult.textContent = `${cardCode} · 上传失败`;
           elements.lastTime.textContent = new Date().toLocaleTimeString([], { hour12: false });
           setStatus(`未记录：${error.message}`, "error");
+          announceVoice("上传失败，本次打卡没有记录，请检查网络后重试");
           addRow(payload, { status: "upload_failed", stationId: payload.stationId }, "error");
           showFeedback({
             tone: "error",
@@ -1331,6 +1369,7 @@
     elements.startButton.addEventListener("click", async () => {
       if (!("NDEFReader" in window)) {
         setStatus("当前浏览器不支持 Web NFC，请使用 Android Chrome 打开 HTTPS 页面。", "error");
+        announceVoice("当前浏览器不支持NFC，请使用安卓Chrome浏览器");
         return;
       }
 
@@ -1346,6 +1385,7 @@
         ndefReader.addEventListener("reading", queueReading);
         ndefReader.addEventListener("readingerror", () => {
           setStatus("NFC 读取失败，请将卡片移开后重新贴卡。", "error");
+          announceVoice("NFC读取失败，请将卡片移开后重新贴卡");
           playTone("error");
           vibrate("error");
         });
@@ -1360,6 +1400,7 @@
         abortController = null;
         ndefReader = null;
         setStatus(`无法开始扫描：${error.message}`, "error");
+        announceVoice("扫描启动失败，请检查网络和NFC设置后重试");
       }
     });
 
