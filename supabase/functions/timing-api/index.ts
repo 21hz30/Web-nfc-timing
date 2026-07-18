@@ -610,6 +610,49 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     });
   }
 
+  if (route === "/delete-participant") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Participant deletion is not configured" }, 503);
+    }
+
+    const raceId = requiredRaceId(payload.raceId);
+    const cardCode = String(payload.cardCode || "").trim().toUpperCase();
+    const confirmation = String(payload.confirmation || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (!cardCode || cardCode.length > 100) {
+      return jsonResponse({ ok: false, error: "cardCode is required" }, 400);
+    }
+    if (confirmation !== "DELETE_PARTICIPANT") {
+      return jsonResponse({ ok: false, error: "Participant deletion confirmation is required" }, 400);
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator clear code" }, 403);
+    }
+
+    const query = { race_id: `eq.${raceId}`, card_code: `eq.${cardCode}` };
+    const deletedEvents = await databaseRequest("timing_events", {
+      method: "DELETE",
+      query,
+      prefer: "return=representation",
+    });
+    const deletedParticipants = await databaseRequest("participants", {
+      method: "DELETE",
+      query,
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      raceId,
+      cardCode,
+      deleted: {
+        timingEvents: deletedEvents.length,
+        participants: deletedParticipants.length,
+      },
+      raceProfilePreserved: true,
+    });
+  }
+
   if (route === "/race-config") {
     const raceId = requiredRaceId(payload.raceId);
     const modeAliases: Record<string, string> = {

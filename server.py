@@ -933,6 +933,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_post_reset_race()
             return
 
+        if parsed.path == "/api/delete-participant":
+            self.handle_post_delete_participant()
+            return
+
         if parsed.path == "/api/timing-events":
             self.handle_post_timing_event()
             return
@@ -993,6 +997,72 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 {
                     "ok": True,
                     "raceId": race_id,
+                    "deleted": {
+                        "timingEvents": event_count,
+                        "participants": participant_count,
+                    },
+                    "raceProfilePreserved": True,
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_delete_participant(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            card_code = normalize_card_code(payload.get("cardCode"))
+            confirmation = str(payload.get("confirmation") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Participant deletion is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if not card_code:
+                raise ValueError("cardCode is required")
+            if confirmation != "DELETE_PARTICIPANT":
+                raise ValueError("Participant deletion confirmation is required")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator clear code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            with connect_db() as db:
+                event_count = db.execute(
+                    "SELECT COUNT(*) FROM timing_events WHERE race_id = ? AND card_code = ?",
+                    (race_id, card_code),
+                ).fetchone()[0]
+                participant_count = db.execute(
+                    "SELECT COUNT(*) FROM participants WHERE race_id = ? AND card_code = ?",
+                    (race_id, card_code),
+                ).fetchone()[0]
+                db.execute(
+                    "DELETE FROM timing_events WHERE race_id = ? AND card_code = ?",
+                    (race_id, card_code),
+                )
+                db.execute(
+                    "DELETE FROM participants WHERE race_id = ? AND card_code = ?",
+                    (race_id, card_code),
+                )
+
+            self.send_json(
+                {
+                    "ok": True,
+                    "raceId": race_id,
+                    "cardCode": card_code,
                     "deleted": {
                         "timingEvents": event_count,
                         "participants": participant_count,

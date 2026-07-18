@@ -219,6 +219,65 @@ class TimingApiTests(unittest.TestCase):
             "auto-test",
         )
 
+    def test_delete_participant_requires_code_and_only_deletes_selected_card(self):
+        event = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(0, "RUN_OUT"),
+        )
+        self.assertEqual(event["status"], "accepted")
+        other = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "KEEP-001",
+                "athleteName": "Keep Athlete",
+                "entryType": "individual",
+                "memberNames": ["Keep Athlete"],
+            },
+        )["participant"]
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/delete-participant",
+                {
+                    "raceId": "auto-test",
+                    "cardCode": "SIM-001",
+                    "adminCode": "test-clear-code-1234",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.BAD_REQUEST)
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/delete-participant",
+                {
+                    "raceId": "auto-test",
+                    "cardCode": "SIM-001",
+                    "confirmation": "DELETE_PARTICIPANT",
+                    "adminCode": "wrong-code",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
+
+        result = self.request_json(
+            "/api/delete-participant",
+            {
+                "raceId": "auto-test",
+                "cardCode": "sim-001",
+                "confirmation": "DELETE_PARTICIPANT",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(result["deleted"], {"timingEvents": 1, "participants": 1})
+        participants = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"]
+        self.assertEqual([row["card_code"] for row in participants], [other["card_code"]])
+        self.assertEqual(
+            self.request_json("/api/race-config?raceId=auto-test")["race"]["raceId"],
+            "auto-test",
+        )
+
     def test_wrong_gate_is_stored_without_advancing_progress(self):
         start = self.request_json(
             "/api/timing-events",

@@ -119,6 +119,33 @@
       cursor: pointer;
     }
 
+    button.secondary {
+      color: #344052;
+      background: #e8eef5;
+    }
+
+    button.danger {
+      background: #b42318;
+    }
+
+    button.compact {
+      min-height: 34px;
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    .row-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 150px;
+    }
+
     .actions {
       display: flex;
       gap: 10px;
@@ -402,7 +429,8 @@
           </select>
         </label>
         <div class="actions">
-          <button type="submit">保存 / 绑定</button>
+          <button id="saveParticipantButton" type="submit">保存 / 绑定</button>
+          <button id="cancelEditButton" class="secondary" type="button" hidden>取消编辑</button>
         </div>
       </form>
       <div id="formStatus" class="status">等待操作。</div>
@@ -462,10 +490,11 @@
               <th>Card</th>
               <th>Check-in</th>
               <th>Updated</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="participantsBody">
-            <tr class="empty-row"><td colspan="9">正在读取选手数据。</td></tr>
+            <tr class="empty-row"><td colspan="10">正在读取选手数据。</td></tr>
           </tbody>
         </table>
       </div>
@@ -517,6 +546,9 @@
     const displayNameLabel = document.querySelector("#displayNameLabel");
     const athleteNameInput = document.querySelector("#athleteName");
     const individualFields = Array.from(document.querySelectorAll("[data-individual-field]"));
+    const cardCodeInput = document.querySelector("#cardCode");
+    const saveParticipantButton = document.querySelector("#saveParticipantButton");
+    const cancelEditButton = document.querySelector("#cancelEditButton");
     const pageParams = new URLSearchParams(window.location.search);
     const officialRaces = [
       {
@@ -535,6 +567,8 @@
       }
     ];
     let activeEntryType = "individual";
+    let visibleParticipants = [];
+    let editingCardCode = "";
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -647,6 +681,75 @@
       return raceIdSelect.value.trim() || officialRaces[0].raceId;
     }
 
+    function resetParticipantForm(message = "等待操作。") {
+      const raceId = selectedRaceId();
+      editingCardCode = "";
+      form.reset();
+      raceIdSelect.value = raceId;
+      cardCodeInput.readOnly = false;
+      saveParticipantButton.textContent = "保存 / 绑定";
+      cancelEditButton.hidden = true;
+      const officialRace = officialRaces.find((race) => race.raceId === selectedRaceId());
+      applyEntryType(officialRace?.entryType || "individual");
+      document.querySelector("#checkInStatus").value = "checked_in";
+      setStatus(message);
+    }
+
+    function editParticipant(participant) {
+      editingCardCode = participant.card_code;
+      cardCodeInput.value = participant.card_code;
+      cardCodeInput.readOnly = true;
+      athleteNameInput.value = participant.athlete_name || "";
+      document.querySelector("#phone").value = participant.phone || "";
+      document.querySelector("#gender").value = participant.gender || "";
+      document.querySelector("#division").value = participant.division || "";
+      document.querySelector("#checkInStatus").value = participant.check_in_status || "checked_in";
+      const memberNames = Array.isArray(participant.member_names)
+        ? participant.member_names
+        : [participant.athlete_name];
+      const entryType = participant.entry_type || "individual";
+      if (entryType === "team") memberCountInput.value = String(Math.max(2, memberNames.length));
+      applyEntryType(entryType, memberNames);
+      if (entryType === "team") {
+        memberCountInput.value = String(Math.max(2, memberNames.length));
+        renderMemberFields(Math.max(2, memberNames.length), memberNames);
+      }
+      saveParticipantButton.textContent = "保存修改";
+      cancelEditButton.hidden = false;
+      setStatus(`正在编辑 ${participant.card_code}。如需更换手环，请先删除绑定再重新登记。`);
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    async function deleteParticipant(participant) {
+      const confirmed = window.confirm(
+        `确认删除 ${participant.athlete_name}（${participant.card_code}）的绑定吗？\n该手环在本场的计时记录也会一并删除。`
+      );
+      if (!confirmed) return;
+      const adminCode = window.prompt("请输入管理员清空码：");
+      if (adminCode === null) return;
+      try {
+        setStatus(`正在删除 ${participant.card_code} 的绑定...`);
+        const result = await requestJson("/api/delete-participant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: selectedRaceId(),
+            cardCode: participant.card_code,
+            adminCode,
+            confirmation: "DELETE_PARTICIPANT"
+          })
+        });
+        if (editingCardCode === participant.card_code) resetParticipantForm();
+        setStatus(
+          `已删除 ${participant.card_code}：${result.deleted.participants} 条绑定，`
+          + `${result.deleted.timingEvents} 条计时记录。`
+        );
+        await refresh();
+      } catch (error) {
+        setStatus(`删除失败：${error.message}`, true);
+      }
+    }
+
     function raceOptionLabel(race) {
       const official = officialRaces.find((item) => item.raceId === race.raceId);
       const category = entryTypeLabel(race.entryType || official?.entryType || "individual");
@@ -720,6 +823,7 @@
       const payload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
       if (selectedRaceId() !== raceId) return;
       const participants = payload.participants || [];
+      visibleParticipants = participants;
       metricParticipants.textContent = participants.length;
       metricCheckedIn.textContent = participants.filter(
         (participant) => participant.check_in_status === "checked_in"
@@ -746,6 +850,12 @@
             <td class="mono">${escapeHtml(participant.card_code)}</td>
             <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
             <td class="mono">${formatTime(participant.updated_at)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}">编辑</button>
+                <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}">删除绑定</button>
+              </div>
+            </td>
           </tr>
         `;
       }).join("");
@@ -802,7 +912,7 @@
           : currentMemberNames();
         const payload = {
           raceId: selectedRaceId(),
-          cardCode: document.querySelector("#cardCode").value.trim().toUpperCase(),
+          cardCode: cardCodeInput.value.trim().toUpperCase(),
           athleteName: displayName,
           entryType,
           memberNames,
@@ -816,7 +926,8 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        setStatus(`已保存：${payload.cardCode} → ${payload.athleteName}`);
+        const successMessage = `${editingCardCode ? "已更新" : "已绑定"}：${payload.cardCode} → ${payload.athleteName}`;
+        resetParticipantForm(successMessage);
         await refresh();
       } catch (error) {
         setStatus(`保存失败：${error.message}`, true);
@@ -852,6 +963,10 @@
     raceIdSelect.addEventListener("change", () => {
       const raceId = selectedRaceId();
       const officialRace = officialRaces.find((race) => race.raceId === raceId);
+      editingCardCode = "";
+      cardCodeInput.readOnly = false;
+      saveParticipantButton.textContent = "保存 / 绑定";
+      cancelEditButton.hidden = true;
       applyEntryType(officialRace?.entryType || "individual");
       raceConfigId.value = raceId;
       overviewRaceName.textContent = "正在读取比赛数据。";
@@ -871,6 +986,19 @@
       if (entryTypeSelect.value !== "team") return;
       const count = Math.max(2, Math.min(Number(memberCountInput.value) || 4, 12));
       renderMemberFields(count);
+    });
+
+    cancelEditButton.addEventListener("click", () => {
+      resetParticipantForm("已取消编辑。");
+    });
+
+    participantsBody.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const participant = visibleParticipants[Number(button.dataset.index)];
+      if (!participant) return;
+      if (button.dataset.action === "edit") editParticipant(participant);
+      if (button.dataset.action === "delete") deleteParticipant(participant);
     });
 
     async function initialize() {

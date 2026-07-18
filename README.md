@@ -151,6 +151,13 @@ Registration supports three entry types. One NFC card represents one timed entry
 FitMonster defaults to `individual`. Hoka defaults to `team`. The leaderboard ranks
 the entry once and displays the pair/team name with its member names.
 
+Each participant row in the admin page has `编辑` and `删除绑定` actions. Editing
+loads the existing record into the registration form and locks its Card Code so a
+normal correction cannot accidentally create a second binding. To replace a wearable,
+delete the old binding and register the new Card Code. Deletion requires the server-side
+administrator clear code and removes only that Card Code's participant record and timing
+events in the selected race; other participants and the race profile are preserved.
+
 FitMonster's detailed leaderboard shows 16 segments in order: an initial 500m run,
 each named station, and a 500m run between stations. The named stations are SkiErg,
 Sled Push, Sled Pull, Burpee Broad Jump, RowErg, Farmers Carry, Lunges, and Wall

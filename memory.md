@@ -56,6 +56,9 @@ This file is an internal notebook for future assistant/dev sessions working on t
 - Always store raw timing events. Do not only store calculated results.
 - Do not mutate or delete raw timing events unless the user explicitly asks for reset/cleanup.
 - Race-day mistakes should be corrected by admin workflows later, not by losing original raw data.
+- Front-desk participant rows can be edited without changing Card Code. Replacing a
+  wearable uses delete-old then register-new; deleting one binding also deletes that
+  Card Code's timing events for the selected race and requires the administrator code.
 - SQLite is only for local prototyping. Do not use SQLite as production storage.
 - Production should use managed PostgreSQL or MySQL.
 - Function/serverless local disk is not persistent enough for race timing data.

@@ -239,6 +239,8 @@ Purpose:
 
 - Register/check participant details.
 - Bind NFC card code to participant.
+- Edit an existing participant while keeping the bound Card Code locked.
+- Delete one Card Code binding and its selected-race timing events with the administrator code.
 - Load Supabase race profiles into a selector with the official races first.
 - Show selected-race totals for participants, check-ins, finishes, timing events,
   and rejected/error events.
@@ -336,6 +338,7 @@ Current API endpoints:
 GET  /api/health
 GET  /api/participants?raceId=hyrox-sim-001
 POST /api/participants
+POST /api/delete-participant
 GET  /api/timing-events?raceId=hyrox-sim-001&limit=100
 POST /api/timing-events
 GET  /api/leaderboard?raceId=hyrox-sim-001
@@ -595,8 +598,8 @@ Important production correction:
 
 - No authentication yet.
 - The JWT-disabled Edge API is suitable only for test data until authentication is added.
-- No participant search/edit workflow beyond save/upsert.
-- No card unbind/rebind flow.
+- No participant search or bulk-edit workflow; individual rows can be edited.
+- Card replacement is intentionally delete-old then register-new; there is no one-click transfer of timing history.
 - Race cleanup has a dedicated server-side clear code and two-step UI confirmation, but full administrator
   authentication and rate limiting are still required before production use.
 - No central device registry or configuration lock yet.
@@ -613,8 +616,8 @@ Important production correction:
 ## Recommended Next Steps
 
 1. Add full administrator authentication and rate limiting around destructive actions.
-2. Add participant search and edit in `admin.html`.
-3. Add NFC card unbind/rebind.
+2. Add participant search and bulk editing in `admin.html`.
+3. Add an audited NFC card replacement workflow if timing history ever needs to transfer.
 4. Add wave-start management and race exception review for missed/wrong taps.
 5. Add a persistent device retry queue for temporary network loss.
 6. Add a central device registry and configuration lock.
