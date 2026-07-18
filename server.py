@@ -954,7 +954,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
             confirmation = str(payload.get("confirmation") or "").strip()
             supplied_code = str(payload.get("adminCode") or "")
             configured_code = leaderboard_clear_code()
-            if len(configured_code) < 12:
+            if len(configured_code) < 8:
                 self.send_json(
                     {"ok": False, "error": "Race clearing is not configured"},
                     HTTPStatus.SERVICE_UNAVAILABLE,
@@ -968,8 +968,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 raise ValueError(
                     "raceId must contain only letters, numbers, hyphens, or underscores"
                 )
-            if confirmation != race_id:
-                raise ValueError("Race ID confirmation does not match")
+            if confirmation != "SECOND_CONFIRMATION":
+                raise ValueError("Second confirmation is required")
             if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
                 self.send_json(
                     {"ok": False, "error": "Invalid administrator clear code"},

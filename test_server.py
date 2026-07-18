@@ -174,7 +174,17 @@ class TimingApiTests(unittest.TestCase):
                 "/api/reset-race",
                 {
                     "raceId": "auto-test",
-                    "confirmation": "auto-test",
+                    "adminCode": "test-clear-code-1234",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.BAD_REQUEST)
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/reset-race",
+                {
+                    "raceId": "auto-test",
+                    "confirmation": "SECOND_CONFIRMATION",
                     "adminCode": "wrong-code",
                 },
             )
@@ -188,7 +198,7 @@ class TimingApiTests(unittest.TestCase):
             "/api/reset-race",
             {
                 "raceId": "auto-test",
-                "confirmation": "auto-test",
+                "confirmation": "SECOND_CONFIRMATION",
                 "adminCode": "test-clear-code-1234",
             },
         )

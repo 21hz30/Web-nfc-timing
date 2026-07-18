@@ -542,15 +542,15 @@ async function handlePost(route: string, request: Request): Promise<Response> {
 
   if (route === "/reset-race") {
     const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
-    if (configuredCode.length < 12) {
+    if (configuredCode.length < 8) {
       return jsonResponse({ ok: false, error: "Race clearing is not configured" }, 503);
     }
 
     const raceId = requiredRaceId(payload.raceId);
     const confirmation = String(payload.confirmation || "").trim();
     const suppliedCode = String(payload.adminCode || "");
-    if (confirmation !== raceId) {
-      return jsonResponse({ ok: false, error: "Race ID confirmation does not match" }, 400);
+    if (confirmation !== "SECOND_CONFIRMATION") {
+      return jsonResponse({ ok: false, error: "Second confirmation is required" }, 400);
     }
     if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
       return jsonResponse({ ok: false, error: "Invalid administrator clear code" }, 403);

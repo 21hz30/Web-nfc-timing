@@ -148,7 +148,7 @@ Optional variables:
 ```
 SUPABASE_SYNC_ENABLED=0       # disable cloud mirroring; default is enabled
 TIMING_SERVER_PORT=8788       # default is 8787
-LEADERBOARD_CLEAR_CODE=...    # 12+ characters; required for local race cleanup
+LEADERBOARD_CLEAR_CODE=...    # 8+ characters; required for local race cleanup
 ```
 
 Use the publishable/anon key only for the REST client. Never use a Supabase
@@ -161,9 +161,10 @@ function secrets.
 
 The protected leaderboard cleanup uses the Supabase Function Secret
 `LEADERBOARD_CLEAR_CODE`. It is not a Vercel variable and must never be placed in
-browser code or committed. The user must enter both the exact Race ID and the clear
-code. The endpoint deletes only that race's participants and timing events and keeps
-the race profile.
+browser code or committed. The user enters the clear code, then completes a second
+explicit confirmation. The selected Race ID is sent automatically by the page. The
+endpoint deletes only that race's participants and timing events and keeps the race
+profile.
 
 No `.env` change is needed for the current hosted frontend. Do not add a Supabase
 service-role key to Vercel or any browser-visible environment variable.
@@ -242,7 +243,7 @@ Purpose:
 - Link directly to the selected race's live leaderboard.
 - The leaderboard selector exposes one browser-only mock race plus the Fitmonster
   and Hoka official Supabase races.
-- Official race cleanup requires the exact Race ID and administrator clear code.
+- Official race cleanup requires the administrator clear code and two confirmation clicks.
 - Show explicit empty states when a race has no participants or timing events.
 - Store:
   - race ID
@@ -593,7 +594,7 @@ Important production correction:
 - The JWT-disabled Edge API is suitable only for test data until authentication is added.
 - No participant search/edit workflow beyond save/upsert.
 - No card unbind/rebind flow.
-- Race cleanup has a dedicated server-side clear code, but full administrator
+- Race cleanup has a dedicated server-side clear code and two-step UI confirmation, but full administrator
   authentication and rate limiting are still required before production use.
 - No central device registry or configuration lock yet.
 - No CSV import for participant list.

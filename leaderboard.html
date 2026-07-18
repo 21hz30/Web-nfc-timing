@@ -1149,18 +1149,20 @@
     <form class="clear-form" id="clearRaceForm">
       <h2 id="clearRaceTitle" data-i18n="clearRaceTitle">清空本场数据</h2>
       <p id="clearRaceDescription"></p>
-      <label>
-        <span data-i18n="confirmRaceId">输入 Race ID 确认</span>
-        <input id="clearRaceConfirmation" autocomplete="off" required>
-      </label>
-      <label>
-        <span data-i18n="adminCode">管理员清空码</span>
-        <input id="clearAdminCode" type="password" autocomplete="current-password" required>
-      </label>
+      <div id="clearCodeStep">
+        <label>
+          <span data-i18n="adminCode">管理员清空码</span>
+          <input id="clearAdminCode" type="password" autocomplete="current-password" required>
+        </label>
+      </div>
+      <div id="clearFinalStep" hidden>
+        <strong data-i18n="secondConfirmTitle">第二次确认</strong>
+        <p id="clearFinalDescription"></p>
+      </div>
       <div class="dialog-status" id="clearRaceStatus" role="status" aria-live="polite"></div>
       <div class="dialog-actions">
         <button class="dialog-button secondary" type="button" id="cancelClearButton" data-i18n="cancel">取消</button>
-        <button class="dialog-button" type="submit" id="confirmClearButton" data-i18n="confirmClear">确认清空</button>
+        <button class="dialog-button" type="submit" id="confirmClearButton" data-i18n="firstConfirm">我确认继续</button>
       </div>
     </form>
   </dialog>
@@ -1178,11 +1180,14 @@
     const clearRaceDialog = document.querySelector("#clearRaceDialog");
     const clearRaceForm = document.querySelector("#clearRaceForm");
     const clearRaceDescription = document.querySelector("#clearRaceDescription");
-    const clearRaceConfirmation = document.querySelector("#clearRaceConfirmation");
+    const clearCodeStep = document.querySelector("#clearCodeStep");
+    const clearFinalStep = document.querySelector("#clearFinalStep");
+    const clearFinalDescription = document.querySelector("#clearFinalDescription");
     const clearAdminCode = document.querySelector("#clearAdminCode");
     const clearRaceStatus = document.querySelector("#clearRaceStatus");
     const cancelClearButton = document.querySelector("#cancelClearButton");
     const confirmClearButton = document.querySelector("#confirmClearButton");
+    let clearConfirmationStep = 1;
     const adDeck = document.querySelector("#adDeck");
     const adStageContent = document.querySelector("#adStageContent");
     const adBadge = document.querySelector("#adBadge");
@@ -1253,14 +1258,16 @@
         clearRace: "清空本场数据",
         clearDisabled: "模拟数据不会写入数据库",
         clearRaceTitle: "清空本场数据",
-        confirmRaceId: "输入 Race ID 确认",
         adminCode: "管理员清空码",
         cancel: "取消",
-        confirmClear: "确认清空",
+        firstConfirm: "我确认继续",
+        secondConfirmTitle: "第二次确认",
+        finalConfirmClear: "最终确认清空",
         clearing: "正在清空...",
         clearSuccess: "本场数据已清空。",
         clearDescription: "这会永久删除 {race} 的所有选手和计时记录，但保留比赛配置。",
-        confirmationMismatch: "请输入完全一致的 Race ID。",
+        finalClearDescription: "确认要清空 {race} 吗？点击最终确认后会立即删除本场数据。",
+        clearCodeRequired: "请输入管理员清空码。",
         total: "参赛单位",
         racing: "比赛中",
         finished: "已完赛",
@@ -1317,14 +1324,16 @@
         clearRace: "Clear race data",
         clearDisabled: "Mock data is not stored in the database",
         clearRaceTitle: "Clear race data",
-        confirmRaceId: "Enter Race ID to confirm",
         adminCode: "Administrator clear code",
         cancel: "Cancel",
-        confirmClear: "Clear data",
+        firstConfirm: "Continue",
+        secondConfirmTitle: "Second confirmation",
+        finalConfirmClear: "Final clear",
         clearing: "Clearing...",
         clearSuccess: "Race data cleared.",
         clearDescription: "This permanently deletes all entries and timing records for {race}, while keeping the race profile.",
-        confirmationMismatch: "Enter the exact Race ID to continue.",
+        finalClearDescription: "Clear {race}? The final confirmation deletes this race's data immediately.",
+        clearCodeRequired: "Enter the administrator clear code.",
         total: "Entries",
         racing: "Racing",
         finished: "Finished",
@@ -2080,15 +2089,20 @@
     function openClearDialog() {
       const race = selectedRace();
       if (race.kind === "mock") return;
-      clearRaceDescription.textContent = t("clearDescription").replace("{race}", `${race[language]} (${race.raceId})`);
-      clearRaceConfirmation.value = "";
+      const raceName = race[language];
+      clearRaceDescription.textContent = t("clearDescription").replace("{race}", raceName);
+      clearFinalDescription.textContent = t("finalClearDescription").replace("{race}", raceName);
       clearAdminCode.value = "";
       clearRaceStatus.textContent = "";
       clearRaceStatus.classList.remove("success");
+      clearConfirmationStep = 1;
+      clearCodeStep.hidden = false;
+      clearFinalStep.hidden = true;
+      confirmClearButton.textContent = t("firstConfirm");
       confirmClearButton.disabled = false;
       cancelClearButton.disabled = false;
       clearRaceDialog.showModal();
-      clearRaceConfirmation.focus();
+      clearAdminCode.focus();
     }
 
     function closeClearDialog() {
@@ -2098,9 +2112,18 @@
     async function submitClearRace(event) {
       event.preventDefault();
       const raceId = selectedRace().raceId;
-      if (clearRaceConfirmation.value.trim() !== raceId) {
-        clearRaceStatus.textContent = t("confirmationMismatch");
-        clearRaceConfirmation.focus();
+      if (clearConfirmationStep === 1) {
+        if (!clearAdminCode.value) {
+          clearRaceStatus.textContent = t("clearCodeRequired");
+          clearAdminCode.focus();
+          return;
+        }
+        clearConfirmationStep = 2;
+        clearCodeStep.hidden = true;
+        clearFinalStep.hidden = false;
+        confirmClearButton.textContent = t("finalConfirmClear");
+        clearRaceStatus.textContent = "";
+        confirmClearButton.focus();
         return;
       }
 
@@ -2114,7 +2137,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             raceId,
-            confirmation: clearRaceConfirmation.value.trim(),
+            confirmation: "SECOND_CONFIRMATION",
             adminCode: clearAdminCode.value
           })
         });
@@ -2135,8 +2158,13 @@
         window.setTimeout(closeClearDialog, 700);
       } catch (error) {
         clearRaceStatus.textContent = error.message;
+        clearConfirmationStep = 1;
+        clearCodeStep.hidden = false;
+        clearFinalStep.hidden = true;
+        confirmClearButton.textContent = t("firstConfirm");
         confirmClearButton.disabled = false;
         cancelClearButton.disabled = false;
+        clearAdminCode.focus();
       }
     }
 

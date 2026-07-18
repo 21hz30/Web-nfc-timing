@@ -106,7 +106,7 @@ python3 server.py --sync-only
 Set `TIMING_SERVER_PORT` when the default port is already in use, for example
 `TIMING_SERVER_PORT=8788 python3 server.py`.
 
-Set a 12-or-more-character `LEADERBOARD_CLEAR_CODE` when the local leaderboard
+Set an 8-or-more-character `LEADERBOARD_CLEAR_CODE` when the local leaderboard
 needs to clear a race. The code is read by the server and must not be committed.
 
 Local-server Supabase access is protected by RLS and a server-only token stored in
@@ -124,13 +124,14 @@ Do not add a service-role key to `.env` files used by Vercel or to browser code.
 
 The test Edge Function currently runs without JWT verification. The leaderboard's
 destructive action is protected separately by the server-only
-`LEADERBOARD_CLEAR_CODE` Supabase Function Secret and an exact Race ID confirmation.
+`LEADERBOARD_CLEAR_CODE` Supabase Function Secret and a two-step confirmation.
 The clear code is never stored in the frontend, Vercel, or tracked files. Clearing a
-race deletes its participants and timing events while preserving its race profile.
+race requires two separate UI confirmations and deletes its participants and timing
+events while preserving its race profile.
 Rotate the hosted code with:
 
 ```bash
-npx supabase secrets set LEADERBOARD_CLEAR_CODE=<new-12+-character-code>
+npx supabase secrets set LEADERBOARD_CLEAR_CODE=<new-8+-character-code>
 ```
 
 ## Race Profiles
@@ -159,8 +160,9 @@ hoka-race                   official Supabase data
 ```
 
 The mock race cannot be cleared because it never writes to the database. An official
-race requires the exact Race ID and administrator clear code before
-`POST /api/reset-race` deletes its participants and timing events.
+race requires the administrator clear code and two confirmation clicks before
+`POST /api/reset-race` deletes its participants and timing events. The selected
+Race ID is sent by the page automatically; the user does not need to type it.
 
 Supported modes:
 

@@ -161,8 +161,8 @@ The `trycloudflare.com` URL is temporary and changes when the tunnel restarts.
   - `SIM-099`
   - old `HYROX-B001` / `Hyrox-Peter-b001`
 - These are local prototype records only.
-- The leaderboard now has protected per-race cleanup. It requires the exact Race ID
-  plus the server-only `LEADERBOARD_CLEAR_CODE`; it preserves the race profile.
+- The leaderboard now has protected per-race cleanup. It requires the server-only
+  `LEADERBOARD_CLEAR_CODE` and two UI confirmations; it preserves the race profile.
 
 ## Active Follow-up Priorities
 
