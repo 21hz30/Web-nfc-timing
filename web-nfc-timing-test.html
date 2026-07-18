@@ -636,7 +636,7 @@
           <select id="raceId">
             <optgroup label="当前比赛">
               <option value="fitmonster-hyrox-single">Fitmonster Hyrox Single · 8 站 / 3 手机</option>
-              <option value="hoka-race">Hoka Race · 5 站 / 7 手机</option>
+              <option value="hoka-race">Hoka Race · 5 站 / 6 手机</option>
             </optgroup>
           </select>
         </label>
@@ -787,7 +787,16 @@
         raceId: "hoka-race",
         name: "Hoka Race",
         mode: "station_checkpoints",
-        stationCount: 5
+        stationCount: 5,
+        checkpointLayout: "station_boundaries",
+        checkpoints: [
+          "START",
+          "STATION_2_START",
+          "STATION_3_START",
+          "STATION_4_START",
+          "STATION_5_START",
+          "END"
+        ]
       }
     ];
     const recentScans = new Map();
@@ -817,7 +826,11 @@
     }
 
     function checkpointLabel(checkpoint) {
-      if (checkpoint === "START") return "开始第 1 圈跑步";
+      if (checkpoint === "START") {
+        const usesStationBoundaries = raceProfile?.mode === "station_checkpoints"
+          && !raceProfile.checkpoints.includes("STATION_1_START");
+        return usesStationBoundaries ? "第 1 站开始 / START" : "开始第 1 圈跑步";
+      }
       if (checkpoint === "END") return "正式完赛";
       if (checkpoint === "AUTO_RUN_OUT") return "跑步出发口 · 未推进";
       if (checkpoint === "AUTO_RUN_IN") return "跑步结束口 · 未推进";
@@ -913,10 +926,16 @@
     }
 
     function raceOptionLabel(race) {
+      const usesStationBoundaries = race.checkpointLayout === "station_boundaries"
+        || (
+          race.mode === "station_checkpoints"
+          && Array.isArray(race.checkpoints)
+          && !race.checkpoints.includes("STATION_1_START")
+        );
       const layout = race.mode === "three_reader_auto"
         ? `${race.stationCount} 站 / 3 手机`
         : race.mode === "station_checkpoints"
-          ? `${race.stationCount} 站 / ${race.stationCount + 2} 手机`
+          ? `${race.stationCount} 站 / ${race.stationCount + (usesStationBoundaries ? 1 : 2)} 手机`
           : `${race.stationCount} 站 / 2 手机`;
       return `${race.name || race.raceId} · ${layout}`;
     }

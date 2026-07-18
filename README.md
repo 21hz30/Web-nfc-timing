@@ -131,7 +131,7 @@ Official live profiles:
 
 ```text
 fitmonster-hyrox-single three_reader_auto    8 HYROX stations
-hoka-race                station_checkpoints 5 stations
+hoka-race                station_checkpoints 5 boundary-timed stations
 ```
 
 Fitmonster phone URLs:
@@ -145,14 +145,17 @@ https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyro
 Hoka phone URLs:
 
 ```text
-https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-start&checkpoint=START
-https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-1&checkpoint=STATION_1_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-1&checkpoint=START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-2&checkpoint=STATION_2_START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-3&checkpoint=STATION_3_START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-4&checkpoint=STATION_4_START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-5&checkpoint=STATION_5_START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-end&checkpoint=END
 ```
+
+For Hoka, Station 1's phone also starts the race. Each following station tap ends
+the previous station and starts the next; the END phone closes Station 5. This uses
+six phones total and produces five adjacent station durations.
 
 The scanner loads the profile from `GET /api/race-config?raceId=...` and
 automatically selects auto/manual mode and the available checkpoints.
@@ -213,7 +216,7 @@ as raw timing events for later review.
 ## Reader Setup
 
 - Fitmonster uses `RUN_OUT`, `RUN_IN`, and a dedicated `FINISH` reader.
-- Hoka uses dedicated readers for START, Stations 1-5, and END.
+- Hoka uses Station 1 as START, boundary readers at Stations 2-5, and a final END reader.
 - Every athlete must pass the configured readers in checkpoint order.
 - A missed tap cannot be inferred safely. The next wrong-role tap is rejected for staff review.
 - One generic reader cannot validate direction and is not recommended for race day.

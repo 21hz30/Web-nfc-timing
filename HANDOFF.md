@@ -48,6 +48,7 @@ supabase/migrations/20260716040000_add_race_profiles.sql
 supabase/migrations/20260716060000_enable_cloud_timing_api.sql
 supabase/migrations/20260717010000_add_three_reader_finish_mode.sql
 supabase/migrations/20260717020000_seed_official_race_profiles.sql
+supabase/migrations/20260718010000_configure_hoka_station_boundaries.sql
 ```
 
 It creates these RLS-protected tables:
@@ -62,8 +63,8 @@ Current verified cloud data:
 
 ```
 9 race profiles
-14 participants
-54 timing events
+15 participants
+60 timing events
 0 orphaned timing events
 ```
 
@@ -76,8 +77,10 @@ present for test verification. `cloud-api-e2e-20260716` and
 paths respectively.
 
 The official profiles are `fitmonster-hyrox-single` and `hoka-race`.
-`CODEX-FIT-20260717-V2` and `CODEX-HOKA-20260717-V2` are complete live smoke-test
-records. They intentionally remain in Supabase so both leaderboards can be verified
+`CODEX-FIT-20260717-V2`, `CODEX-HOKA-20260717-V2`, and
+`CODEX-HOKA-BOUNDARY-20260718` are complete live smoke-test records. The boundary
+record verifies the corrected six-device Hoka sequence and 1/2/3/4/5-minute adjacent
+splits. They intentionally remain in Supabase so both leaderboards can be verified
 without scanning physical cards.
 
 ### Storage Flow
@@ -345,13 +348,14 @@ three_reader_auto
 station_checkpoints
   Each phone is fixed to one checkpoint.
   The server accepts only START -> STATION_n_START -> ... -> END.
+  Hoka omits STATION_1_START because its START phone also starts Station 1.
 ~~~
 
 Official live profiles:
 
 ~~~text
 fitmonster-hyrox-single three_reader_auto    8 HYROX stations
-hoka-race                station_checkpoints 5 stations
+hoka-race                station_checkpoints 5 boundary-timed stations
 ~~~
 
 Fitmonster scanner URLs:
@@ -365,8 +369,7 @@ https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=fitmonster-hyro
 Hoka scanner URLs:
 
 ~~~text
-https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-start&checkpoint=START
-https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-1&checkpoint=STATION_1_START
+https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-1&checkpoint=START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-2&checkpoint=STATION_2_START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-3&checkpoint=STATION_3_START
 https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&deviceId=hoka-station-4&checkpoint=STATION_4_START
@@ -375,10 +378,11 @@ https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&devic
 ~~~
 
 The scanner fetches `GET /api/race-config?raceId=...` on startup and automatically
-selects auto/manual mode and the profile's checkpoint list. Hoka needs 7 devices:
-START, five station devices, and END. Fitmonster needs 3 devices: RUN_OUT, RUN_IN,
-and FINISH. The scanner Race ID dropdown lists these two official races first and
-groups older development profiles under **其他 / 测试比赛**.
+selects auto/manual mode and the profile's checkpoint list. Hoka needs 6 devices:
+Station 1 also records START, Stations 2-5 each end the previous segment and start
+the next, and END closes Station 5. Fitmonster needs 3 devices: RUN_OUT, RUN_IN, and
+FINISH. The scanner Race ID dropdown lists these two official races first and groups
+older development profiles under **其他 / 测试比赛**.
 
 Timing event payload example:
 
@@ -501,7 +505,8 @@ documented as permanent.
 
 - For Fitmonster, mount Android readers at the shared run-course exit (`RUN_OUT`),
   shared return (`RUN_IN`), and race finish (`FINISH`).
-- For Hoka, use dedicated readers for START, Stations 1-5, and END.
+- For Hoka, Station 1 records START, Stations 2-5 mark adjacent boundaries, and
+  the final reader records END.
 - The course must force every athlete through these points in order.
 - Do not attach the phone back flat against a wall; keep the rear upper NFC antenna reachable.
 - A single generic reader cannot validate direction and is not recommended for race day.

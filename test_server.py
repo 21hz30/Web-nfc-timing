@@ -345,6 +345,80 @@ class RaceProfileTests(TimingApiTests):
              "STATION_4_START", "STATION_5_START", "END"],
         )
 
+    def test_boundary_station_mode_uses_six_devices_and_adjacent_splits(self):
+        race_id = "hoka-boundary-test"
+        card_code = "HOKA-BOUNDARY-001"
+        profile = server.make_race_profile(
+            race_id,
+            "Hoka Boundary Test",
+            "station_checkpoints",
+            5,
+            checkpoints=server.build_station_boundary_checkpoints(5),
+        )
+        server.save_race_profile(profile)
+        now = server.utc_now()
+        with server.connect_db() as db:
+            db.execute(
+                """
+                INSERT INTO participants (
+                  race_id, card_code, athlete_name, bib_number,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (race_id, card_code, "Boundary Athlete", "HB001", now, now),
+            )
+
+        expected_checkpoints = [
+            "START",
+            "STATION_2_START",
+            "STATION_3_START",
+            "STATION_4_START",
+            "STATION_5_START",
+            "END",
+        ]
+        self.assertEqual(profile["checkpoints"], expected_checkpoints)
+        offsets = [0, 10, 30, 60, 100, 150]
+        base_time = datetime(2026, 1, 3, tzinfo=timezone.utc)
+        for index, (checkpoint, offset) in enumerate(
+            zip(expected_checkpoints, offsets, strict=True)
+        ):
+            response = self.request_json(
+                "/api/timing-events",
+                {
+                    "eventId": f"hoka-boundary-{index}",
+                    "raceId": race_id,
+                    "deviceId": f"hoka-boundary-{checkpoint.lower()}",
+                    "timingMode": "manual",
+                    "stationId": checkpoint,
+                    "cardCode": card_code,
+                    "eventTime": (
+                        base_time + timedelta(seconds=offset)
+                    ).isoformat().replace("+00:00", "Z"),
+                    "source": "hoka-boundary-test",
+                },
+            )
+            self.assertEqual(response["status"], "accepted")
+
+        race = self.request_json(
+            f"/api/race-config?raceId={race_id}"
+        )["race"]
+        self.assertEqual(race["checkpointLayout"], "station_boundaries")
+        leaderboard = self.request_json(
+            f"/api/leaderboard?raceId={race_id}"
+        )["leaderboard"][0]
+        self.assertEqual(leaderboard["current"], "Finished")
+        self.assertEqual(
+            leaderboard["stationSplits"],
+            {
+                "station1Ms": 10000,
+                "station2Ms": 20000,
+                "station3Ms": 30000,
+                "station4Ms": 40000,
+                "station5Ms": 50000,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

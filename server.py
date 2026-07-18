@@ -102,6 +102,13 @@ def build_station_checkpoints(station_count: int) -> list[str]:
     ] + ["END"]
 
 
+def build_station_boundary_checkpoints(station_count: int) -> list[str]:
+    return ["START"] + [
+        f"STATION_{station_number}_START"
+        for station_number in range(2, station_count + 1)
+    ] + ["END"]
+
+
 def build_checkpoints(mode: str, station_count: int) -> list[str]:
     if mode == "station_checkpoints":
         return build_station_checkpoints(station_count)
@@ -253,6 +260,7 @@ def make_race_profile(
     station_count: int,
     created_at: str | None = None,
     updated_at: str | None = None,
+    checkpoints: list[str] | None = None,
 ) -> dict:
     if mode not in RACE_MODES:
         raise ValueError(
@@ -260,13 +268,24 @@ def make_race_profile(
         )
     if not 1 <= station_count <= 20:
         raise ValueError("stationCount must be between 1 and 20")
+    profile_checkpoints = list(checkpoints) if checkpoints is not None else build_checkpoints(
+        mode,
+        station_count,
+    )
+    if (
+        len(profile_checkpoints) < 2
+        or profile_checkpoints[0] != "START"
+        or profile_checkpoints[-1] != "END"
+        or len(set(profile_checkpoints)) != len(profile_checkpoints)
+    ):
+        raise ValueError("checkpoints must be unique and run from START to END")
     now = utc_now()
     return {
         "race_id": race_id,
         "name": name or race_id,
         "mode": mode,
         "station_count": station_count,
-        "checkpoints": build_checkpoints(mode, station_count),
+        "checkpoints": profile_checkpoints,
         "created_at": created_at or now,
         "updated_at": updated_at or now,
     }
@@ -277,19 +296,32 @@ def default_race_profile(race_id: str) -> dict:
 
 
 def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
-    for race_id, name, mode, station_count in (
-        ("hyrox-sim-001", "HYROX Simulation", "two_reader_auto", 8),
-        ("nfc-test-001", "NFC Test", "two_reader_auto", 8),
-        ("supabase-e2e-20260716", "Supabase E2E Test", "two_reader_auto", 8),
+    for race_id, name, mode, station_count, checkpoints in (
+        ("hyrox-sim-001", "HYROX Simulation", "two_reader_auto", 8, None),
+        ("nfc-test-001", "NFC Test", "two_reader_auto", 8, None),
+        ("supabase-e2e-20260716", "Supabase E2E Test", "two_reader_auto", 8, None),
         (
             "fitmonster-hyrox-single",
             "Fitmonster Hyrox Single Simulation Race",
             "three_reader_auto",
             8,
+            None,
         ),
-        ("hoka-race", "Hoka Race", "station_checkpoints", 5),
+        (
+            "hoka-race",
+            "Hoka Race",
+            "station_checkpoints",
+            5,
+            build_station_boundary_checkpoints(5),
+        ),
     ):
-        profile = make_race_profile(race_id, name, mode, station_count)
+        profile = make_race_profile(
+            race_id,
+            name,
+            mode,
+            station_count,
+            checkpoints=checkpoints,
+        )
         db.execute(
             """
             INSERT INTO race_profiles (
@@ -309,6 +341,23 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
                 profile["updated_at"],
             ),
         )
+        if race_id == "hoka-race":
+            db.execute(
+                """
+                UPDATE race_profiles
+                SET name = ?, mode = ?, station_count = ?, checkpoints_json = ?,
+                    updated_at = ?
+                WHERE race_id = ?
+                """,
+                (
+                    profile["name"],
+                    profile["mode"],
+                    profile["station_count"],
+                    json.dumps(profile["checkpoints"]),
+                    profile["updated_at"],
+                    profile["race_id"],
+                ),
+            )
 
 
 def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
@@ -331,12 +380,20 @@ def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
 
 
 def race_profile_response(profile: dict) -> dict:
+    checkpoint_layout = None
+    if profile["mode"] == "station_checkpoints":
+        checkpoint_layout = (
+            "station_starts"
+            if "STATION_1_START" in profile["checkpoints"]
+            else "station_boundaries"
+        )
     return {
         "raceId": profile["race_id"],
         "name": profile["name"],
         "mode": profile["mode"],
         "stationCount": profile["station_count"],
         "checkpoints": profile["checkpoints"],
+        "checkpointLayout": checkpoint_layout,
         "createdAt": profile["created_at"],
         "updatedAt": profile["updated_at"],
     }
@@ -399,6 +456,19 @@ def normalize_race_profile_payload(payload: dict) -> dict:
     except (TypeError, ValueError):
         raise ValueError("stationCount must be an integer")
     existing = get_race_profile(race_id)
+    checkpoint_layout = str(payload.get("checkpointLayout") or "").strip().lower()
+    if checkpoint_layout not in {"", "station_starts", "station_boundaries"}:
+        raise ValueError("checkpointLayout must be station_starts or station_boundaries")
+    checkpoints = None
+    if mode == "station_checkpoints" and checkpoint_layout == "station_boundaries":
+        checkpoints = build_station_boundary_checkpoints(station_count)
+    elif mode == "station_checkpoints" and checkpoint_layout == "station_starts":
+        checkpoints = build_station_checkpoints(station_count)
+    elif (
+        existing["mode"] == mode
+        and existing["station_count"] == station_count
+    ):
+        checkpoints = existing["checkpoints"]
     return make_race_profile(
         race_id,
         name,
@@ -406,6 +476,7 @@ def normalize_race_profile_payload(payload: dict) -> dict:
         station_count,
         created_at=existing["created_at"],
         updated_at=utc_now(),
+        checkpoints=checkpoints,
     )
 
 
@@ -889,7 +960,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         self,
         participant_rows: list[sqlite3.Row],
         event_rows: list[sqlite3.Row],
-        checkpoints: list[str],
+        checkpoint_sequence: list[str],
         checkpoint_index: dict[str, int],
         station_count: int,
         profile_mode: str,
@@ -901,13 +972,13 @@ class TimingHandler(SimpleHTTPRequestHandler):
         generated_at = utc_now()
         results = []
         for participant in participant_rows:
-            checkpoints = self.build_checkpoint_map(
+            checkpoint_times = self.build_checkpoint_map(
                 events_by_participant.get(participant["id"], []),
                 checkpoint_index,
             )
-            start_time = checkpoints.get("START")
-            end_time = checkpoints.get("END")
-            latest_checkpoint = self.latest_checkpoint(checkpoints, checkpoint_index)
+            start_time = checkpoint_times.get("START")
+            end_time = checkpoint_times.get("END")
+            latest_checkpoint = self.latest_checkpoint(checkpoint_times, checkpoint_index)
             progress_index = checkpoint_index.get(latest_checkpoint, -1)
             status = self.result_status(latest_checkpoint, end_time)
             elapsed_end = end_time if end_time else generated_at
@@ -924,17 +995,23 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "division": participant["division"],
                     "checkInStatus": participant["check_in_status"],
                     "status": status,
-                    "current": self.current_label(checkpoints, latest_checkpoint),
+                    "current": self.current_label(
+                        checkpoint_times,
+                        latest_checkpoint,
+                        profile_mode,
+                        checkpoint_sequence,
+                    ),
                     "progressIndex": progress_index,
                     "latestCheckpoint": latest_checkpoint,
                     "startTime": start_time,
                     "finishTime": end_time,
                     "elapsedMs": elapsed_ms,
-                    "checkpointTimes": checkpoints,
+                    "checkpointTimes": checkpoint_times,
                     "stationSplits": self.station_splits(
-                        checkpoints,
+                        checkpoint_times,
                         station_count,
                         profile_mode,
+                        checkpoint_sequence,
                     ),
                 }
             )
@@ -982,12 +1059,23 @@ class TimingHandler(SimpleHTTPRequestHandler):
             return "racing"
         return "not_started"
 
-    def current_label(self, checkpoints: dict[str, str], latest_checkpoint: str | None) -> str:
+    def current_label(
+        self,
+        checkpoints: dict[str, str],
+        latest_checkpoint: str | None,
+        profile_mode: str,
+        checkpoint_sequence: list[str],
+    ) -> str:
         if latest_checkpoint is None:
             return "Waiting"
         if latest_checkpoint == "END":
             return "Finished"
         if latest_checkpoint == "START":
+            if (
+                profile_mode == "station_checkpoints"
+                and "STATION_1_START" not in checkpoint_sequence
+            ):
+                return "Station 1"
             return "Run 1"
 
         for station_number in range(1, 21):
@@ -1007,9 +1095,28 @@ class TimingHandler(SimpleHTTPRequestHandler):
         checkpoints: dict[str, str],
         station_count: int,
         profile_mode: str,
+        checkpoint_sequence: list[str],
     ) -> dict[str, int | None]:
         splits = {}
         if profile_mode == "station_checkpoints":
+            if "STATION_1_START" not in checkpoint_sequence:
+                for station_number in range(1, station_count + 1):
+                    start_checkpoint = (
+                        "START"
+                        if station_number == 1
+                        else f"STATION_{station_number}_START"
+                    )
+                    end_checkpoint = (
+                        "END"
+                        if station_number == station_count
+                        else f"STATION_{station_number + 1}_START"
+                    )
+                    splits[f"station{station_number}Ms"] = milliseconds_between(
+                        checkpoints.get(start_checkpoint),
+                        checkpoints.get(end_checkpoint),
+                    )
+                return splits
+
             previous = checkpoints.get("START")
             for station_number in range(1, station_count + 1):
                 current = checkpoints.get(f"STATION_{station_number}_START")

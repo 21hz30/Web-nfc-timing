@@ -131,6 +131,24 @@ function buildCheckpoints(mode: string, stationCount: number): string[] {
   return checkpoints;
 }
 
+function buildStationBoundaryCheckpoints(stationCount: number): string[] {
+  return [
+    "START",
+    ...Array.from(
+      { length: Math.max(0, stationCount - 1) },
+      (_, index) => `STATION_${index + 2}_START`,
+    ),
+    "END",
+  ];
+}
+
+function checkpointLayout(profile: DatabaseRow): string | null {
+  if (profile.mode !== "station_checkpoints") return null;
+  return profile.checkpoints.includes("STATION_1_START")
+    ? "station_starts"
+    : "station_boundaries";
+}
+
 function defaultRaceProfile(raceId: string): DatabaseRow {
   const now = new Date().toISOString();
   return {
@@ -151,6 +169,7 @@ function raceResponse(profile: DatabaseRow): JsonObject {
     mode: profile.mode,
     stationCount: Number(profile.station_count),
     checkpoints: profile.checkpoints,
+    checkpointLayout: checkpointLayout(profile),
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -240,6 +259,7 @@ function buildLeaderboard(
   profile: DatabaseRow,
 ): JsonObject[] {
   const checkpoints: string[] = profile.checkpoints;
+  const usesStationBoundaries = checkpointLayout(profile) === "station_boundaries";
   const checkpointIndex = new Map(checkpoints.map((checkpoint, index) => [checkpoint, index]));
   const eventsByParticipant = new Map<string, DatabaseRow[]>();
   for (const event of events) {
@@ -271,7 +291,9 @@ function buildLeaderboard(
     const status = finishTime ? "finished" : latestCheckpoint ? "racing" : "not_started";
     let current = "Waiting";
     if (latestCheckpoint === "END") current = "Finished";
-    else if (latestCheckpoint === "START") current = "Run 1";
+    else if (latestCheckpoint === "START") {
+      current = usesStationBoundaries ? "Station 1" : "Run 1";
+    }
     else if (latestCheckpoint) {
       current = latestCheckpoint;
       for (let station = 1; station <= Number(profile.station_count); station += 1) {
@@ -285,11 +307,25 @@ function buildLeaderboard(
 
     const stationSplits: Record<string, number | null> = {};
     if (profile.mode === "station_checkpoints") {
-      let previous = startTime;
-      for (let station = 1; station <= Number(profile.station_count); station += 1) {
-        const current = checkpointTimes[`STATION_${station}_START`] || null;
-        stationSplits[`station${station}Ms`] = millisecondsBetween(previous, current);
-        previous = current;
+      const stationCount = Number(profile.station_count);
+      if (usesStationBoundaries) {
+        for (let station = 1; station <= stationCount; station += 1) {
+          const startCheckpoint = station === 1 ? "START" : `STATION_${station}_START`;
+          const endCheckpoint = station === stationCount
+            ? "END"
+            : `STATION_${station + 1}_START`;
+          stationSplits[`station${station}Ms`] = millisecondsBetween(
+            checkpointTimes[startCheckpoint] || null,
+            checkpointTimes[endCheckpoint] || null,
+          );
+        }
+      } else {
+        let previous = startTime;
+        for (let station = 1; station <= stationCount; station += 1) {
+          const current = checkpointTimes[`STATION_${station}_START`] || null;
+          stationSplits[`station${station}Ms`] = millisecondsBetween(previous, current);
+          previous = current;
+        }
       }
     } else {
       for (let station = 1; station <= Number(profile.station_count); station += 1) {
@@ -441,13 +477,32 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       throw new Error("stationCount must be between 1 and 20");
     }
     const existing = await findRaceProfile(raceId);
+    const requestedLayout = String(payload.checkpointLayout || "").trim().toLowerCase();
+    if (!new Set(["", "station_starts", "station_boundaries"]).has(requestedLayout)) {
+      throw new Error("checkpointLayout must be station_starts or station_boundaries");
+    }
+    let checkpoints: string[];
+    if (mode === "station_checkpoints" && requestedLayout === "station_boundaries") {
+      checkpoints = buildStationBoundaryCheckpoints(stationCount);
+    } else if (mode === "station_checkpoints" && requestedLayout === "station_starts") {
+      checkpoints = buildCheckpoints(mode, stationCount);
+    } else if (
+      existing
+      && existing.mode === mode
+      && Number(existing.station_count) === stationCount
+      && Array.isArray(existing.checkpoints)
+    ) {
+      checkpoints = existing.checkpoints;
+    } else {
+      checkpoints = buildCheckpoints(mode, stationCount);
+    }
     const now = new Date().toISOString();
     const profile = {
       race_id: raceId,
       name: String(payload.name || raceId).trim() || raceId,
       mode,
       station_count: stationCount,
-      checkpoints: buildCheckpoints(mode, stationCount),
+      checkpoints,
       created_at: existing?.created_at || now,
       updated_at: now,
     };
