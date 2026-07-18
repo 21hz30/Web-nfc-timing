@@ -146,6 +146,52 @@
       min-width: 150px;
     }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgb(18 24 32 / 58%);
+    }
+
+    .modal-backdrop[hidden] {
+      display: none;
+    }
+
+    .modal-card {
+      width: min(440px, 100%);
+      padding: 20px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 18px 50px rgb(18 24 32 / 24%);
+    }
+
+    .modal-card h2 {
+      margin-bottom: 6px;
+    }
+
+    .modal-card p {
+      margin-bottom: 16px;
+    }
+
+    .modal-error {
+      min-height: 20px;
+      margin-top: 8px;
+      color: #a21616;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
     .actions {
       display: flex;
       gap: 10px;
@@ -522,6 +568,22 @@
     </section>
   </main>
 
+  <div id="adminCodeModal" class="modal-backdrop" hidden>
+    <form id="adminCodeForm" class="modal-card">
+      <h2>验证管理员操作</h2>
+      <p>请输入管理员码以删除这条 Card Code 绑定。输入内容不会显示。</p>
+      <label>
+        管理员码
+        <input id="adminCodeInput" type="password" autocomplete="off" required>
+      </label>
+      <div id="adminCodeError" class="modal-error" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="cancelAdminCodeButton" class="secondary" type="button">取消</button>
+        <button id="verifyAdminCodeButton" class="danger" type="submit">验证并删除</button>
+      </div>
+    </form>
+  </div>
+
   <script src="./timing-api.js"></script>
   <script>
     const form = document.querySelector("#participantForm");
@@ -549,6 +611,12 @@
     const cardCodeInput = document.querySelector("#cardCode");
     const saveParticipantButton = document.querySelector("#saveParticipantButton");
     const cancelEditButton = document.querySelector("#cancelEditButton");
+    const adminCodeModal = document.querySelector("#adminCodeModal");
+    const adminCodeForm = document.querySelector("#adminCodeForm");
+    const adminCodeInput = document.querySelector("#adminCodeInput");
+    const adminCodeError = document.querySelector("#adminCodeError");
+    const cancelAdminCodeButton = document.querySelector("#cancelAdminCodeButton");
+    const verifyAdminCodeButton = document.querySelector("#verifyAdminCodeButton");
     const pageParams = new URLSearchParams(window.location.search);
     const officialRaces = [
       {
@@ -720,12 +788,31 @@
       form.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
+    function requestAdminCode() {
+      adminCodeInput.value = "";
+      adminCodeError.textContent = "";
+      adminCodeModal.hidden = false;
+      adminCodeInput.focus();
+      return new Promise((resolve) => {
+        adminCodeForm.__resolve = resolve;
+      });
+    }
+
+    function closeAdminCodeModal(value = null) {
+      adminCodeModal.hidden = true;
+      adminCodeInput.value = "";
+      adminCodeError.textContent = "";
+      const resolve = adminCodeForm.__resolve;
+      adminCodeForm.__resolve = null;
+      if (resolve) resolve(value);
+    }
+
     async function deleteParticipant(participant) {
       const confirmed = window.confirm(
         `确认删除 ${participant.athlete_name}（${participant.card_code}）的绑定吗？\n该手环在本场的计时记录也会一并删除。`
       );
       if (!confirmed) return;
-      const adminCode = window.prompt("请输入管理员清空码：");
+      const adminCode = await requestAdminCode();
       if (adminCode === null) return;
       try {
         setStatus(`正在删除 ${participant.card_code} 的绑定...`);
@@ -749,6 +836,22 @@
         setStatus(`删除失败：${error.message}`, true);
       }
     }
+
+    adminCodeForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const adminCode = adminCodeInput.value;
+      if (!adminCode) {
+        adminCodeError.textContent = "请输入管理员码。";
+        adminCodeInput.focus();
+        return;
+      }
+      closeAdminCodeModal(adminCode);
+    });
+
+    cancelAdminCodeButton.addEventListener("click", () => closeAdminCodeModal());
+    adminCodeModal.addEventListener("click", (event) => {
+      if (event.target === adminCodeModal) closeAdminCodeModal();
+    });
 
     function raceOptionLabel(race) {
       const official = officialRaces.find((item) => item.raceId === race.raceId);
