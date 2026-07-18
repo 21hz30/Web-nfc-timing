@@ -34,7 +34,8 @@ This file is an internal notebook for future assistant/dev sessions working on t
   - phone
   - gender
   - division
-  - bib number
+  - Bib remains an optional database field, but is currently omitted from the front-desk
+    registration form for rehearsal testing.
   - check-in status
 - Normalize card codes to uppercase in frontend and backend.
 - Treat the NFC tag code as an identifier, not as the athlete record itself.

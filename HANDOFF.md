@@ -14,6 +14,8 @@ The current proof of concept supports:
 - Live same-origin `/api/*` routing through Vercel to Supabase, with PostgreSQL as
   the authoritative online race engine.
 - Individual, doubles, and team registration with one NFC card per timed entry.
+- Front-desk registration intentionally omits Bib for the current rehearsal flow;
+  the database field remains optional for backward compatibility.
 - Live leaderboard with one mock race, two official races, explicit mock/live labels,
   protected per-race cleanup, theme/language toggles, and F1-style row update flash.
 - Full-screen accepted/error feedback, sound, vibration, and screen wake lock on timing devices.
@@ -250,7 +252,6 @@ Purpose:
 - Store:
   - race ID
   - card code
-  - bib number
   - entry type (`individual`, `doubles`, or `team`)
   - athlete, pair, or team display name
   - member name list
