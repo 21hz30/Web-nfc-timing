@@ -392,6 +392,86 @@
       background: var(--panel);
     }
 
+    .fitmonster-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .fitmonster-grid[hidden] {
+      display: none;
+    }
+
+    .fit-card {
+      display: grid;
+      min-width: 0;
+      min-height: 190px;
+      grid-template-rows: auto auto auto 1fr auto;
+      gap: 8px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-left: 4px solid transparent;
+      border-radius: 8px;
+      background: var(--row);
+    }
+
+    .fit-card:nth-child(even) { background: var(--row-alt); }
+    .fit-card.leader { border-left-color: var(--accent); background: var(--leader-row); }
+    .fit-card.flash { animation: rowFlash 1.15s ease-out; border-left-color: var(--flash-border); }
+
+    .fit-card-head,
+    .fit-card-meta,
+    .fit-card-progress,
+    .fit-card-time {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .fit-card-rank { color: var(--muted); font-size: 12px; font-weight: 950; }
+    .fit-card-name {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 950;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .fit-card-members {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .fit-card-meta { color: var(--muted-strong); font-size: 12px; }
+    .fit-card-current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fit-card-time strong {
+      color: var(--time);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 22px;
+    }
+    .fit-card-progress {
+      align-self: end;
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--line);
+    }
+    .fit-card-progress span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--brand-accent);
+    }
+    .fit-card-details { border-top: 1px solid var(--line); padding-top: 7px; }
+    .fit-card-details summary { padding: 0; color: var(--muted); font-size: 11px; font-weight: 900; cursor: pointer; }
+    .fit-card-details .segment-detail { min-width: 0; margin-top: 6px; }
+
     .scoreboard-layout {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 320px;
@@ -957,6 +1037,8 @@
       .ad-stage-content {
         min-height: 220px;
       }
+
+      .fitmonster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 820px) {
@@ -996,6 +1078,8 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
       }
+
+      .fitmonster-grid { grid-template-columns: 1fr; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1074,8 +1158,9 @@
     </div>
 
     <div class="scoreboard-layout">
-      <div class="table-wrap">
-        <table>
+      <div class="scoreboard-main">
+        <div class="table-wrap">
+          <table>
           <thead>
             <tr>
               <th data-i18n="pos">Pos</th>
@@ -1096,8 +1181,10 @@
           </thead>
           <tbody id="leaderboardBody">
             <tr><td class="empty" colspan="13">Waiting for timing data...</td></tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
+        <div id="fitMonsterGrid" class="fitmonster-grid" hidden></div>
       </div>
 
       <aside class="commercial-rail" id="adDeck" aria-label="SRC commercial media demo" data-ad-tone="brand">
@@ -1182,6 +1269,8 @@
   <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
+    const fitMonsterGrid = document.querySelector("#fitMonsterGrid");
+    const leaderboardTableWrap = document.querySelector(".table-wrap");
     const raceIdInput = document.querySelector("#raceId");
     const updatedAt = document.querySelector("#updatedAt");
     const totalCount = document.querySelector("#totalCount");
@@ -1290,6 +1379,7 @@
         current: "当前",
         elapsed: "用时",
         segmentDetails: "分段明细",
+        segments: "分段",
         run500: "500m 跑步",
         noParticipants: "还没有参赛单位。",
         waitingData: "等待计时数据...",
@@ -1356,6 +1446,7 @@
         current: "Current",
         elapsed: "Elapsed",
         segmentDetails: "Segment details",
+        segments: "segments",
         run500: "500m Run",
         noParticipants: "No entries yet.",
         waitingData: "Waiting for timing data...",
@@ -1794,6 +1885,10 @@
     }
 
     function segmentDetailCell(segments) {
+      return `<td class="segment-detail">${segmentDetailMarkup(segments)}</td>`;
+    }
+
+    function segmentDetailMarkup(segments) {
       const stationNames = fitMonsterStationNames[language] || fitMonsterStationNames.en;
       const rows = Array.isArray(segments) ? segments : [];
       const detailRows = rows.map((segment) => {
@@ -1808,7 +1903,52 @@
           </div>
         `;
       }).join("");
-      return `<td class="segment-detail">${detailRows || "-"}</td>`;
+      return detailRows || "-";
+    }
+
+    function fitMonsterCard(row, changed) {
+      const entryType = row.entryType || "individual";
+      const memberNames = Array.isArray(row.memberNames) ? row.memberNames : [];
+      const memberLine = memberNames.length && entryType !== "individual"
+        ? `<div class="fit-card-members">${escapeHtml(memberNames.join(" / "))}</div>`
+        : "";
+      const detailRows = Array.isArray(row.segmentSplits) ? row.segmentSplits.length : 0;
+      const completedSegments = Array.isArray(row.segmentSplits)
+        ? row.segmentSplits.filter((segment) => segment.elapsedMs !== null && segment.elapsedMs !== undefined).length
+        : 0;
+      const progress = detailRows ? Math.round((completedSegments / detailRows) * 100) : 0;
+      const cardClasses = [
+        "fit-card",
+        row.rank === 1 ? "leader" : "",
+        changed.has(String(row.participantId)) ? "flash" : ""
+      ].filter(Boolean).join(" ");
+      return `
+        <article class="${cardClasses}">
+          <div class="fit-card-head">
+            <span class="fit-card-rank">#${escapeHtml(row.rank)}</span>
+            <span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span>
+          </div>
+          <div>
+            <div class="fit-card-name" title="${escapeHtml(row.athleteName)}">${escapeHtml(row.athleteName)}</div>
+            ${memberLine}
+          </div>
+          <div class="fit-card-meta">
+            <span class="fit-card-current">${escapeHtml(translateCurrent(row.current))}</span>
+            <span>${completedSegments}/${detailRows || 16} ${escapeHtml(t("segments"))}</span>
+          </div>
+          <div class="fit-card-time">
+            <span>${escapeHtml(t("elapsed"))}</span>
+            <strong>${formatDuration(row.elapsedMs)}</strong>
+          </div>
+          <div>
+            <div class="fit-card-progress" aria-label="${progress}%"><span style="width:${progress}%"></span></div>
+            <details class="fit-card-details">
+              <summary>${escapeHtml(t("segmentDetails"))}</summary>
+              <div class="segment-detail">${segmentDetailMarkup(row.segmentSplits)}</div>
+            </details>
+          </div>
+        </article>
+      `;
     }
 
     function timingEventSignature(row) {
@@ -2056,6 +2196,11 @@
       racingCount.textContent = "0";
       finishedCount.textContent = "0";
       updatedAt.textContent = `${t("error")}: ${error.message}`;
+      leaderboardTableWrap.hidden = columns.usesDetailedSegments;
+      fitMonsterGrid.hidden = !columns.usesDetailedSegments;
+      fitMonsterGrid.innerHTML = columns.usesDetailedSegments
+        ? `<div class="empty">${escapeHtml(error.message)}</div>`
+        : "";
       leaderboardBody.innerHTML = `
         <tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${escapeHtml(error.message)}</td></tr>
       `;
@@ -2064,6 +2209,9 @@
     function renderLeaderboard(payload, isDemoData) {
       const rows = payload.leaderboard || [];
       const columns = configureSplitColumns(payload.race);
+      const isFitMonster = columns.usesDetailedSegments;
+      leaderboardTableWrap.hidden = isFitMonster;
+      fitMonsterGrid.hidden = !isFitMonster;
       const changed = changedRows(rows);
       totalCount.textContent = rows.length;
       racingCount.textContent = rows.filter((row) => row.status === "racing").length;
@@ -2072,7 +2220,16 @@
       updatedAt.textContent = isDemoData ? `${t("demoData")} · ${generatedAt}` : generatedAt;
 
       if (rows.length === 0) {
-        leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${t("noParticipants")}</td></tr>`;
+        if (isFitMonster) {
+          fitMonsterGrid.innerHTML = `<div class="empty">${t("noParticipants")}</div>`;
+        } else {
+          leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${t("noParticipants")}</td></tr>`;
+        }
+        return;
+      }
+
+      if (isFitMonster) {
+        fitMonsterGrid.innerHTML = rows.map((row) => fitMonsterCard(row, changed)).join("");
         return;
       }
 
