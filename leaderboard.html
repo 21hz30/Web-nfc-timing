@@ -468,19 +468,7 @@
       border-radius: inherit;
       background: var(--brand-accent);
     }
-    .fit-card-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
-    .fit-card-percentage {
-      display: grid;
-      min-width: 76px;
-      min-height: 60px;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      background: var(--table-head);
-      color: var(--brand-accent);
-      font-size: 24px;
-      font-weight: 950;
-    }
+    .fit-card-summary { display: grid; gap: 8px; align-items: end; }
     .fit-segment-pairs { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 8px; }
     .fit-segment-pair { display: grid; gap: 3px; min-width: 0; }
     .fit-segment {
@@ -498,7 +486,7 @@
     .fit-segment.run { background: var(--table-head); }
     .fit-segment strong { font-size: 11px; }
     .fit-segment span { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
-    .fit-segment.complete { border-color: var(--brand-accent); color: var(--text); background: rgba(138, 184, 79, 0.12); }
+    .fit-segment.complete { border-color: var(--brand-accent); color: var(--text); background: rgba(138, 184, 79, 0.28); }
     .fit-segment.current { outline: 2px solid var(--brand-accent); outline-offset: 1px; color: var(--brand-accent); }
 
     .scoreboard-layout {
@@ -2006,14 +1994,11 @@
             ${memberLine}
           </div>
           <div class="fit-card-summary">
-            <div>
-              ${currentLabel}
-              <div class="fit-card-time">
-                <span>${escapeHtml(t("elapsed"))}</span>
-                <strong>${formatDuration(row.elapsedMs)}</strong>
-              </div>
+            ${currentLabel}
+            <div class="fit-card-time">
+              <span>${escapeHtml(t("elapsed"))}</span>
+              <strong>${formatDuration(row.elapsedMs)}</strong>
             </div>
-            <div class="fit-card-percentage">${progress}%</div>
           </div>
           <div>
             <div class="fit-card-progress" aria-label="${progress}%"><span style="width:${progress}%"></span></div>
