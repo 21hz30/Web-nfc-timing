@@ -484,7 +484,9 @@
       font-weight: 900;
     }
     .fit-segment.run { background: var(--table-head); }
+    .fit-segment.station { min-height: 48px; padding: 3px 1px; }
     .fit-segment strong { font-size: 11px; }
+    .fit-segment.station strong { font-size: 9px; line-height: 1.1; text-align: center; white-space: normal; }
     .fit-segment span { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
     .fit-segment.complete { border-color: var(--brand-accent); color: var(--text); background: rgba(138, 184, 79, 0.28); }
     .fit-segment.current { outline: 2px solid var(--brand-accent); outline-offset: 1px; color: var(--brand-accent); }
@@ -1355,8 +1357,8 @@
       }
     ];
     const fitMonsterStationNames = {
-      zh: ["滑雪机", "推雪橇", "拉雪橇", "波比跳", "划船机", "农夫行走", "弓箭步", "药球"],
-      en: ["SkiErg", "Sled Push", "Sled Pull", "Burpee Broad Jump", "RowErg", "Farmers Carry", "Lunges", "Wall Ball"]
+      zh: ["滑雪机", "推雪橇", "拉雪橇", "波比跳远", "划船机", "农夫行走", "沙袋弓步", "墙球"],
+      en: ["SkiErg", "Sled Push", "Sled Pull", "Burpee Broad Jumps", "RowErg", "Farmers Carry", "Sandbag Lunges", "Wall Balls"]
     };
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
     const initialRaceId = forceDemoData
@@ -1952,6 +1954,7 @@
       const currentRunMatch = String(row.current || "").match(/^Run (\d+)$/);
       const currentStation = currentStationMatch ? Number(currentStationMatch[1]) : null;
       const currentRun = currentRunMatch ? Number(currentRunMatch[1]) : null;
+      const stationNames = fitMonsterStationNames[language] || fitMonsterStationNames.en;
       const segmentPairs = Array.from({ length: 8 }, (_, index) => {
         const stationNumber = index + 1;
         const runSegment = runSegments.find((item) => Number(item.number) === stationNumber);
@@ -1969,7 +1972,7 @@
               <span>${runComplete ? compactStationDuration(runSegment.elapsedMs) : "-"}</span>
             </div>
             <div class="${stationClasses}">
-              <strong>S${stationNumber}</strong>
+              <strong title="S${stationNumber} · ${escapeHtml(stationNames[index])}">${escapeHtml(stationNames[index])}</strong>
               <span>${stationComplete ? compactStationDuration(stationSegment.elapsedMs) : "-"}</span>
             </div>
           </div>
