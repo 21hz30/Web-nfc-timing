@@ -632,8 +632,13 @@
       <p id="raceProfileStatus" class="settings-note">正在读取比赛配置…</p>
       <div class="settings-grid">
         <label>
-          Race ID
-          <input id="raceId" value="hyrox-sim-001" autocomplete="off">
+          比赛 / Race ID
+          <select id="raceId">
+            <optgroup label="当前比赛">
+              <option value="fitmonster-hyrox-single">Fitmonster Hyrox Single · 8 站 / 3 手机</option>
+              <option value="hoka-race">Hoka Race · 5 站 / 7 手机</option>
+            </optgroup>
+          </select>
         </label>
         <label>
           Device ID
@@ -771,6 +776,20 @@
     const settingsKey = "srcNfcTimingSettingsV2";
     const duplicateWindowMs = 2500;
     const defaultApiUrl = `${window.location.origin}/api/timing-events`;
+    const officialRaces = [
+      {
+        raceId: "fitmonster-hyrox-single",
+        name: "Fitmonster Hyrox Single Simulation Race",
+        mode: "three_reader_auto",
+        stationCount: 8
+      },
+      {
+        raceId: "hoka-race",
+        name: "Hoka Race",
+        mode: "station_checkpoints",
+        stationCount: 5
+      }
+    ];
     const recentScans = new Map();
     let abortController = null;
     let audioContext = null;
@@ -816,6 +835,18 @@
       return `第 ${stationNumber} 站完成 · 开始第 ${stationNumber + 1} 圈跑步`;
     }
 
+    function ensureRaceOption(raceId) {
+      if (!raceId) return;
+      const existing = Array.from(elements.raceId.options)
+        .find((option) => option.value === raceId);
+      if (existing) return;
+      const savedGroup = document.createElement("optgroup");
+      savedGroup.label = "保存的比赛";
+      savedGroup.dataset.raceGroup = "saved";
+      savedGroup.append(new Option(raceId, raceId));
+      elements.raceId.append(savedGroup);
+    }
+
     function loadSettings() {
       let saved = {};
       try {
@@ -825,7 +856,11 @@
       }
 
       const params = new URLSearchParams(window.location.search);
-      elements.raceId.value = params.get("raceId") || saved.raceId || "hyrox-sim-001";
+      const preferredRaceId = params.get("raceId")
+        || saved.raceId
+        || "fitmonster-hyrox-single";
+      ensureRaceOption(preferredRaceId);
+      elements.raceId.value = preferredRaceId;
       elements.deviceId.value = params.get("deviceId") || saved.deviceId || "timing-reader-01";
       elements.timingMode.value = params.get("mode") || saved.timingMode || "auto";
       elements.gateRole.value = params.get("role") || saved.gateRole || "RUN_OUT";
@@ -859,6 +894,11 @@
       return apiUrl.replace(/\/api\/timing-events\/?$/, "/api/race-config");
     }
 
+    function racesUrl() {
+      const apiUrl = elements.apiUrl.value.trim() || defaultApiUrl;
+      return apiUrl.replace(/\/api\/timing-events\/?$/, "/api/races");
+    }
+
     async function readApiResponse(response) {
       const responseText = await response.text();
       const contentType = response.headers.get("content-type") || "";
@@ -870,6 +910,59 @@
       } catch (error) {
         throw new Error(`计时服务器返回格式错误（HTTP ${response.status}）`);
       }
+    }
+
+    function raceOptionLabel(race) {
+      const layout = race.mode === "three_reader_auto"
+        ? `${race.stationCount} 站 / 3 手机`
+        : race.mode === "station_checkpoints"
+          ? `${race.stationCount} 站 / ${race.stationCount + 2} 手机`
+          : `${race.stationCount} 站 / 2 手机`;
+      return `${race.name || race.raceId} · ${layout}`;
+    }
+
+    function createRaceOptionGroup(label, races) {
+      const group = document.createElement("optgroup");
+      group.label = label;
+      races.forEach((race) => {
+        group.append(new Option(raceOptionLabel(race), race.raceId));
+      });
+      return group;
+    }
+
+    async function loadRaceOptions() {
+      const selectedRaceId = elements.raceId.value;
+      const response = await window.timingApiFetch(racesUrl());
+      const payload = await readApiResponse(response);
+      if (!response.ok || !payload.ok || !Array.isArray(payload.races)) {
+        throw new Error(payload.error || ("HTTP " + response.status));
+      }
+
+      const racesById = new Map(
+        [...officialRaces, ...payload.races].map((race) => [race.raceId, race])
+      );
+      if (selectedRaceId && !racesById.has(selectedRaceId)) {
+        racesById.set(selectedRaceId, {
+          raceId: selectedRaceId,
+          name: selectedRaceId,
+          mode: "two_reader_auto",
+          stationCount: 8
+        });
+      }
+
+      const officialIds = new Set(officialRaces.map((race) => race.raceId));
+      const currentRaces = officialRaces.map((race) => racesById.get(race.raceId));
+      const otherRaces = Array.from(racesById.values())
+        .filter((race) => !officialIds.has(race.raceId))
+        .sort((left, right) => raceOptionLabel(left).localeCompare(raceOptionLabel(right)));
+      const groups = [createRaceOptionGroup("当前比赛", currentRaces)];
+      if (otherRaces.length) {
+        groups.push(createRaceOptionGroup("其他 / 测试比赛", otherRaces));
+      }
+      elements.raceId.replaceChildren(...groups);
+      elements.raceId.value = racesById.has(selectedRaceId)
+        ? selectedRaceId
+        : officialRaces[0].raceId;
     }
 
     function renderRaceCheckpoints(checkpoints, preferredCheckpoint) {
@@ -914,6 +1007,22 @@
         + " · " + raceProfile.stationCount + " stations";
       elements.raceProfileStatus.dataset.tone = "success";
       renderConfiguration();
+    }
+
+    function showRaceProfileError(error) {
+      elements.raceProfileStatus.textContent = "比赛配置读取失败：" + error.message;
+      elements.raceProfileStatus.dataset.tone = "error";
+    }
+
+    async function refreshRaceData({ reloadOptions = false } = {}) {
+      if (reloadOptions) {
+        try {
+          await loadRaceOptions();
+        } catch (error) {
+          // Keep the built-in official options available when the list request fails.
+        }
+      }
+      await loadRaceProfile();
     }
 
     function renderConfiguration() {
@@ -1461,13 +1570,12 @@
       });
     });
 
-    [elements.apiUrl, elements.raceId].forEach((control) => {
-      control.addEventListener("change", () => {
-        loadRaceProfile().catch((error) => {
-          elements.raceProfileStatus.textContent = "比赛配置读取失败：" + error.message;
-          elements.raceProfileStatus.dataset.tone = "error";
-        });
-      });
+    elements.raceId.addEventListener("change", () => {
+      refreshRaceData().catch(showRaceProfileError);
+    });
+
+    elements.apiUrl.addEventListener("change", () => {
+      refreshRaceData({ reloadOptions: true }).catch(showRaceProfileError);
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -1478,10 +1586,7 @@
 
     loadSettings();
     renderConfiguration();
-    loadRaceProfile().catch((error) => {
-      elements.raceProfileStatus.textContent = "比赛配置读取失败：" + error.message;
-      elements.raceProfileStatus.dataset.tone = "error";
-    });
+    refreshRaceData({ reloadOptions: true }).catch(showRaceProfileError);
   </script>
 </body>
 </html>

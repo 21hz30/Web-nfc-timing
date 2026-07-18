@@ -377,7 +377,8 @@ https://timing.hybridtraining.cn/web-nfc-timing-test.html?raceId=hoka-race&devic
 The scanner fetches `GET /api/race-config?raceId=...` on startup and automatically
 selects auto/manual mode and the profile's checkpoint list. Hoka needs 7 devices:
 START, five station devices, and END. Fitmonster needs 3 devices: RUN_OUT, RUN_IN,
-and FINISH.
+and FINISH. The scanner Race ID dropdown lists these two official races first and
+groups older development profiles under **其他 / 测试比赛**.
 
 Timing event payload example:
 

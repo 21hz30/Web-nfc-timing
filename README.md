@@ -108,7 +108,9 @@ stored in the repository or configured in Vercel.
 ## Race Profiles
 
 Race behavior is selected by `raceId`; no code change is needed between race days.
-The admin page can create or update a profile through the Race Profile section.
+The timing page lists the two official races first in its Race ID dropdown and keeps
+older development profiles in a separate group. The admin page can create or update
+a profile through the Race Profile section.
 
 Supported modes:
 
