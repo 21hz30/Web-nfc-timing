@@ -1833,15 +1833,11 @@
 
     function formatDuration(ms) {
       if (ms === null || ms === undefined) return "-";
-      const totalSeconds = Math.floor(ms / 1000);
-      const tenths = Math.floor((ms % 1000) / 100);
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000));
+      if (!Number.isFinite(totalSeconds)) return "-";
+      const minutes = Math.floor(totalSeconds / 60);
       const seconds = totalSeconds % 60;
-      if (hours > 0) {
-        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
-      }
-      return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
     }
 
     function translateStatus(status) {
@@ -1926,14 +1922,21 @@
     }
 
     function compactStationDuration(ms) {
-      if (ms === null || ms === undefined) return "-";
-      const seconds = Number(ms) / 1000;
-      if (!Number.isFinite(seconds)) return "-";
-      if (seconds >= 60) return `${Math.floor(seconds / 60)}m${String(Math.floor(seconds % 60)).padStart(2, "0")}s`;
-      return `${seconds.toFixed(1)}s`;
+      return formatDuration(ms);
     }
 
-    function fitMonsterCard(row, changed) {
+    function activeSegmentElapsed(row, type, number, nowMs) {
+      const currentLabel = `${type === "run" ? "Run" : "Station"} ${number}`;
+      if (row.current !== currentLabel) return null;
+
+      const checkpoint = type === "run"
+        ? (number === 1 ? "START" : `STATION_${number - 1}_EXIT`)
+        : `STATION_${number}_ENTER`;
+      const startMs = Date.parse(row.checkpointTimes?.[checkpoint] || "");
+      return Number.isFinite(startMs) ? Math.max(0, nowMs - startMs) : 0;
+    }
+
+    function fitMonsterCard(row, changed, nowMs) {
       const entryType = row.entryType || "individual";
       const memberNames = Array.isArray(row.memberNames) ? row.memberNames : [];
       const memberLine = memberNames.length && entryType !== "individual"
@@ -1961,6 +1964,12 @@
         const stationSegment = stationSegments.find((item) => Number(item.number) === stationNumber);
         const runComplete = runSegment?.elapsedMs !== null && runSegment?.elapsedMs !== undefined;
         const stationComplete = stationSegment?.elapsedMs !== null && stationSegment?.elapsedMs !== undefined;
+        const runElapsed = runComplete
+          ? runSegment.elapsedMs
+          : activeSegmentElapsed(row, "run", stationNumber, nowMs);
+        const stationElapsed = stationComplete
+          ? stationSegment.elapsedMs
+          : activeSegmentElapsed(row, "station", stationNumber, nowMs);
         const runClasses = ["fit-segment", "run", runComplete ? "complete" : "", currentRun === stationNumber ? "current" : ""]
           .filter(Boolean).join(" ");
         const stationClasses = ["fit-segment", "station", stationComplete ? "complete" : "", currentStation === stationNumber ? "current" : ""]
@@ -1969,11 +1978,11 @@
           <div class="fit-segment-pair">
             <div class="${runClasses}">
               <strong>R${stationNumber}</strong>
-              <span>${runComplete ? compactStationDuration(runSegment.elapsedMs) : "-"}</span>
+              <span>${compactStationDuration(runElapsed)}</span>
             </div>
             <div class="${stationClasses}">
               <strong title="S${stationNumber} · ${escapeHtml(stationNames[index])}">${escapeHtml(stationNames[index])}</strong>
-              <span>${stationComplete ? compactStationDuration(stationSegment.elapsedMs) : "-"}</span>
+              <span>${compactStationDuration(stationElapsed)}</span>
             </div>
           </div>
         `;
@@ -2289,7 +2298,9 @@
       }
 
       if (isFitMonster) {
-        fitMonsterGrid.innerHTML = rows.map((row) => fitMonsterCard(row, changed)).join("");
+        const generatedAtMs = Date.parse(payload.generatedAt);
+        const nowMs = Number.isFinite(generatedAtMs) ? generatedAtMs : Date.now();
+        fitMonsterGrid.innerHTML = rows.map((row) => fitMonsterCard(row, changed, nowMs)).join("");
         return;
       }
 
