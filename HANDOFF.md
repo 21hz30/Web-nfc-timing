@@ -16,7 +16,7 @@ The current proof of concept supports:
 - Individual, doubles, and team registration with one NFC card per timed entry.
 - Front-desk registration intentionally omits Bib for the current rehearsal flow;
   the database field remains optional for backward compatibility.
-- Live leaderboard with one mock race, two official races, explicit mock/live labels,
+- Live leaderboard with two mock races, two official races, explicit mock/live labels,
   protected per-race cleanup, theme/language toggles, and F1-style row update flash.
 - Full-screen accepted/error feedback, sound, vibration, and screen wake lock on timing devices.
 - Configurable 3-60 second duplicate protection, defaulting to 10 seconds.
@@ -250,7 +250,7 @@ Purpose:
 - Show selected-race totals for participants, check-ins, finishes, timing events,
   and rejected/error events.
 - Link directly to the selected race's live leaderboard.
-- The leaderboard selector exposes one browser-only mock race plus the FitMonster
+- The leaderboard selector exposes two browser-only mock races plus the FitMonster
   and Hoka official Supabase races.
 - FitMonster rows expose alternating 500m run and named station segments; Wall Ball
   is the final segment and ends the race.
@@ -619,7 +619,7 @@ Important production correction:
 - The local Python API still uses SQLite as its primary race engine; cloud-created
   participants are not pulled back into SQLite automatically.
 - No official deployment config for 火山云 yet.
-- Leaderboard selection is limited to one mock profile and the two official profiles.
+- Leaderboard selection includes SRC and Hoka browser-only demos plus the two official profiles.
 - Local database currently contains test records from development.
 
 ## Recommended Next Steps

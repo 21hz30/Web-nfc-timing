@@ -57,7 +57,7 @@ http://localhost:8787/leaderboard.html
 The admin page loads all race profiles from the API, keeps the two official races at
 the top, and shows participant, check-in, finish, event, and error totals for the
 selected race. Its data-board button carries the selected `raceId` into the live
-leaderboard. The leaderboard selector contains one browser-only mock race and the
+leaderboard. The leaderboard selector contains two browser-only mock races and the
 two official database-backed races. Empty races show explicit empty states.
 
 API endpoint:
@@ -167,11 +167,12 @@ Leaderboard race choices:
 
 ```text
 src-hyrox                   browser-only mock data
+hoka-race-demo              browser-only Hoka team demo
 fitmonster-hyrox-single     official Supabase data
 hoka-race                   official Supabase data
 ```
 
-The mock race cannot be cleared because it never writes to the database. An official
+Mock races cannot be cleared because they never write to the database. An official
 race requires the administrator clear code and two confirmation clicks before
 `POST /api/reset-race` deletes its participants and timing events. The selected
 Race ID is sent by the page automatically; the user does not need to type it.

@@ -1369,6 +1369,12 @@
         en: "SRC Leaderboard Demo"
       },
       {
+        raceId: "hoka-race-demo",
+        kind: "mock",
+        zh: "Hoka 团队赛演示",
+        en: "Hoka Team Race Demo"
+      },
+      {
         raceId: "fitmonster-hyrox-single",
         kind: "live",
         zh: "FitMonster Hyrox 单人模拟赛",
@@ -1385,6 +1391,7 @@
       zh: ["滑雪机", "推雪橇", "拉雪橇", "波比跳远", "划船机", "农夫行走", "沙袋弓步", "墙球"],
       en: ["SkiErg", "Sled Push", "Sled Pull", "Burpee Broad Jumps", "RowErg", "Farmers Carry", "Sandbag Lunges", "Wall Balls"]
     };
+    const hokaDemoAnchorMs = Date.now();
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
     const initialRaceId = forceDemoData
       ? "src-hyrox"
@@ -1641,11 +1648,12 @@
     }
 
     function isDemoRaceId(raceId) {
-      return String(raceId || "").trim().toLowerCase() === "src-hyrox";
+      return raceCatalog.some((race) => race.raceId === raceId && race.kind === "mock");
     }
 
     function selectedRace() {
-      return raceCatalog.find((race) => race.raceId === raceIdInput.value) || raceCatalog[1];
+      return raceCatalog.find((race) => race.raceId === raceIdInput.value)
+        || raceCatalog.find((race) => race.raceId === "fitmonster-hyrox-single");
     }
 
     function buildRaceOptions() {
@@ -2133,7 +2141,147 @@
       return new Date(nowMs - offsetMs).toISOString();
     }
 
+    function hokaDemoCheckpointTimes(startOffsetMs, stationDurations, completedStations) {
+      const checkpointTimes = {
+        START: demoIsoFrom(hokaDemoAnchorMs, startOffsetMs)
+      };
+      let elapsedMs = 0;
+      for (let stationNumber = 1; stationNumber < completedStations; stationNumber += 1) {
+        elapsedMs += stationDurations[stationNumber - 1];
+        checkpointTimes[`STATION_${stationNumber + 1}_START`] = demoIsoFrom(
+          hokaDemoAnchorMs,
+          startOffsetMs - elapsedMs
+        );
+      }
+      return checkpointTimes;
+    }
+
+    function mockHokaLeaderboardPayload(raceId) {
+      const finishedDurations = [250000, 300000, 275000, 310000, 345000];
+      const stationFiveDurations = [285000, 320000, 290000, 340000, null];
+      const stationThreeDurations = [310000, 340000, null, null, null];
+      const stationTwoDurations = [295000, null, null, null, null];
+      const finishedTotal = finishedDurations.reduce((total, duration) => total + duration, 0);
+      const stationFiveStartOffset = stationFiveDurations.slice(0, 4)
+        .reduce((total, duration) => total + duration, 0) + 130000;
+      const stationThreeStartOffset = stationThreeDurations.slice(0, 2)
+        .reduce((total, duration) => total + duration, 0) + 210000;
+      const stationTwoStartOffset = stationTwoDurations[0] + 100000;
+      const rows = [
+        {
+          participantId: 9501,
+          athleteName: "Weekend Warriors",
+          entryType: "team",
+          memberNames: ["Mia", "Leo", "Nina", "Kai"],
+          bibNumber: "H101",
+          status: "finished",
+          current: "Finished",
+          progressIndex: 5,
+          latestCheckpoint: "END",
+          startTime: demoIsoFrom(hokaDemoAnchorMs, finishedTotal + 300000),
+          finishTime: demoIsoFrom(hokaDemoAnchorMs, 300000),
+          elapsedMs: finishedTotal,
+          checkpointTimes: {
+            ...hokaDemoCheckpointTimes(finishedTotal + 300000, finishedDurations, 5),
+            END: demoIsoFrom(hokaDemoAnchorMs, 300000)
+          },
+          stationSplits: demoSplits(finishedDurations),
+          segmentSplits: []
+        },
+        {
+          participantId: 9502,
+          athleteName: "Sunrise Crew",
+          entryType: "team",
+          memberNames: ["Amy", "Bo", "Chris", "Dora"],
+          bibNumber: "H102",
+          status: "racing",
+          current: "Station 5",
+          progressIndex: 4,
+          latestCheckpoint: "STATION_5_START",
+          startTime: demoIsoFrom(hokaDemoAnchorMs, stationFiveStartOffset),
+          finishTime: null,
+          elapsedMs: stationFiveStartOffset,
+          checkpointTimes: hokaDemoCheckpointTimes(stationFiveStartOffset, stationFiveDurations, 5),
+          stationSplits: demoSplits(stationFiveDurations),
+          segmentSplits: []
+        },
+        {
+          participantId: 9503,
+          athleteName: "Fast Friends",
+          entryType: "team",
+          memberNames: ["Eva", "Finn", "Grace", "Hugo"],
+          bibNumber: "H103",
+          status: "racing",
+          current: "Station 3",
+          progressIndex: 2,
+          latestCheckpoint: "STATION_3_START",
+          startTime: demoIsoFrom(hokaDemoAnchorMs, stationThreeStartOffset),
+          finishTime: null,
+          elapsedMs: stationThreeStartOffset,
+          checkpointTimes: hokaDemoCheckpointTimes(stationThreeStartOffset, stationThreeDurations, 3),
+          stationSplits: demoSplits(stationThreeDurations),
+          segmentSplits: []
+        },
+        {
+          participantId: 9504,
+          athleteName: "Hoka Run Club",
+          entryType: "team",
+          memberNames: ["Ivy", "Jack", "Kira", "Liam"],
+          bibNumber: "H104",
+          status: "racing",
+          current: "Station 2",
+          progressIndex: 1,
+          latestCheckpoint: "STATION_2_START",
+          startTime: demoIsoFrom(hokaDemoAnchorMs, stationTwoStartOffset),
+          finishTime: null,
+          elapsedMs: stationTwoStartOffset,
+          checkpointTimes: hokaDemoCheckpointTimes(stationTwoStartOffset, stationTwoDurations, 2),
+          stationSplits: demoSplits(stationTwoDurations),
+          segmentSplits: []
+        },
+        {
+          participantId: 9505,
+          athleteName: "City Striders",
+          entryType: "team",
+          memberNames: ["Mona", "Noah", "Owen", "Pia"],
+          bibNumber: "H105",
+          status: "not_started",
+          current: "Waiting",
+          progressIndex: -1,
+          latestCheckpoint: null,
+          startTime: null,
+          finishTime: null,
+          elapsedMs: null,
+          checkpointTimes: {},
+          stationSplits: demoSplits([]),
+          segmentSplits: []
+        }
+      ];
+
+      rows.forEach((row, index) => {
+        row.rank = index + 1;
+      });
+
+      return {
+        ok: true,
+        raceId,
+        race: {
+          raceId,
+          name: "Hoka Team Race Demo",
+          mode: "station_checkpoints",
+          stationCount: 5,
+          checkpointLayout: "station_boundaries"
+        },
+        generatedAt: new Date().toISOString(),
+        checkpoints: ["START", "STATION_2_START", "STATION_3_START", "STATION_4_START", "STATION_5_START", "END"],
+        leaderboard: rows
+      };
+    }
+
     function mockLeaderboardPayload(raceId) {
+      if (raceId === "hoka-race-demo") {
+        return mockHokaLeaderboardPayload(raceId);
+      }
       const nowMs = Date.now();
       const rows = [
         {
