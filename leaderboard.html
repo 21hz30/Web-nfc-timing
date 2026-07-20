@@ -508,11 +508,13 @@
       align-items: start;
     }
 
-    .scoreboard-layout.fitmonster-mode {
+    .scoreboard-layout.fitmonster-mode,
+    .scoreboard-layout.station-mode {
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .scoreboard-layout.fitmonster-mode .commercial-rail {
+    .scoreboard-layout.fitmonster-mode .commercial-rail,
+    .scoreboard-layout.station-mode .commercial-rail {
       display: none;
     }
 
@@ -1898,29 +1900,71 @@
     function configureSplitColumns(race) {
       const stationCount = Math.max(1, Math.min(Number(race?.stationCount) || 8, 8));
       const usesDetailedSegments = race?.raceId === "fitmonster-hyrox-single";
-      const usesStationBoundaries = race?.mode === "station_checkpoints";
+      const usesStationTiming = race?.mode === "station_checkpoints";
+      const usesStationBoundaries = usesStationTiming && race?.checkpointLayout !== "station_starts";
       scoreboardLayout.classList.toggle("fitmonster-mode", usesDetailedSegments);
+      scoreboardLayout.classList.toggle("station-mode", usesStationTiming);
       document.querySelector("#segmentHeader").hidden = !usesDetailedSegments;
       document.querySelectorAll("[data-split-column]").forEach((header) => {
         const stationNumber = Number(header.dataset.splitColumn);
         header.hidden = usesDetailedSegments || stationNumber > stationCount;
-        header.textContent = usesStationBoundaries
-          ? (stationNumber === 1 ? "Start→S1" : `S${stationNumber - 1}→S${stationNumber}`)
+        header.textContent = usesStationTiming
+          ? `Station ${stationNumber}`
           : `S${stationNumber}`;
       });
       return {
         stationCount,
         usesDetailedSegments,
+        usesStationBoundaries,
         visibleDetailColumns: usesDetailedSegments ? 1 : stationCount
       };
     }
 
-    function stationSplitCells(splits, stationCount) {
+    function liveDurationAttributes(startMs) {
+      return Number.isFinite(startMs) ? ` data-live-start-ms="${startMs}"` : "";
+    }
+
+    function stationSplitCells(row, stationCount, usesStationBoundaries) {
       let html = "";
       for (let stationNumber = 1; stationNumber <= stationCount; stationNumber += 1) {
-        html += `<td class="split mono">${formatDuration(splits[`station${stationNumber}Ms`])}</td>`;
+        const storedElapsed = row.stationSplits?.[`station${stationNumber}Ms`];
+        const isCurrentStation = usesStationBoundaries
+          && row.status === "racing"
+          && row.current === `Station ${stationNumber}`;
+        const startCheckpoint = stationNumber === 1
+          ? "START"
+          : `STATION_${stationNumber}_START`;
+        const startMs = isCurrentStation
+          ? Date.parse(row.checkpointTimes?.[startCheckpoint] || "")
+          : NaN;
+        const elapsed = storedElapsed !== null && storedElapsed !== undefined
+          ? storedElapsed
+          : Number.isFinite(startMs)
+            ? Math.max(0, Date.now() - startMs)
+            : null;
+        html += `<td class="split mono"${liveDurationAttributes(startMs)}>${formatDuration(elapsed)}</td>`;
       }
       return html;
+    }
+
+    function elapsedCell(row) {
+      const startMs = row.status === "racing"
+        ? Date.parse(row.startTime || row.checkpointTimes?.START || "")
+        : NaN;
+      const elapsed = Number.isFinite(startMs)
+        ? Math.max(0, Date.now() - startMs)
+        : row.elapsedMs;
+      return `<td class="elapsed mono"${liveDurationAttributes(startMs)}>${formatDuration(elapsed)}</td>`;
+    }
+
+    function updateLiveDurations() {
+      const nowMs = Date.now();
+      document.querySelectorAll("[data-live-start-ms]").forEach((cell) => {
+        const startMs = Number(cell.dataset.liveStartMs);
+        if (Number.isFinite(startMs)) {
+          cell.textContent = formatDuration(Math.max(0, nowMs - startMs));
+        }
+      });
     }
 
     function segmentDetailCell(segments) {
@@ -2356,10 +2400,10 @@
             </td>
             <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>
             <td class="current">${escapeHtml(translateCurrent(row.current))}</td>
-            <td class="elapsed mono">${formatDuration(row.elapsedMs)}</td>
+            ${elapsedCell(row)}
             ${columns.usesDetailedSegments
               ? segmentDetailCell(row.segmentSplits)
-              : stationSplitCells(row.stationSplits, columns.stationCount)}
+              : stationSplitCells(row, columns.stationCount, columns.usesStationBoundaries)}
           </tr>
         `;
       }).join("");
@@ -2498,6 +2542,7 @@
     updateRaceControls();
     refreshLoop();
     setInterval(refreshLoop, 1000);
+    setInterval(updateLiveDurations, 250);
     setInterval(tickAds, 120);
   </script>
 </body>
