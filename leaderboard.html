@@ -1395,9 +1395,7 @@
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
     const initialRaceId = forceDemoData
       ? "src-hyrox"
-      : knownRaceIds.has(requestedRaceId)
-        ? requestedRaceId
-        : "fitmonster-hyrox-single";
+      : requestedRaceId || "fitmonster-hyrox-single";
 
     const i18n = {
       zh: {
@@ -1408,6 +1406,7 @@
         raceId: "选择比赛",
         mockGroup: "模拟比赛",
         liveGroup: "正式比赛",
+        historyGroup: "历史比赛场次",
         clearRace: "清空本场数据",
         clearDisabled: "模拟数据不会写入数据库",
         clearRaceTitle: "清空本场数据",
@@ -1475,6 +1474,7 @@
         raceId: "Select race",
         mockGroup: "Mock race",
         liveGroup: "Live races",
+        historyGroup: "Race history",
         clearRace: "Clear race data",
         clearDisabled: "Mock data is not stored in the database",
         clearRaceTitle: "Clear race data",
@@ -1651,6 +1651,20 @@
       return raceCatalog.some((race) => race.raceId === raceId && race.kind === "mock");
     }
 
+    function isFitMonsterRaceId(raceId) {
+      return raceId === "fitmonster-hyrox-single"
+        || String(raceId || "").startsWith("fitmonster-hyrox-single-");
+    }
+
+    function isHokaRaceId(raceId) {
+      return raceId === "hoka-race"
+        || String(raceId || "").startsWith("hoka-race-");
+    }
+
+    function isOfficialRaceId(raceId) {
+      return raceId === "fitmonster-hyrox-single" || raceId === "hoka-race";
+    }
+
     function selectedRace() {
       return raceCatalog.find((race) => race.raceId === raceIdInput.value)
         || raceCatalog.find((race) => race.raceId === "fitmonster-hyrox-single");
@@ -1660,7 +1674,8 @@
       const selectedId = raceIdInput.value || initialRaceId;
       const groups = [
         { kind: "mock", label: t("mockGroup") },
-        { kind: "live", label: t("liveGroup") }
+        { kind: "live", label: t("liveGroup") },
+        { kind: "session", label: t("historyGroup") }
       ].map(({ kind, label }) => {
         const group = document.createElement("optgroup");
         group.label = label;
@@ -1668,9 +1683,36 @@
           group.append(new Option(race[language], race.raceId));
         });
         return group;
-      });
+      }).filter((group) => group.children.length > 0);
       raceIdInput.replaceChildren(...groups);
       raceIdInput.value = knownRaceIds.has(selectedId) ? selectedId : initialRaceId;
+    }
+
+    async function loadRaceCatalog() {
+      const response = await window.timingApiFetch("/api/races");
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(`HTTP ${response.status}: API did not return JSON`);
+      }
+      if (!response.ok || !payload.ok || !Array.isArray(payload.races)) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      const catalogById = new Map(raceCatalog.map((race) => [race.raceId, race]));
+      payload.races.forEach((race) => {
+        if (!race?.raceId || catalogById.has(race.raceId)) return;
+        const item = {
+          raceId: race.raceId,
+          kind: isOfficialRaceId(race.raceId) ? "live" : "session",
+          zh: race.name || race.raceId,
+          en: race.name || race.raceId
+        };
+        raceCatalog.push(item);
+        knownRaceIds.add(item.raceId);
+        catalogById.set(item.raceId, item);
+      });
     }
 
     function updateRaceControls(updateUrl = true) {
@@ -1907,7 +1949,7 @@
 
     function configureSplitColumns(race) {
       const stationCount = Math.max(1, Math.min(Number(race?.stationCount) || 8, 8));
-      const usesDetailedSegments = race?.raceId === "fitmonster-hyrox-single";
+      const usesDetailedSegments = isFitMonsterRaceId(race?.raceId);
       const usesStationTiming = race?.mode === "station_checkpoints";
       const usesStationBoundaries = usesStationTiming && race?.checkpointLayout !== "station_starts";
       scoreboardLayout.classList.toggle("fitmonster-mode", usesDetailedSegments);
@@ -2471,11 +2513,11 @@
 
     function renderLeaderboardError(error) {
       const race = selectedRace();
-      const stationCount = race.raceId === "hoka-race" ? 5 : 8;
+      const stationCount = isHokaRaceId(race.raceId) ? 5 : 8;
       const columns = configureSplitColumns({
         raceId: race.raceId,
         stationCount,
-        mode: race.raceId === "hoka-race" ? "station_checkpoints" : "three_reader_auto"
+        mode: isHokaRaceId(race.raceId) ? "station_checkpoints" : "three_reader_auto"
       });
       totalCount.textContent = "0";
       racingCount.textContent = "0";
@@ -2684,11 +2726,23 @@
     adNextButton.addEventListener("click", () => setAdIndex(adIndex + 1));
     adPlayButton.addEventListener("click", toggleAdPlayback);
 
-    applyTheme(theme);
-    applyLanguage(language);
-    raceIdInput.value = initialRaceId;
-    updateRaceControls();
-    refreshLoop();
+    async function initializeLeaderboard() {
+      applyTheme(theme);
+      applyLanguage(language);
+      try {
+        await loadRaceCatalog();
+      } catch (error) {
+        updatedAt.textContent = `${t("error")}: ${error.message}`;
+      }
+      buildRaceOptions();
+      raceIdInput.value = knownRaceIds.has(initialRaceId)
+        ? initialRaceId
+        : "fitmonster-hyrox-single";
+      updateRaceControls();
+      await refreshLoop();
+    }
+
+    initializeLeaderboard();
     setInterval(refreshLoop, 1000);
     setInterval(updateLiveDurations, 250);
     setInterval(tickAds, 120);

@@ -252,6 +252,10 @@ Purpose:
 - Link directly to the selected race's live leaderboard.
 - The leaderboard selector exposes two browser-only mock races plus the FitMonster
   and Hoka official Supabase races.
+- Front-desk staff create a dated race session from an official template before each
+  real event. The session Race ID includes local event date/time (for example,
+  `hoka-race-20260725-0900`) and is shared by registration, timing phones, and the
+  leaderboard. Starting a new session never clears previous participants or events.
 - FitMonster rows expose alternating 500m run and named station segments; Wall Ball
   is the final segment and ends the race.
 - Official race cleanup requires the administrator clear code and two confirmation clicks.

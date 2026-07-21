@@ -177,6 +177,12 @@ race requires the administrator clear code and two confirmation clicks before
 `POST /api/reset-race` deletes its participants and timing events. The selected
 Race ID is sent by the page automatically; the user does not need to type it.
 
+For every real event, create a dated race session from the FitMonster or Hoka template
+in `admin.html` before registering participants. Session IDs use the event's local
+date and time, for example `hoka-race-20260725-0900`. Registration, timing devices,
+and the leaderboard all use that same session ID, so previous sessions remain
+available as history. Do not clear or reuse a template Race ID to start a new event.
+
 Supported modes:
 
 ```text

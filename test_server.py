@@ -219,6 +219,80 @@ class TimingApiTests(unittest.TestCase):
             "auto-test",
         )
 
+    def test_dated_race_session_preserves_previous_race_history(self):
+        source_race_id = "hoka-race"
+        session_race_id = "hoka-race-20260725-0900"
+        self.request_json(
+            "/api/participants",
+            {
+                "raceId": source_race_id,
+                "cardCode": "HISTORY-OLD",
+                "athleteName": "Previous Hoka Team",
+                "entryType": "team",
+                "memberNames": ["Old 1", "Old 2", "Old 3", "Old 4"],
+                "checkInStatus": "checked_in",
+            },
+        )
+        session = self.request_json(
+            "/api/race-config",
+            {
+                "raceId": session_race_id,
+                "name": "Hoka Race 2026-07-25 09:00",
+                "mode": "station_checkpoints",
+                "entryType": "team",
+                "stationCount": 5,
+                "checkpointLayout": "station_boundaries",
+            },
+        )["race"]
+        self.request_json(
+            "/api/participants",
+            {
+                "raceId": session_race_id,
+                "cardCode": "HISTORY-NEW",
+                "athleteName": "New Hoka Team",
+                "entryType": "team",
+                "memberNames": ["New 1", "New 2", "New 3", "New 4"],
+                "checkInStatus": "checked_in",
+            },
+        )
+
+        self.assertEqual(session["checkpointLayout"], "station_boundaries")
+        previous_entries = self.request_json(
+            f"/api/participants?raceId={source_race_id}"
+        )["participants"]
+        new_entries = self.request_json(
+            f"/api/participants?raceId={session_race_id}"
+        )["participants"]
+        self.assertEqual(
+            [row["athlete_name"] for row in previous_entries],
+            ["Previous Hoka Team"],
+        )
+        self.assertEqual(
+            [row["athlete_name"] for row in new_entries],
+            ["New Hoka Team"],
+        )
+
+        self.request_json(
+            "/api/reset-race",
+            {
+                "raceId": session_race_id,
+                "confirmation": "SECOND_CONFIRMATION",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        previous_entries_after_reset = self.request_json(
+            f"/api/participants?raceId={source_race_id}"
+        )["participants"]
+        new_entries_after_reset = self.request_json(
+            f"/api/participants?raceId={session_race_id}"
+        )["participants"]
+        preserved_profile = self.request_json(
+            f"/api/race-config?raceId={session_race_id}"
+        )["race"]
+        self.assertEqual(len(previous_entries_after_reset), 1)
+        self.assertEqual(new_entries_after_reset, [])
+        self.assertEqual(preserved_profile["raceId"], session_race_id)
+
     def test_delete_participant_requires_code_and_only_deletes_selected_card(self):
         event = self.request_json(
             "/api/timing-events",

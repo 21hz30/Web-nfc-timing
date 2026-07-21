@@ -409,6 +409,32 @@
     </section>
 
     <section>
+      <h2>创建新比赛场次</h2>
+      <p>每次正式比赛先从模板创建一个带日期时间的场次。新场次使用独立 Race ID，历史选手和计时记录会继续保留。</p>
+      <form id="raceSessionForm" class="grid">
+        <label>
+          比赛模板
+          <select id="raceSessionTemplate">
+            <option value="fitmonster-hyrox-single">FitMonster Hyrox Single</option>
+            <option value="hoka-race">Hoka Team Race</option>
+          </select>
+        </label>
+        <label>
+          比赛日期时间
+          <input id="raceSessionTime" type="datetime-local" required>
+        </label>
+        <label>
+          场次名称（可选）
+          <input id="raceSessionName" placeholder="留空则自动生成" autocomplete="off">
+        </label>
+        <div class="actions">
+          <button type="submit">创建并切换到新场次</button>
+        </div>
+      </form>
+      <div id="raceSessionStatus" class="status">新场次不会删除或覆盖历史数据。</div>
+    </section>
+
+    <section>
       <h2>参赛登记 / NFC 绑定</h2>
       <p>一张 NFC 卡对应一个参赛单位；个人资料或团队成员只存后台。</p>
       <form id="participantForm" class="grid">
@@ -594,6 +620,11 @@
     const raceConfigForm = document.querySelector("#raceConfigForm");
     const raceConfigStatus = document.querySelector("#raceConfigStatus");
     const raceConfigId = document.querySelector("#raceConfigId");
+    const raceSessionForm = document.querySelector("#raceSessionForm");
+    const raceSessionTemplate = document.querySelector("#raceSessionTemplate");
+    const raceSessionTime = document.querySelector("#raceSessionTime");
+    const raceSessionName = document.querySelector("#raceSessionName");
+    const raceSessionStatus = document.querySelector("#raceSessionStatus");
     const overviewRaceName = document.querySelector("#overviewRaceName");
     const leaderboardLink = document.querySelector("#leaderboardLink");
     const metricParticipants = document.querySelector("#metricParticipants");
@@ -624,19 +655,24 @@
         name: "FitMonster Hyrox Single",
         stationCount: 8,
         deviceCount: 3,
-        entryType: "individual"
+        entryType: "individual",
+        mode: "three_reader_auto",
+        checkpointLayout: null
       },
       {
         raceId: "hoka-race",
         name: "Hoka Race",
         stationCount: 5,
         deviceCount: 6,
-        entryType: "team"
+        entryType: "team",
+        mode: "station_checkpoints",
+        checkpointLayout: "station_boundaries"
       }
     ];
     let activeEntryType = "individual";
     let visibleParticipants = [];
     let editingCardCode = "";
+    const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -862,6 +898,27 @@
       return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站`;
     }
 
+    function isDatedRaceSession(raceId) {
+      return officialRaces.some((race) => raceId.startsWith(`${race.raceId}-`));
+    }
+
+    function localDateTimeValue(date = new Date()) {
+      const pad = (value) => String(value).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+        + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function raceSessionDetails(template, localDateTime) {
+      const [datePart, timePart] = localDateTime.split("T");
+      const compactDate = datePart.replaceAll("-", "");
+      const compactTime = timePart.replaceAll(":", "");
+      const displayTime = `${datePart} ${timePart}`;
+      return {
+        raceId: `${template.raceId}-${compactDate}-${compactTime}`,
+        name: `${template.name} · ${displayTime}`
+      };
+    }
+
     function updateRaceLinks(raceId) {
       leaderboardLink.href = `./leaderboard.html?raceId=${encodeURIComponent(raceId)}`;
     }
@@ -878,21 +935,30 @@
     async function loadRaceOptions(preferredRaceId = "") {
       const payload = await requestJson("/api/races");
       const racesById = new Map((payload.races || []).map((race) => [race.raceId, race]));
+      knownRaceIds.clear();
+      officialRaces.forEach((race) => knownRaceIds.add(race.raceId));
+      (payload.races || []).forEach((race) => knownRaceIds.add(race.raceId));
       const currentRaces = officialRaces.map((official) => ({
         ...official,
         ...(racesById.get(official.raceId) || {})
       }));
       const officialIds = new Set(officialRaces.map((race) => race.raceId));
+      const datedRaces = (payload.races || [])
+        .filter((race) => !officialIds.has(race.raceId) && isDatedRaceSession(race.raceId))
+        .sort((left, right) => right.raceId.localeCompare(left.raceId));
       const otherRaces = (payload.races || [])
         .filter((race) => !officialIds.has(race.raceId))
+        .filter((race) => !isDatedRaceSession(race.raceId))
         .sort((left, right) => (left.name || left.raceId).localeCompare(right.name || right.raceId));
       const groups = [buildRaceGroup("当前比赛", currentRaces)];
+      if (datedRaces.length) groups.push(buildRaceGroup("历史比赛场次", datedRaces));
       if (otherRaces.length) groups.push(buildRaceGroup("其他 / 测试比赛", otherRaces));
       raceIdSelect.replaceChildren(...groups);
 
       const requestedRaceId = preferredRaceId
         || pageParams.get("raceId")
         || pageParams.get("race")
+        || datedRaces[0]?.raceId
         || officialRaces[0].raceId;
       raceIdSelect.value = racesById.has(requestedRaceId) || officialIds.has(requestedRaceId)
         ? requestedRaceId
@@ -1063,6 +1129,42 @@
       }
     });
 
+    raceSessionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const template = officialRaces.find((race) => race.raceId === raceSessionTemplate.value);
+      if (!template || !raceSessionTime.value) return;
+      const session = raceSessionDetails(template, raceSessionTime.value);
+      raceSessionStatus.textContent = "正在创建场次...";
+      raceSessionStatus.classList.remove("error");
+      try {
+        if (knownRaceIds.has(session.raceId)) {
+          await loadRaceOptions(session.raceId);
+          await Promise.all([loadRaceConfig(), refresh()]);
+          raceSessionStatus.textContent = `场次已存在，已切换：${session.raceId}`;
+          return;
+        }
+        const payload = await requestJson("/api/race-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: session.raceId,
+            name: raceSessionName.value.trim() || session.name,
+            mode: template.mode,
+            entryType: template.entryType,
+            stationCount: template.stationCount,
+            checkpointLayout: template.checkpointLayout
+          })
+        });
+        await loadRaceOptions(payload.race.raceId);
+        await Promise.all([loadRaceConfig(), refresh()]);
+        raceSessionStatus.textContent = `已创建并切换：${payload.race.name} · ${payload.race.raceId}`;
+        raceSessionName.value = "";
+      } catch (error) {
+        raceSessionStatus.textContent = `创建失败：${error.message}`;
+        raceSessionStatus.classList.add("error");
+      }
+    });
+
     raceIdSelect.addEventListener("change", () => {
       const raceId = selectedRaceId();
       const officialRace = officialRaces.find((race) => race.raceId === raceId);
@@ -1105,6 +1207,7 @@
     });
 
     async function initialize() {
+      raceSessionTime.value = localDateTimeValue();
       applyEntryType("individual");
       await loadRaceOptions();
       await Promise.all([loadRaceConfig(), refresh()]);
