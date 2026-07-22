@@ -634,10 +634,7 @@
         <label>
           比赛 / Race ID
           <select id="raceId">
-            <optgroup label="当前比赛">
-              <option value="fitmonster-hyrox-single">FitMonster Hyrox Single · 8 站 / 3 手机</option>
-              <option value="hoka-race">Hoka Race · 5 站 / 6 手机</option>
-            </optgroup>
+            <option value="">正在读取可计时比赛场次...</option>
           </select>
         </label>
         <label>
@@ -778,31 +775,9 @@
     };
 
     const settingsKey = "srcNfcTimingSettingsV2";
+    const templateRaceIds = new Set(["fitmonster-hyrox-single", "hoka-race"]);
     const duplicateWindowMs = 2500;
     const defaultApiUrl = "/api/timing-events";
-    const officialRaces = [
-      {
-        raceId: "fitmonster-hyrox-single",
-        name: "FitMonster Hyrox Single Simulation Race",
-        mode: "three_reader_auto",
-        stationCount: 8
-      },
-      {
-        raceId: "hoka-race",
-        name: "Hoka Race",
-        mode: "station_checkpoints",
-        stationCount: 5,
-        checkpointLayout: "station_boundaries",
-        checkpoints: [
-          "START",
-          "STATION_2_START",
-          "STATION_3_START",
-          "STATION_4_START",
-          "STATION_5_START",
-          "END"
-        ]
-      }
-    ];
     const recentScans = new Map();
     let abortController = null;
     let audioContext = null;
@@ -855,7 +830,7 @@
     }
 
     function ensureRaceOption(raceId) {
-      if (!raceId) return;
+      if (!raceId || templateRaceIds.has(raceId)) return;
       const existing = Array.from(elements.raceId.options)
         .find((option) => option.value === raceId);
       if (existing) return;
@@ -877,7 +852,7 @@
       const params = new URLSearchParams(window.location.search);
       const preferredRaceId = params.get("raceId")
         || saved.raceId
-        || "fitmonster-hyrox-single";
+        || "";
       ensureRaceOption(preferredRaceId);
       elements.raceId.value = preferredRaceId;
       elements.deviceId.value = params.get("deviceId") || saved.deviceId || "timing-reader-01";
@@ -959,31 +934,38 @@
         throw new Error(payload.error || ("HTTP " + response.status));
       }
 
-      const racesById = new Map(
-        [...officialRaces, ...payload.races].map((race) => [race.raceId, race])
-      );
-      if (selectedRaceId && !racesById.has(selectedRaceId)) {
-        racesById.set(selectedRaceId, {
-          raceId: selectedRaceId,
-          name: selectedRaceId,
-          mode: "two_reader_auto",
-          stationCount: 8
-        });
-      }
-
-      const officialIds = new Set(officialRaces.map((race) => race.raceId));
-      const currentRaces = officialRaces.map((race) => racesById.get(race.raceId));
-      const otherRaces = Array.from(racesById.values())
-        .filter((race) => !officialIds.has(race.raceId))
+      const activeRaces = payload.races.filter((race) => (
+        race?.raceId
+        && !race.isTemplate
+        && !templateRaceIds.has(race.raceId)
+        && race.status !== "finalized"
+      ));
+      const datedRaces = activeRaces
+        .filter((race) => Array.from(templateRaceIds).some(
+          (templateId) => race.raceId.startsWith(`${templateId}-`)
+        ))
+        .sort((left, right) => right.raceId.localeCompare(left.raceId));
+      const otherRaces = activeRaces
+        .filter((race) => !datedRaces.includes(race))
         .sort((left, right) => raceOptionLabel(left).localeCompare(raceOptionLabel(right)));
-      const groups = [createRaceOptionGroup("当前比赛", currentRaces)];
+      const groups = [];
+      if (datedRaces.length) {
+        groups.push(createRaceOptionGroup("可计时比赛场次", datedRaces));
+      }
       if (otherRaces.length) {
         groups.push(createRaceOptionGroup("其他 / 测试比赛", otherRaces));
       }
+      if (!groups.length) {
+        const emptyOption = new Option("暂无可计时场次，请先到前台创建", "");
+        emptyOption.disabled = true;
+        emptyOption.selected = true;
+        groups.push(emptyOption);
+      }
       elements.raceId.replaceChildren(...groups);
-      elements.raceId.value = racesById.has(selectedRaceId)
+      const activeIds = new Set(activeRaces.map((race) => race.raceId));
+      elements.raceId.value = activeIds.has(selectedRaceId)
         ? selectedRaceId
-        : officialRaces[0].raceId;
+        : datedRaces[0]?.raceId || otherRaces[0]?.raceId || "";
     }
 
     function renderRaceCheckpoints(checkpoints, preferredCheckpoint) {

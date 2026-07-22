@@ -73,6 +73,7 @@ RACE_PROFILE_COLUMNS = (
     "entry_type",
     "status",
     "finalized_at",
+    "is_template",
     "created_at",
     "updated_at",
 )
@@ -81,6 +82,13 @@ RESULT_ADJUSTMENT_COLUMNS = (
     "race_id",
     "participant_id",
     "adjustment_ms",
+    "reason",
+    "created_at",
+)
+RACE_ADMIN_ACTION_COLUMNS = (
+    "id",
+    "race_id",
+    "action",
     "reason",
     "created_at",
 )
@@ -228,6 +236,14 @@ def init_db() -> None:
               FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS race_admin_actions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              race_id TEXT NOT NULL,
+              action TEXT NOT NULL CHECK (action IN ('finalize', 'reopen')),
+              reason TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_participants_race
               ON participants (race_id, card_code);
 
@@ -239,6 +255,9 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_result_adjustments_race_participant
               ON result_adjustments (race_id, participant_id, created_at, id);
+
+            CREATE INDEX IF NOT EXISTS idx_race_admin_actions_race_created
+              ON race_admin_actions (race_id, created_at DESC, id DESC);
             """
         )
         ensure_participant_columns(db)
@@ -312,6 +331,11 @@ def ensure_race_profile_columns(db: sqlite3.Connection) -> None:
         )
     if "finalized_at" not in existing_columns:
         db.execute("ALTER TABLE race_profiles ADD COLUMN finalized_at TEXT")
+    if "is_template" not in existing_columns:
+        db.execute(
+            "ALTER TABLE race_profiles "
+            "ADD COLUMN is_template INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def ensure_timing_event_columns(db: sqlite3.Connection) -> None:
@@ -345,6 +369,7 @@ def make_race_profile(
     entry_type: str = "individual",
     status: str = "active",
     finalized_at: str | None = None,
+    is_template: bool = False,
 ) -> dict:
     if mode not in RACE_MODES:
         raise ValueError(
@@ -375,6 +400,7 @@ def make_race_profile(
         "entry_type": entry_type,
         "status": status,
         "finalized_at": finalized_at,
+        "is_template": bool(is_template),
         "created_at": created_at or now,
         "updated_at": updated_at or now,
     }
@@ -388,6 +414,7 @@ def default_race_profile(race_id: str) -> dict:
         "two_reader_auto",
         8,
         entry_type=entry_type,
+        is_template=race_id in {"fitmonster-hyrox-single", "hoka-race"},
     )
 
 
@@ -427,14 +454,15 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
             station_count,
             checkpoints=checkpoints,
             entry_type=entry_type,
+            is_template=race_id in {"fitmonster-hyrox-single", "hoka-race"},
         )
         db.execute(
             """
             INSERT INTO race_profiles (
               race_id, name, mode, station_count, checkpoints_json,
-              entry_type, created_at, updated_at
+              entry_type, is_template, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (race_id) DO NOTHING
             """,
             (
@@ -444,6 +472,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
                 profile["station_count"],
                 json.dumps(profile["checkpoints"]),
                 profile["entry_type"],
+                int(profile["is_template"]),
                 profile["created_at"],
                 profile["updated_at"],
             ),
@@ -453,7 +482,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
                 """
                 UPDATE race_profiles
                 SET name = ?, mode = ?, station_count = ?, checkpoints_json = ?,
-                    entry_type = ?, updated_at = ?
+                    entry_type = ?, is_template = 1, updated_at = ?
                 WHERE race_id = ?
                 """,
                 (
@@ -485,6 +514,7 @@ def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
         "entry_type": source.get("entry_type") or "individual",
         "status": source.get("status") or "active",
         "finalized_at": source.get("finalized_at"),
+        "is_template": bool(source.get("is_template")),
         "created_at": source["created_at"],
         "updated_at": source["updated_at"],
     }
@@ -508,6 +538,7 @@ def race_profile_response(profile: dict) -> dict:
         "entryType": profile.get("entry_type") or "individual",
         "status": profile.get("status") or "active",
         "finalizedAt": profile.get("finalized_at"),
+        "isTemplate": bool(profile.get("is_template")),
         "createdAt": profile["created_at"],
         "updatedAt": profile["updated_at"],
     }
@@ -528,9 +559,9 @@ def save_race_profile(profile: dict) -> dict:
             """
             INSERT INTO race_profiles (
               race_id, name, mode, station_count, checkpoints_json,
-              entry_type, status, finalized_at, created_at, updated_at
+              entry_type, status, finalized_at, is_template, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (race_id) DO UPDATE SET
               name = excluded.name,
               mode = excluded.mode,
@@ -539,6 +570,7 @@ def save_race_profile(profile: dict) -> dict:
               entry_type = excluded.entry_type,
               status = excluded.status,
               finalized_at = excluded.finalized_at,
+              is_template = excluded.is_template,
               updated_at = excluded.updated_at
             """,
             (
@@ -550,6 +582,7 @@ def save_race_profile(profile: dict) -> dict:
                 profile.get("entry_type") or "individual",
                 profile.get("status") or "active",
                 profile.get("finalized_at"),
+                int(bool(profile.get("is_template"))),
                 profile["created_at"],
                 profile["updated_at"],
             ),
@@ -603,6 +636,7 @@ def normalize_race_profile_payload(payload: dict) -> dict:
         entry_type=entry_type,
         status=existing.get("status") or "active",
         finalized_at=existing.get("finalized_at"),
+        is_template=False,
     )
 
 
@@ -700,6 +734,16 @@ def leaderboard_clear_code() -> str:
     return os.environ.get("LEADERBOARD_CLEAR_CODE", "").strip()
 
 
+def template_race_error(profile: dict) -> dict | None:
+    if not profile.get("is_template"):
+        return None
+    return {
+        "ok": False,
+        "status": "race_template_read_only",
+        "error": "This Race ID is a read-only template; create a dated race session first",
+    }
+
+
 def supabase_configured() -> bool:
     return bool(
         SUPABASE_SYNC_ENABLED
@@ -725,7 +769,13 @@ def supabase_row(row: sqlite3.Row | dict, columns: tuple[str, ...]) -> dict:
 def supabase_upsert(table: str, records: list[dict]) -> None:
     if not records:
         return
-    if table not in {"participants", "timing_events", "race_profiles", "result_adjustments"}:
+    if table not in {
+        "participants",
+        "timing_events",
+        "race_profiles",
+        "result_adjustments",
+        "race_admin_actions",
+    }:
         raise ValueError(f"Unsupported Supabase table: {table}")
     if not supabase_configured():
         raise RuntimeError("Supabase sync is not configured")
@@ -766,6 +816,8 @@ def sync_supabase_record(table: str, row: sqlite3.Row | dict) -> dict:
         columns = TIMING_EVENT_COLUMNS
     elif table == "result_adjustments":
         columns = RESULT_ADJUSTMENT_COLUMNS
+    elif table == "race_admin_actions":
+        columns = RACE_ADMIN_ACTION_COLUMNS
     else:
         columns = RACE_PROFILE_COLUMNS
     attempted_at = utc_now()
@@ -802,6 +854,9 @@ def sync_all_to_supabase() -> dict:
         adjustment_rows = db.execute(
             "SELECT * FROM result_adjustments ORDER BY id"
         ).fetchall()
+        admin_action_rows = db.execute(
+            "SELECT * FROM race_admin_actions ORDER BY id"
+        ).fetchall()
 
     profiles = [
         supabase_row(race_profile_from_row(row), RACE_PROFILE_COLUMNS)
@@ -814,10 +869,14 @@ def sync_all_to_supabase() -> dict:
     adjustments = [
         supabase_row(row, RESULT_ADJUSTMENT_COLUMNS) for row in adjustment_rows
     ]
+    admin_actions = [
+        supabase_row(row, RACE_ADMIN_ACTION_COLUMNS) for row in admin_action_rows
+    ]
     supabase_upsert("race_profiles", profiles)
     supabase_upsert("participants", participants)
     supabase_upsert("timing_events", events)
     supabase_upsert("result_adjustments", adjustments)
+    supabase_upsert("race_admin_actions", admin_actions)
     completed_at = utc_now()
     LAST_SUPABASE_SYNC.update(
         {"attemptedAt": completed_at, "saved": True, "error": None}
@@ -828,6 +887,7 @@ def sync_all_to_supabase() -> dict:
         "participants": len(participants),
         "timingEvents": len(events),
         "resultAdjustments": len(adjustments),
+        "raceAdminActions": len(admin_actions),
         "syncedAt": completed_at,
     }
 
@@ -1045,6 +1105,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_post_finalize_race()
             return
 
+        if parsed.path == "/api/reopen-race":
+            self.handle_post_reopen_race()
+            return
+
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_post_reset_race(self) -> None:
@@ -1075,6 +1139,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     {"ok": False, "error": "Invalid administrator clear code"},
                     HTTPStatus.FORBIDDEN,
                 )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
                 return
 
             with connect_db() as db:
@@ -1140,6 +1209,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     {"ok": False, "error": "Invalid administrator clear code"},
                     HTTPStatus.FORBIDDEN,
                 )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
                 return
 
             with connect_db() as db:
@@ -1222,6 +1296,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 raise ValueError("deviceId is required")
             if not assignment or len(assignment) > 100:
                 raise ValueError("assignment is required")
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
             now = utc_now()
             with connect_db() as db:
                 occupied = db.execute(
@@ -1301,6 +1379,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
     def handle_post_race_config(self) -> None:
         try:
             payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            existing = get_race_profile(race_id) if race_id else None
+            if existing and existing.get("is_template"):
+                self.send_json(template_race_error(existing), HTTPStatus.CONFLICT)
+                return
             profile = save_race_profile(normalize_race_profile_payload(payload))
             cloud = sync_supabase_record("race_profiles", profile)
             self.send_json(
@@ -1431,6 +1514,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+
             with connect_db() as db:
                 participant = db.execute(
                     "SELECT * FROM participants WHERE race_id = ? AND id = ?",
@@ -1523,18 +1611,120 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 return
 
             profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            action = None
             if profile.get("status") != "finalized":
                 profile["status"] = "finalized"
                 profile["finalized_at"] = utc_now()
                 profile["updated_at"] = profile["finalized_at"]
                 profile = save_race_profile(profile)
-            cloud = sync_supabase_record("race_profiles", profile)
+                with connect_db() as db:
+                    cursor = db.execute(
+                        "INSERT INTO race_admin_actions (race_id, action, reason, created_at) "
+                        "VALUES (?, 'finalize', ?, ?)",
+                        (race_id, "Race finalized by administrator", profile["finalized_at"]),
+                    )
+                    action = db.execute(
+                        "SELECT * FROM race_admin_actions WHERE id = ?",
+                        (cursor.lastrowid,),
+                    ).fetchone()
+            profile_cloud = sync_supabase_record("race_profiles", profile)
+            action_cloud = (
+                sync_supabase_record("race_admin_actions", action) if action else None
+            )
             self.send_json(
                 {
                     "ok": True,
                     "race": race_profile_response(profile),
-                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
-                    "cloudError": cloud["error"],
+                    "storage": {
+                        "localSaved": True,
+                        "supabaseSaved": bool(
+                            profile_cloud["saved"]
+                            and (action_cloud is None or action_cloud["saved"])
+                        ),
+                    },
+                    "cloudError": profile_cloud["error"]
+                    or (action_cloud["error"] if action_cloud else None),
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_reopen_race(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            confirmation = str(payload.get("confirmation") or "").strip()
+            reason = str(payload.get("reason") or "").strip()
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Race reopening is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if confirmation != "SECOND_CONFIRMATION":
+                raise ValueError("Second confirmation is required")
+            if len(reason) < 2 or len(reason) > 500:
+                raise ValueError("reason must be between 2 and 500 characters")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") != "finalized" or not profile.get("finalized_at"):
+                self.send_json(
+                    {"ok": False, "error": "Only a finalized race can be reopened"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            now = utc_now()
+            profile["status"] = "active"
+            profile["finalized_at"] = None
+            profile["updated_at"] = now
+            profile = save_race_profile(profile)
+            with connect_db() as db:
+                cursor = db.execute(
+                    "INSERT INTO race_admin_actions (race_id, action, reason, created_at) "
+                    "VALUES (?, 'reopen', ?, ?)",
+                    (race_id, reason, now),
+                )
+                action = db.execute(
+                    "SELECT * FROM race_admin_actions WHERE id = ?",
+                    (cursor.lastrowid,),
+                ).fetchone()
+            profile_cloud = sync_supabase_record("race_profiles", profile)
+            action_cloud = sync_supabase_record("race_admin_actions", action)
+            self.send_json(
+                {
+                    "ok": True,
+                    "race": race_profile_response(profile),
+                    "action": supabase_row(action, RACE_ADMIN_ACTION_COLUMNS),
+                    "storage": {
+                        "localSaved": True,
+                        "supabaseSaved": bool(
+                            profile_cloud["saved"] and action_cloud["saved"]
+                        ),
+                    },
+                    "cloudError": profile_cloud["error"] or action_cloud["error"],
                 }
             )
         except (json.JSONDecodeError, ValueError) as error:
@@ -1585,6 +1775,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
             profile["mode"],
             adjustment_rows,
             generated_at,
+            profile.get("status") == "finalized",
         )
         self.send_json(
             {
@@ -1607,6 +1798,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         profile_mode: str,
         adjustment_rows: list[sqlite3.Row] | None = None,
         generated_at: str | None = None,
+        is_finalized: bool = False,
     ) -> list[dict]:
         events_by_participant: dict[int, list[sqlite3.Row]] = {}
         for event in event_rows:
@@ -1629,7 +1821,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
             end_time = checkpoint_times.get("END")
             latest_checkpoint = self.latest_checkpoint(checkpoint_times, checkpoint_index)
             progress_index = checkpoint_index.get(latest_checkpoint, -1)
-            status = self.result_status(latest_checkpoint, end_time)
+            status = self.result_status(latest_checkpoint, end_time, is_finalized)
             elapsed_end = end_time if end_time else generated_at
             raw_elapsed_ms = milliseconds_between(start_time, elapsed_end) if start_time else None
             participant_adjustments = adjustments_by_participant.get(participant["id"], [])
@@ -1687,10 +1879,21 @@ class TimingHandler(SimpleHTTPRequestHandler):
             )
 
         results.sort(key=self.leaderboard_sort_key)
-        leader_elapsed = results[0]["elapsedMs"] if results else None
+        leader_elapsed = next(
+            (
+                result["elapsedMs"]
+                for result in results
+                if result["status"] == "finished" and result["elapsedMs"] is not None
+            ),
+            None,
+        )
         for index, result in enumerate(results, start=1):
             result["rank"] = index
-            if result["elapsedMs"] is None or leader_elapsed is None:
+            if (
+                result["status"] != "finished"
+                or result["elapsedMs"] is None
+                or leader_elapsed is None
+            ):
                 result["gapMs"] = None
             else:
                 result["gapMs"] = max(0, result["elapsedMs"] - leader_elapsed)
@@ -1722,9 +1925,16 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 latest_index = current_index
         return latest
 
-    def result_status(self, latest_checkpoint: str | None, end_time: str | None) -> str:
+    def result_status(
+        self,
+        latest_checkpoint: str | None,
+        end_time: str | None,
+        is_finalized: bool = False,
+    ) -> str:
         if end_time:
             return "finished"
+        if is_finalized:
+            return "dnf" if latest_checkpoint else "dns"
         if latest_checkpoint:
             return "racing"
         return "not_started"
@@ -1849,7 +2059,13 @@ class TimingHandler(SimpleHTTPRequestHandler):
         return segments
 
     def leaderboard_sort_key(self, result: dict) -> tuple:
-        status_order = {"finished": 0, "racing": 1, "not_started": 2}
+        status_order = {
+            "finished": 0,
+            "racing": 1,
+            "dnf": 1,
+            "not_started": 2,
+            "dns": 2,
+        }
         elapsed = result["elapsedMs"] if result["elapsedMs"] is not None else 10**15
         return (
             status_order.get(result["status"], 3),
@@ -1893,6 +2109,9 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 )
 
             profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
             if profile.get("status") == "finalized":
                 self.send_json(
                     {"ok": False, "status": "race_finalized", "error": "This race has ended"},
@@ -1970,6 +2189,9 @@ class TimingHandler(SimpleHTTPRequestHandler):
             if not race_id:
                 raise ValueError("raceId is required")
             profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
             if profile.get("status") == "finalized":
                 self.send_json(
                     {"ok": False, "status": "race_finalized", "error": "This race has ended"},

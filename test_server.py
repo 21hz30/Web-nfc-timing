@@ -144,6 +144,18 @@ class TimingApiTests(unittest.TestCase):
             "source": "unittest",
         }
 
+    def timing_payload_for_card(self, index, role, card_code, prefix):
+        payload = self.timing_payload(index, role)
+        payload["eventId"] = f"{prefix}-event-{index}"
+        payload["cardCode"] = card_code
+        payload["deviceId"] = f"{prefix}-{role.lower()}"
+        return payload
+
+    def assert_post_error(self, path, payload, expected_status):
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(path, payload)
+        self.assertEqual(error_context.exception.code, expected_status)
+
     def test_api_advances_full_race_and_finishes_station_eight(self):
         latest = None
         for index in range(17):
@@ -223,8 +235,19 @@ class TimingApiTests(unittest.TestCase):
         )
 
     def test_dated_race_session_preserves_previous_race_history(self):
-        source_race_id = "hoka-race"
+        source_race_id = "hoka-race-20260720-0900"
         session_race_id = "hoka-race-20260725-0900"
+        self.request_json(
+            "/api/race-config",
+            {
+                "raceId": source_race_id,
+                "name": "Hoka Race 2026-07-20 09:00",
+                "mode": "station_checkpoints",
+                "entryType": "team",
+                "stationCount": 5,
+                "checkpointLayout": "station_boundaries",
+            },
+        )
         self.request_json(
             "/api/participants",
             {
@@ -260,6 +283,7 @@ class TimingApiTests(unittest.TestCase):
         )
 
         self.assertEqual(session["checkpointLayout"], "station_boundaries")
+        self.assertFalse(session["isTemplate"])
         previous_entries = self.request_json(
             f"/api/participants?raceId={source_race_id}"
         )["participants"]
@@ -330,6 +354,230 @@ class TimingApiTests(unittest.TestCase):
             )
         self.assertEqual(error_context.exception.code, HTTPStatus.CONFLICT)
 
+    def test_reopen_race_requires_reason_confirmation_and_restores_timing(self):
+        self.request_json("/api/timing-events", self.timing_payload(0, "RUN_IN"))
+        finalized = self.request_json(
+            "/api/finalize-race",
+            {"raceId": "auto-test", "adminCode": "test-clear-code-1234"},
+        )["race"]
+        self.assertEqual(finalized["status"], "finalized")
+
+        self.assert_post_error(
+            "/api/reopen-race",
+            {
+                "raceId": "auto-test",
+                "confirmation": "SECOND_CONFIRMATION",
+                "reason": "Operator selected end by mistake",
+                "adminCode": "wrong-code",
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+        self.assert_post_error(
+            "/api/reopen-race",
+            {
+                "raceId": "auto-test",
+                "reason": "Operator selected end by mistake",
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.BAD_REQUEST,
+        )
+        self.assert_post_error(
+            "/api/reopen-race",
+            {
+                "raceId": "auto-test",
+                "confirmation": "SECOND_CONFIRMATION",
+                "reason": "x",
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.BAD_REQUEST,
+        )
+
+        reopened = self.request_json(
+            "/api/reopen-race",
+            {
+                "raceId": "auto-test",
+                "confirmation": "SECOND_CONFIRMATION",
+                "reason": "Operator selected end by mistake",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(reopened["race"]["status"], "active")
+        self.assertIsNone(reopened["race"]["finalizedAt"])
+        resumed = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(2, "RUN_OUT"),
+        )
+        self.assertEqual(resumed["status"], "accepted")
+        with server.connect_db() as db:
+            actions = db.execute(
+                "SELECT action, reason FROM race_admin_actions "
+                "WHERE race_id = ? ORDER BY id",
+                ("auto-test",),
+            ).fetchall()
+        self.assertEqual([row["action"] for row in actions], ["finalize", "reopen"])
+        self.assertEqual(actions[-1]["reason"], "Operator selected end by mistake")
+
+    def test_finalized_race_assigns_finished_dnf_dns_and_freezes_order(self):
+        for card_code, athlete_name in (
+            ("FIN-001", "Finished Athlete"),
+            ("DNS-001", "DNS Athlete"),
+        ):
+            self.request_json(
+                "/api/participants",
+                {
+                    "raceId": "auto-test",
+                    "cardCode": card_code,
+                    "athleteName": athlete_name,
+                    "entryType": "individual",
+                    "memberNames": [athlete_name],
+                },
+            )
+
+        latest = None
+        for index in range(17):
+            role, _ = server.expected_auto_transition(latest)
+            result = self.request_json(
+                "/api/timing-events",
+                self.timing_payload_for_card(index, role, "FIN-001", "finished"),
+            )
+            latest = result["stationId"]
+
+        self.request_json(
+            "/api/timing-events",
+            self.timing_payload_for_card(30, "RUN_IN", "SIM-001", "dnf"),
+        )
+        self.request_json(
+            "/api/timing-events",
+            self.timing_payload_for_card(32, "RUN_OUT", "SIM-001", "dnf"),
+        )
+        self.request_json(
+            "/api/finalize-race",
+            {"raceId": "auto-test", "adminCode": "test-clear-code-1234"},
+        )
+
+        first = self.request_json("/api/leaderboard?raceId=auto-test")
+        second = self.request_json("/api/leaderboard?raceId=auto-test")
+        self.assertEqual(
+            [row["status"] for row in first["leaderboard"]],
+            ["finished", "dnf", "dns"],
+        )
+        self.assertEqual(
+            [row["cardCode"] for row in first["leaderboard"]],
+            ["FIN-001", "SIM-001", "DNS-001"],
+        )
+        dnf_first = first["leaderboard"][1]
+        dnf_second = second["leaderboard"][1]
+        self.assertEqual(dnf_first["elapsedMs"], dnf_second["elapsedMs"])
+        self.assertEqual(dnf_first["latestCheckpoint"], "STATION_1_ENTER")
+        self.assertIsNone(first["leaderboard"][2]["elapsedMs"])
+
+    def test_official_templates_reject_operations_and_session_remains_writable(self):
+        template_id = "fitmonster-hyrox-single"
+        template = self.request_json(
+            f"/api/race-config?raceId={template_id}"
+        )["race"]
+        self.assertTrue(template["isTemplate"])
+
+        operations = [
+            (
+                "/api/participants",
+                {
+                    "raceId": template_id,
+                    "cardCode": "LOCKED-001",
+                    "athleteName": "Locked Athlete",
+                    "entryType": "individual",
+                    "memberNames": ["Locked Athlete"],
+                },
+            ),
+            (
+                "/api/device-bindings",
+                {"raceId": template_id, "deviceId": "locked-device", "assignment": "RUN_IN"},
+            ),
+            (
+                "/api/timing-events",
+                {
+                    **self.timing_payload_for_card(0, "RUN_IN", "LOCKED-001", "locked"),
+                    "raceId": template_id,
+                },
+            ),
+            (
+                "/api/result-adjustments",
+                {
+                    "raceId": template_id,
+                    "participantId": 1,
+                    "adjustmentSeconds": 10,
+                    "reason": "Template must remain clean",
+                    "adminCode": "test-clear-code-1234",
+                },
+            ),
+            (
+                "/api/reset-race",
+                {
+                    "raceId": template_id,
+                    "confirmation": "SECOND_CONFIRMATION",
+                    "adminCode": "test-clear-code-1234",
+                },
+            ),
+            (
+                "/api/delete-participant",
+                {
+                    "raceId": template_id,
+                    "cardCode": "LOCKED-001",
+                    "confirmation": "DELETE_PARTICIPANT",
+                    "adminCode": "test-clear-code-1234",
+                },
+            ),
+            (
+                "/api/finalize-race",
+                {"raceId": template_id, "adminCode": "test-clear-code-1234"},
+            ),
+            (
+                "/api/reopen-race",
+                {
+                    "raceId": template_id,
+                    "confirmation": "SECOND_CONFIRMATION",
+                    "reason": "Template must remain clean",
+                    "adminCode": "test-clear-code-1234",
+                },
+            ),
+            (
+                "/api/race-config",
+                {
+                    "raceId": template_id,
+                    "name": "Changed template",
+                    "mode": "three_reader_auto",
+                    "stationCount": 8,
+                },
+            ),
+        ]
+        for path, payload in operations:
+            with self.subTest(path=path):
+                self.assert_post_error(path, payload, HTTPStatus.CONFLICT)
+
+        session_id = "fitmonster-hyrox-single-20260726-0900"
+        session = self.request_json(
+            "/api/race-config",
+            {
+                "raceId": session_id,
+                "name": "FitMonster 2026-07-26 09:00",
+                "mode": "three_reader_auto",
+                "entryType": "individual",
+                "stationCount": 8,
+            },
+        )["race"]
+        self.assertFalse(session["isTemplate"])
+        participant = self.request_json(
+            "/api/participants",
+            {
+                "raceId": session_id,
+                "cardCode": "SESSION-001",
+                "athleteName": "Session Athlete",
+                "entryType": "individual",
+                "memberNames": ["Session Athlete"],
+            },
+        )["participant"]
+        self.assertEqual(participant["card_code"], "SESSION-001")
+
     def test_result_adjustments_preserve_raw_time_and_record_reasons(self):
         latest = None
         for index in range(17):
@@ -395,6 +643,27 @@ class TimingApiTests(unittest.TestCase):
             [item["reason"] for item in result["adjustments"]],
             ["Missed movement standard", "Timing review correction"],
         )
+
+        self.request_json(
+            "/api/finalize-race",
+            {"raceId": "auto-test", "adminCode": "test-clear-code-1234"},
+        )
+        post_race = self.request_json(
+            "/api/result-adjustments",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "adjustmentSeconds": 5,
+                "reason": "Post-race video review",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        refreshed = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(post_race["totalAdjustmentMs"], 50000)
+        self.assertEqual(refreshed["adjustmentMs"], 50000)
+        self.assertEqual(refreshed["elapsedMs"], 210000)
 
     def test_delete_participant_requires_code_and_only_deletes_selected_card(self):
         event = self.request_json(

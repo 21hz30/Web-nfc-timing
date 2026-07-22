@@ -61,6 +61,8 @@ supabase/migrations/20260717010000_add_three_reader_finish_mode.sql
 supabase/migrations/20260717020000_seed_official_race_profiles.sql
 supabase/migrations/20260718010000_configure_hoka_station_boundaries.sql
 supabase/migrations/20260718020000_add_participant_entry_types.sql
+supabase/migrations/20260721090000_add_result_adjustments.sql
+supabase/migrations/20260722080000_add_race_reopen_and_templates.sql
 ```
 
 It creates these RLS-protected tables:
@@ -70,6 +72,8 @@ public.participants
 public.timing_events
 public.race_profiles
 public.device_bindings
+public.result_adjustments
+public.race_admin_actions
 ```
 
 Current verified cloud data:
@@ -256,6 +260,9 @@ Purpose:
   real event. The session Race ID includes local event date/time (for example,
   `hoka-race-20260725-0900`) and is shared by registration, timing phones, and the
   leaderboard. Starting a new session never clears previous participants or events.
+- `fitmonster-hyrox-single` and `hoka-race` are read-only templates. All operational
+  API writes are rejected for those exact IDs, while existing QA data remains intact.
+  The NFC page hides templates and finalized races, and lists active dated sessions.
 - Finished participants support audited result adjustments from `admin.html`. Add-time
   penalties and subtract-time credits are appended to `result_adjustments`, require
   the administrator code plus a reason, and never rewrite the raw NFC event timeline.
@@ -263,6 +270,13 @@ Purpose:
 - The leaderboard's `End race` action uses the same administrator code as clearing.
   It persists `race_profiles.status = finalized` plus `finalized_at`, freezes the
   scoreboard across reloads/devices, preserves all data, and blocks later timing taps.
+- Finalization assigns finished, DNF (started but no END), and DNS (no START) states.
+  DNF entries sort by completed progress then frozen elapsed time; DNS entries sort last.
+- A finalized leaderboard still reloads API data every five seconds, allowing audited
+  post-race penalties and credits to appear while all race clocks remain frozen.
+- `Reopen race` requires the administrator code, a written reason, and a second
+  confirmation. It returns the race to active status and re-enables registration and
+  timing. Finalize/reopen actions are recorded in `race_admin_actions`.
 - FitMonster rows expose alternating 500m run and named station segments; Wall Ball
   is the final segment and ends the race.
 - Official race cleanup requires the administrator clear code and two confirmation clicks.
@@ -636,6 +650,7 @@ Important production correction:
 ## Recommended Next Steps
 
 1. Add full administrator authentication and rate limiting around destructive actions.
+   This remains intentionally deferred; items 2-5 from the 2026-07-22 audit are implemented.
 2. Add participant search and bulk editing in `admin.html`.
 3. Add an audited NFC card replacement workflow if timing history ever needs to transfer.
 4. Add wave-start management and race exception review for missed/wrong taps.

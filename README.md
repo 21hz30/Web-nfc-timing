@@ -181,7 +181,11 @@ For every real event, create a dated race session from the FitMonster or Hoka te
 in `admin.html` before registering participants. Session IDs use the event's local
 date and time, for example `hoka-race-20260725-0900`. Registration, timing devices,
 and the leaderboard all use that same session ID, so previous sessions remain
-available as history. Do not clear or reuse a template Race ID to start a new event.
+available as history. The fixed IDs `fitmonster-hyrox-single` and `hoka-race` are
+read-only templates: the API rejects registration, device binding, timing, result
+adjustments, clearing, deletion, finalization, reopening, and profile edits against
+them. Existing QA records are preserved but cannot be changed. Dated sessions are
+created with `is_template = false` and remain fully operational.
 
 Finished results can be adjusted from the participant table in `admin.html`. Each
 penalty or time credit requires the administrator code and a written reason. The
@@ -191,7 +195,17 @@ an audit record, and ranks finished participants by the adjusted final time.
 At the end of a real event, use **End race** on the leaderboard instead of clearing
 the race. The action requires the same administrator code as race clearing, stores a
 permanent `finalized_at` timestamp, freezes all running durations at that instant,
-and rejects any later NFC taps. Clearing remains a destructive maintenance action.
+and rejects any later NFC taps. Finished entries rank by adjusted time, started but
+unfinished entries become DNF and rank by progress then frozen elapsed time, and
+entries without a START become DNS. The finalized leaderboard continues refreshing
+every five seconds so post-race penalties and credits appear without advancing any
+frozen clocks.
+
+If a race was ended accidentally, the same leaderboard button changes to **Reopen
+race**. Reopening requires the administrator code, a 2-500 character reason, and a
+second confirmation. It restores registration and NFC timing, and both finalization
+and reopening are appended to `race_admin_actions` for audit. Clearing remains a
+destructive maintenance action.
 
 Supported modes:
 

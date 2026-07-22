@@ -758,6 +758,25 @@
     let adjustingParticipant = null;
     const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
 
+    function isTemplateRaceId(raceId) {
+      return officialRaces.some((race) => race.raceId === raceId);
+    }
+
+    function applyTemplateReadOnlyState(race = null) {
+      const isTemplate = Boolean(race?.isTemplate) || isTemplateRaceId(selectedRaceId());
+      Array.from(form.elements).forEach((control) => {
+        if (control !== raceIdSelect) control.disabled = isTemplate;
+      });
+      Array.from(raceConfigForm.elements).forEach((control) => {
+        control.disabled = isTemplate;
+      });
+      if (isTemplate) {
+        resetParticipantForm("这是比赛模板（只读）。请先在上方创建带日期的新比赛场次。");
+        raceConfigStatus.textContent = "比赛模板（只读）；创建新场次后再登记、绑定和计时。";
+      }
+      return isTemplate;
+    }
+
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
         "&": "&amp;",
@@ -1073,7 +1092,7 @@
       const official = officialRaces.find((item) => item.raceId === race.raceId);
       const category = entryTypeLabel(race.entryType || official?.entryType || "individual");
       if (official) {
-        return `${race.name || official.name} · ${category} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
+        return `${race.name || official.name} · 比赛模板（只读） · ${category} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
       }
       return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站`;
     }
@@ -1130,7 +1149,7 @@
         .filter((race) => !officialIds.has(race.raceId))
         .filter((race) => !isDatedRaceSession(race.raceId))
         .sort((left, right) => (left.name || left.raceId).localeCompare(right.name || right.raceId));
-      const groups = [buildRaceGroup("当前比赛", currentRaces)];
+      const groups = [buildRaceGroup("比赛模板（只读）", currentRaces)];
       if (datedRaces.length) groups.push(buildRaceGroup("历史比赛场次", datedRaces));
       if (otherRaces.length) groups.push(buildRaceGroup("其他 / 测试比赛", otherRaces));
       raceIdSelect.replaceChildren(...groups);
@@ -1166,6 +1185,7 @@
         race.name + " · " + race.mode + " · " + race.stationCount
         + " stations · " + race.checkpoints.length + " checkpoints";
       raceConfigStatus.classList.remove("error");
+      applyTemplateReadOnlyState(race);
     }
 
     async function loadParticipants(raceId = selectedRaceId()) {
@@ -1215,9 +1235,9 @@
             <td class="mono">${formatTime(participant.updated_at)}</td>
             <td>
               <div class="row-actions">
-                <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}">编辑</button>
-                <button class="secondary compact" type="button" data-action="adjust" data-index="${visibleParticipants.indexOf(participant)}" ${result?.status === "finished" ? "" : "disabled"}>成绩调整</button>
-                <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}">删除绑定</button>
+                <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>编辑</button>
+                <button class="secondary compact" type="button" data-action="adjust" data-index="${visibleParticipants.indexOf(participant)}" ${result?.status === "finished" && !isTemplateRaceId(raceId) ? "" : "disabled"}>成绩调整</button>
+                <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>删除绑定</button>
               </div>
             </td>
           </tr>
@@ -1368,6 +1388,7 @@
       saveParticipantButton.textContent = "保存 / 绑定";
       cancelEditButton.hidden = true;
       applyEntryType(officialRace?.entryType || "individual");
+      applyTemplateReadOnlyState();
       raceConfigId.value = raceId;
       overviewRaceName.textContent = "正在读取比赛数据。";
       updateRaceLinks(raceId);

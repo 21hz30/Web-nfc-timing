@@ -345,6 +345,11 @@
       text-transform: none;
     }
 
+    .clear-form textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
     .dialog-actions {
       display: flex;
       justify-content: flex-end;
@@ -1095,6 +1100,18 @@
       color: var(--status-text);
     }
 
+    .status.dnf {
+      border-color: #d97706;
+      background: rgba(217, 119, 6, 0.15);
+      color: #fbbf24;
+    }
+
+    .status.dns {
+      border-color: var(--line-strong);
+      background: var(--table-head);
+      color: var(--muted-strong);
+    }
+
     .split {
       color: var(--muted-strong);
       font-weight: 800;
@@ -1231,7 +1248,7 @@
           <strong id="totalCount">0</strong>
         </div>
         <div class="metric">
-          <span data-i18n="racing">Racing</span>
+          <span id="racingMetricLabel" data-i18n="racing">Racing</span>
           <strong id="racingCount">0</strong>
         </div>
         <div class="metric">
@@ -1366,6 +1383,32 @@
     </form>
   </dialog>
 
+  <dialog id="reopenRaceDialog" aria-labelledby="reopenRaceTitle">
+    <form class="clear-form" id="reopenRaceForm">
+      <h2 id="reopenRaceTitle">恢复本场比赛</h2>
+      <p id="reopenRaceDescription"></p>
+      <div id="reopenCodeStep">
+        <label>
+          <span data-i18n="reopenReason">恢复原因</span>
+          <textarea id="reopenReason" minlength="2" maxlength="500" required></textarea>
+        </label>
+        <label>
+          <span data-i18n="adminCode">管理员码</span>
+          <input id="reopenAdminCode" type="password" autocomplete="current-password" required>
+        </label>
+      </div>
+      <div id="reopenFinalStep" hidden>
+        <strong data-i18n="secondConfirmTitle">第二次确认</strong>
+        <p id="reopenFinalDescription"></p>
+      </div>
+      <div class="dialog-status" id="reopenRaceStatus" role="status" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" type="button" id="cancelReopenButton" data-i18n="cancel">取消</button>
+        <button class="dialog-button finish-button" type="submit" id="confirmReopenButton" data-i18n="firstConfirm">我确认继续</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
@@ -1376,6 +1419,7 @@
     const updatedAt = document.querySelector("#updatedAt");
     const totalCount = document.querySelector("#totalCount");
     const racingCount = document.querySelector("#racingCount");
+    const racingMetricLabel = document.querySelector("#racingMetricLabel");
     const finishedCount = document.querySelector("#finishedCount");
     const clearRaceButton = document.querySelector("#clearRaceButton");
     const finalizeRaceButton = document.querySelector("#finalizeRaceButton");
@@ -1386,6 +1430,17 @@
     const finalizeRaceStatus = document.querySelector("#finalizeRaceStatus");
     const cancelFinalizeButton = document.querySelector("#cancelFinalizeButton");
     const confirmFinalizeButton = document.querySelector("#confirmFinalizeButton");
+    const reopenRaceDialog = document.querySelector("#reopenRaceDialog");
+    const reopenRaceForm = document.querySelector("#reopenRaceForm");
+    const reopenRaceDescription = document.querySelector("#reopenRaceDescription");
+    const reopenCodeStep = document.querySelector("#reopenCodeStep");
+    const reopenFinalStep = document.querySelector("#reopenFinalStep");
+    const reopenFinalDescription = document.querySelector("#reopenFinalDescription");
+    const reopenReason = document.querySelector("#reopenReason");
+    const reopenAdminCode = document.querySelector("#reopenAdminCode");
+    const reopenRaceStatus = document.querySelector("#reopenRaceStatus");
+    const cancelReopenButton = document.querySelector("#cancelReopenButton");
+    const confirmReopenButton = document.querySelector("#confirmReopenButton");
     const liveLabel = document.querySelector("#liveLabel");
     const clearRaceDialog = document.querySelector("#clearRaceDialog");
     const clearRaceForm = document.querySelector("#clearRaceForm");
@@ -1398,7 +1453,10 @@
     const cancelClearButton = document.querySelector("#cancelClearButton");
     const confirmClearButton = document.querySelector("#confirmClearButton");
     let clearConfirmationStep = 1;
+    let reopenConfirmationStep = 1;
     let activeRaceFinalized = false;
+    let activeRaceIsTemplate = false;
+    let lastLeaderboardRefreshMs = 0;
     let leaderboardNowMs = Date.now();
     const adDeck = document.querySelector("#adDeck");
     const adStageContent = document.querySelector("#adStageContent");
@@ -1445,12 +1503,14 @@
       {
         raceId: "fitmonster-hyrox-single",
         kind: "live",
+        isTemplate: true,
         zh: "FitMonster Hyrox 单人模拟赛",
         en: "FitMonster Hyrox Single Simulation Race"
       },
       {
         raceId: "hoka-race",
         kind: "live",
+        isTemplate: true,
         zh: "Hoka 团队赛",
         en: "Hoka Team Race"
       }
@@ -1473,10 +1533,19 @@
         live: "LIVE",
         raceId: "选择比赛",
         mockGroup: "模拟比赛",
-        liveGroup: "正式比赛",
-        historyGroup: "历史比赛场次",
+        liveGroup: "比赛模板（只读）",
+        historyGroup: "比赛场次 / 历史",
         finalizeRace: "结束本场比赛",
         finalizedRace: "本场已结束",
+        reopenRace: "恢复本场比赛",
+        raceTemplate: "比赛模板",
+        templateReadOnly: "比赛模板只读，请先在前台创建带日期的新比赛场次。",
+        reopenReason: "恢复原因",
+        reopenDescription: "恢复 {race} 后，前台登记和 NFC 计时将重新开放。必须填写原因并完成第二次确认。",
+        finalReopenDescription: "确认恢复 {race} 吗？恢复后新的登记和打卡会继续写入本场数据。",
+        finalConfirmReopen: "最终确认恢复",
+        reopening: "正在恢复比赛...",
+        reopenSuccess: "本场比赛已恢复，可以继续登记和计时。",
         finalizeDescription: "结束 {race} 后，大屏计时会锁定在当前时刻并永久保留全部数据。此操作不会清空任何成绩。",
         confirmFinalize: "确认结束并保存",
         finalizing: "正在保存最终画面...",
@@ -1496,6 +1565,7 @@
         clearCodeRequired: "请输入管理员清空码。",
         total: "参赛单位",
         racing: "比赛中",
+        incomplete: "未完赛",
         finished: "已完赛",
         pos: "排名",
         athlete: "个人 / 队伍",
@@ -1519,7 +1589,9 @@
         statusText: {
           finished: "已完赛",
           racing: "比赛中",
-          not_started: "未开始"
+          not_started: "未开始",
+          dnf: "DNF 未完赛",
+          dns: "DNS 未出发"
         },
         currentText: {
           Waiting: "等待",
@@ -1550,10 +1622,19 @@
         live: "LIVE",
         raceId: "Select race",
         mockGroup: "Mock race",
-        liveGroup: "Live races",
-        historyGroup: "Race history",
+        liveGroup: "Race templates (read-only)",
+        historyGroup: "Race sessions / history",
         finalizeRace: "End race",
         finalizedRace: "Race ended",
+        reopenRace: "Reopen race",
+        raceTemplate: "Race template",
+        templateReadOnly: "This template is read-only. Create a dated race session at the front desk first.",
+        reopenReason: "Reason for reopening",
+        reopenDescription: "Reopening {race} allows registration and NFC timing to continue. A reason and second confirmation are required.",
+        finalReopenDescription: "Reopen {race}? New registrations and taps will continue writing to this race.",
+        finalConfirmReopen: "Final reopen",
+        reopening: "Reopening race...",
+        reopenSuccess: "Race reopened. Registration and timing can continue.",
         finalizeDescription: "Ending {race} freezes the leaderboard at the current time and preserves all data. No results are deleted.",
         confirmFinalize: "End and save",
         finalizing: "Saving final leaderboard...",
@@ -1573,6 +1654,7 @@
         clearCodeRequired: "Enter the administrator clear code.",
         total: "Entries",
         racing: "Racing",
+        incomplete: "Incomplete",
         finished: "Finished",
         pos: "Pos",
         athlete: "Athlete / Team",
@@ -1596,7 +1678,9 @@
         statusText: {
           finished: "Finished",
           racing: "Racing",
-          not_started: "Not Started"
+          not_started: "Not Started",
+          dnf: "DNF",
+          dns: "DNS"
         },
         currentText: {
           Waiting: "Waiting",
@@ -1788,10 +1872,18 @@
       }
       const catalogById = new Map(raceCatalog.map((race) => [race.raceId, race]));
       payload.races.forEach((race) => {
-        if (!race?.raceId || catalogById.has(race.raceId)) return;
+        if (!race?.raceId) return;
+        const existing = catalogById.get(race.raceId);
+        if (existing) {
+          existing.isTemplate = Boolean(race.isTemplate) || existing.isTemplate;
+          existing.status = race.status || "active";
+          return;
+        }
         const item = {
           raceId: race.raceId,
           kind: isOfficialRaceId(race.raceId) ? "live" : "session",
+          isTemplate: Boolean(race.isTemplate),
+          status: race.status || "active",
           zh: race.name || race.raceId,
           en: race.name || race.raceId
         };
@@ -1804,12 +1896,18 @@
     function updateRaceControls(updateUrl = true) {
       const race = selectedRace();
       const isMock = race.kind === "mock";
+      const isTemplate = Boolean(race.isTemplate) || isOfficialRaceId(race.raceId);
       clearRaceButton.textContent = t("clearRace");
-      clearRaceButton.disabled = isMock;
-      clearRaceButton.title = isMock ? t("clearDisabled") : t("clearRace");
-      finalizeRaceButton.textContent = activeRaceFinalized ? t("finalizedRace") : t("finalizeRace");
-      finalizeRaceButton.disabled = isMock || activeRaceFinalized;
-      liveLabel.textContent = activeRaceFinalized ? t("finalizedRace") : t("live");
+      clearRaceButton.disabled = isMock || isTemplate;
+      clearRaceButton.title = isMock
+        ? t("clearDisabled")
+        : isTemplate ? t("templateReadOnly") : t("clearRace");
+      finalizeRaceButton.textContent = activeRaceFinalized ? t("reopenRace") : t("finalizeRace");
+      finalizeRaceButton.disabled = isMock || isTemplate;
+      finalizeRaceButton.title = isTemplate ? t("templateReadOnly") : finalizeRaceButton.textContent;
+      liveLabel.textContent = isTemplate
+        ? t("raceTemplate")
+        : activeRaceFinalized ? t("finalizedRace") : t("live");
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.set("raceId", race.raceId);
@@ -2091,7 +2189,7 @@
       for (let stationNumber = 1; stationNumber <= stationCount; stationNumber += 1) {
         const storedElapsed = row.stationSplits?.[`station${stationNumber}Ms`];
         const isCurrentStation = usesStationBoundaries
-          && row.status === "racing"
+          && ["racing", "dnf"].includes(row.status)
           && row.current === `Station ${stationNumber}`;
         const startCheckpoint = stationNumber === 1
           ? "START"
@@ -2651,6 +2749,7 @@
 
     function renderLeaderboard(payload, isDemoData) {
       activeRaceFinalized = payload.race?.status === "finalized";
+      activeRaceIsTemplate = Boolean(payload.race?.isTemplate) || isOfficialRaceId(payload.race?.raceId);
       const payloadTimeMs = Date.parse(payload.generatedAt || "");
       leaderboardNowMs = Number.isFinite(payloadTimeMs) ? payloadTimeMs : Date.now();
       updateRaceControls(false);
@@ -2661,7 +2760,9 @@
       fitMonsterGrid.hidden = !isFitMonster;
       const changed = changedRows(rows);
       totalCount.textContent = rows.length;
-      racingCount.textContent = rows.filter((row) => row.status === "racing").length;
+      const incompleteStatuses = activeRaceFinalized ? ["dnf", "dns"] : ["racing"];
+      racingCount.textContent = rows.filter((row) => incompleteStatuses.includes(row.status)).length;
+      racingMetricLabel.textContent = activeRaceFinalized ? t("incomplete") : t("racing");
       finishedCount.textContent = rows.filter((row) => row.status === "finished").length;
       const generatedAt = new Date(payload.generatedAt).toLocaleTimeString();
       updatedAt.textContent = isDemoData ? `${t("demoData")} · ${generatedAt}` : generatedAt;
@@ -2729,7 +2830,9 @@
     }
 
     async function refreshLoop(force = false) {
-      if (activeRaceFinalized && !force) return;
+      const now = Date.now();
+      if (activeRaceFinalized && !force && now - lastLeaderboardRefreshMs < 5000) return;
+      lastLeaderboardRefreshMs = now;
       try {
         await loadLeaderboard();
       } catch (error) {
@@ -2739,7 +2842,7 @@
 
     function openFinalizeDialog() {
       const race = selectedRace();
-      if (race.kind === "mock" || activeRaceFinalized) return;
+      if (race.kind === "mock" || race.isTemplate || activeRaceFinalized) return;
       finalizeRaceDescription.textContent = t("finalizeDescription").replace("{race}", race[language]);
       finalizeAdminCode.value = "";
       finalizeRaceStatus.textContent = "";
@@ -2794,9 +2897,96 @@
       }
     }
 
+    function openReopenDialog() {
+      const race = selectedRace();
+      if (race.kind === "mock" || race.isTemplate || !activeRaceFinalized) return;
+      const raceName = race[language];
+      reopenRaceDescription.textContent = t("reopenDescription").replace("{race}", raceName);
+      reopenFinalDescription.textContent = t("finalReopenDescription").replace("{race}", raceName);
+      reopenReason.value = "";
+      reopenAdminCode.value = "";
+      reopenRaceStatus.textContent = "";
+      reopenRaceStatus.classList.remove("success");
+      reopenConfirmationStep = 1;
+      reopenCodeStep.hidden = false;
+      reopenFinalStep.hidden = true;
+      confirmReopenButton.textContent = t("firstConfirm");
+      confirmReopenButton.disabled = false;
+      cancelReopenButton.disabled = false;
+      reopenRaceDialog.showModal();
+      reopenReason.focus();
+    }
+
+    function closeReopenDialog() {
+      if (reopenRaceDialog.open) reopenRaceDialog.close();
+    }
+
+    async function submitReopenRace(event) {
+      event.preventDefault();
+      if (reopenConfirmationStep === 1) {
+        if (reopenReason.value.trim().length < 2) {
+          reopenRaceStatus.textContent = t("reopenReason");
+          reopenReason.focus();
+          return;
+        }
+        if (!reopenAdminCode.value) {
+          reopenRaceStatus.textContent = t("clearCodeRequired");
+          reopenAdminCode.focus();
+          return;
+        }
+        reopenConfirmationStep = 2;
+        reopenCodeStep.hidden = true;
+        reopenFinalStep.hidden = false;
+        confirmReopenButton.textContent = t("finalConfirmReopen");
+        reopenRaceStatus.textContent = "";
+        confirmReopenButton.focus();
+        return;
+      }
+
+      confirmReopenButton.disabled = true;
+      cancelReopenButton.disabled = true;
+      reopenRaceStatus.classList.remove("success");
+      reopenRaceStatus.textContent = t("reopening");
+      try {
+        const response = await window.timingApiFetch("/api/reopen-race", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: selectedRace().raceId,
+            confirmation: "SECOND_CONFIRMATION",
+            reason: reopenReason.value.trim(),
+            adminCode: reopenAdminCode.value
+          })
+        });
+        const responseText = await response.text();
+        let payload;
+        try {
+          payload = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          throw new Error(`HTTP ${response.status}: API did not return JSON`);
+        }
+        if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        activeRaceFinalized = false;
+        lastLeaderboardRefreshMs = 0;
+        await refreshLoop(true);
+        reopenRaceStatus.classList.add("success");
+        reopenRaceStatus.textContent = t("reopenSuccess");
+        window.setTimeout(closeReopenDialog, 900);
+      } catch (error) {
+        reopenRaceStatus.textContent = error.message;
+        reopenConfirmationStep = 1;
+        reopenCodeStep.hidden = false;
+        reopenFinalStep.hidden = true;
+        confirmReopenButton.textContent = t("firstConfirm");
+        confirmReopenButton.disabled = false;
+        cancelReopenButton.disabled = false;
+        reopenAdminCode.focus();
+      }
+    }
+
     function openClearDialog() {
       const race = selectedRace();
-      if (race.kind === "mock") return;
+      if (race.kind === "mock" || race.isTemplate) return;
       const raceName = race[language];
       clearRaceDescription.textContent = t("clearDescription").replace("{race}", raceName);
       clearFinalDescription.textContent = t("finalClearDescription").replace("{race}", raceName);
@@ -2890,16 +3080,26 @@
     raceIdInput.addEventListener("change", () => {
       previousSignatures = null;
       activeRaceFinalized = false;
+      activeRaceIsTemplate = isOfficialRaceId(raceIdInput.value);
+      lastLeaderboardRefreshMs = 0;
       updateRaceControls();
       refreshLoop();
     });
 
     clearRaceButton.addEventListener("click", openClearDialog);
-    finalizeRaceButton.addEventListener("click", openFinalizeDialog);
+    finalizeRaceButton.addEventListener("click", () => {
+      if (activeRaceFinalized) openReopenDialog();
+      else openFinalizeDialog();
+    });
     cancelFinalizeButton.addEventListener("click", closeFinalizeDialog);
     finalizeRaceForm.addEventListener("submit", submitFinalizeRace);
     finalizeRaceDialog.addEventListener("click", (event) => {
       if (event.target === finalizeRaceDialog) closeFinalizeDialog();
+    });
+    cancelReopenButton.addEventListener("click", closeReopenDialog);
+    reopenRaceForm.addEventListener("submit", submitReopenRace);
+    reopenRaceDialog.addEventListener("click", (event) => {
+      if (event.target === reopenRaceDialog) closeReopenDialog();
     });
     cancelClearButton.addEventListener("click", closeClearDialog);
     clearRaceForm.addEventListener("submit", submitClearRace);

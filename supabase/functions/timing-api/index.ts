@@ -225,6 +225,7 @@ function defaultRaceProfile(raceId: string): DatabaseRow {
     entry_type: raceId === "hoka-race" ? "team" : "individual",
     status: "active",
     finalized_at: null,
+    is_template: false,
     created_at: now,
     updated_at: now,
   };
@@ -241,6 +242,7 @@ function raceResponse(profile: DatabaseRow): JsonObject {
     entryType: profile.entry_type || "individual",
     status: profile.status || "active",
     finalizedAt: profile.finalized_at || null,
+    isTemplate: Boolean(profile.is_template),
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -424,7 +426,11 @@ function buildLeaderboard(
 
     const startTime = checkpointTimes.START || null;
     const finishTime = checkpointTimes.END || null;
-    const status = finishTime ? "finished" : latestCheckpoint ? "racing" : "not_started";
+    const status = finishTime
+      ? "finished"
+      : profile.status === "finalized"
+        ? latestCheckpoint ? "dnf" : "dns"
+        : latestCheckpoint ? "racing" : "not_started";
     let current = "Waiting";
     if (latestCheckpoint === "END") current = "Finished";
     else if (latestCheckpoint === "START") {
@@ -521,7 +527,13 @@ function buildLeaderboard(
     };
   });
 
-  const statusOrder: Record<string, number> = { finished: 0, racing: 1, not_started: 2 };
+  const statusOrder: Record<string, number> = {
+    finished: 0,
+    racing: 1,
+    dnf: 1,
+    not_started: 2,
+    dns: 2,
+  };
   results.sort((left, right) => {
     const statusDifference = (statusOrder[left.status] ?? 3) - (statusOrder[right.status] ?? 3);
     if (statusDifference) return statusDifference;
@@ -532,11 +544,13 @@ function buildLeaderboard(
     return String(left.bibNumber || "").localeCompare(String(right.bibNumber || ""));
   });
 
-  const leaderElapsed = results[0]?.elapsedMs ?? null;
+  const leaderElapsed = results.find((result) => (
+    result.status === "finished" && result.elapsedMs !== null
+  ))?.elapsedMs ?? null;
   return results.map((result, index) => ({
     ...result,
     rank: index + 1,
-    gapMs: result.elapsedMs === null || leaderElapsed === null
+    gapMs: result.status !== "finished" || result.elapsedMs === null || leaderElapsed === null
       ? null
       : Math.max(0, result.elapsedMs - leaderElapsed),
   }));
@@ -667,6 +681,14 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
       return jsonResponse({ ok: false, error: "Invalid administrator clear code" }, 403);
     }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
 
     const deletedEvents = await databaseRequest("timing_events", {
       method: "DELETE",
@@ -713,6 +735,14 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     }
     if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
       return jsonResponse({ ok: false, error: "Invalid administrator clear code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
     }
 
     const query = { race_id: `eq.${raceId}`, card_code: `eq.${cardCode}` };
@@ -780,6 +810,14 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     }
     if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
       return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
     }
 
     const participants = await databaseRequest("participants", {
@@ -861,6 +899,13 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
     }
     const existing = await ensureRaceProfile(raceId);
+    if (existing.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
     if (existing.status === "finalized" && existing.finalized_at) {
       return jsonResponse({
         ok: true,
@@ -876,9 +921,74 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       body: { status: "finalized", finalized_at: finalizedAt, updated_at: finalizedAt },
       prefer: "return=representation",
     });
+    await databaseRequest("race_admin_actions", {
+      method: "POST",
+      body: {
+        race_id: raceId,
+        action: "finalize",
+        reason: "Race finalized by administrator",
+        created_at: finalizedAt,
+      },
+      prefer: "return=minimal",
+    });
     return jsonResponse({
       ok: true,
       race: raceResponse(rows[0]),
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
+    });
+  }
+
+  if (route === "/reopen-race") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Race reopening is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const suppliedCode = String(payload.adminCode || "");
+    const confirmation = String(payload.confirmation || "").trim();
+    const reason = String(payload.reason || "").trim();
+    if (confirmation !== "SECOND_CONFIRMATION") {
+      return jsonResponse({ ok: false, error: "Second confirmation is required" }, 400);
+    }
+    if (reason.length < 2 || reason.length > 500) {
+      return jsonResponse({ ok: false, error: "reason must be between 2 and 500 characters" }, 400);
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const existing = await ensureRaceProfile(raceId);
+    if (existing.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (existing.status !== "finalized" || !existing.finalized_at) {
+      return jsonResponse({ ok: false, error: "Only a finalized race can be reopened" }, 409);
+    }
+    const reopenedAt = new Date().toISOString();
+    const rows = await databaseRequest("race_profiles", {
+      method: "PATCH",
+      query: { race_id: `eq.${raceId}` },
+      body: { status: "active", finalized_at: null, updated_at: reopenedAt },
+      prefer: "return=representation",
+    });
+    const actions = await databaseRequest("race_admin_actions", {
+      method: "POST",
+      body: {
+        race_id: raceId,
+        action: "reopen",
+        reason,
+        created_at: reopenedAt,
+      },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      race: raceResponse(rows[0]),
+      action: actions[0],
       storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
       cloudError: null,
     });
@@ -902,6 +1012,13 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       throw new Error("stationCount must be between 1 and 20");
     }
     const existing = await findRaceProfile(raceId);
+    if (existing?.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
     const entryType = normalizeEntryType(payload.entryType || existing?.entry_type);
     const requestedLayout = String(payload.checkpointLayout || "").trim().toLowerCase();
     if (!new Set(["", "station_starts", "station_boundaries"]).has(requestedLayout)) {
@@ -932,6 +1049,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       entry_type: entryType,
       status: existing?.status || "active",
       finalized_at: existing?.finalized_at || null,
+      is_template: false,
       created_at: existing?.created_at || now,
       updated_at: now,
     };
@@ -961,7 +1079,20 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     if (!new Set(["not_checked_in", "checked_in"]).has(checkInStatus)) {
       throw new Error("checkInStatus must be not_checked_in or checked_in");
     }
-    await ensureRaceProfile(raceId);
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse(
+        { ok: false, status: "race_finalized", error: "This race has ended" },
+        409,
+      );
+    }
     const existingRows = await databaseRequest("participants", {
       query: {
         select: "created_at",
@@ -1011,7 +1142,14 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     const assignment = String(payload.assignment || "").trim().toUpperCase();
     if (!deviceId || deviceId.length > 100) throw new Error("deviceId is required");
     if (!assignment || assignment.length > 100) throw new Error("assignment is required");
-    await ensureRaceProfile(raceId);
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
     const existing = await databaseRequest("device_bindings", {
       query: {
         select: "*",
@@ -1054,6 +1192,13 @@ async function handlePost(route: string, request: Request): Promise<Response> {
   if (route === "/timing-events") {
     const raceId = requiredRaceId(payload.raceId);
     const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
     if (profile.status === "finalized") {
       return jsonResponse(
         { ok: false, status: "race_finalized", error: "This race has ended" },
