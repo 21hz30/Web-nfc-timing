@@ -227,10 +227,12 @@
 
     .toolbar-action {
       display: flex;
+      gap: 8px;
       align-items: end;
     }
 
     .danger-button,
+    .finish-button,
     .dialog-button {
       min-height: 40px;
       border: 1px solid #b42318;
@@ -247,6 +249,15 @@
       height: 38px;
       min-height: 38px;
       padding-block: 7px;
+    }
+
+    .finish-button {
+      height: 38px;
+      min-height: 38px;
+      padding-block: 7px;
+      border: 1px solid #0f766e;
+      background: #0f766e;
+      color: #ffffff;
     }
 
     .segment-detail {
@@ -285,7 +296,10 @@
       color: #9f1d15;
     }
 
-    .danger-button:disabled {
+    body[data-theme="light"] .finish-button { color: #ffffff; }
+
+    .danger-button:disabled,
+    .finish-button:disabled {
       border-color: var(--line);
       color: var(--muted);
       cursor: not-allowed;
@@ -1031,6 +1045,31 @@
       font-weight: 950;
     }
 
+    .result-adjustment {
+      display: grid;
+      gap: 2px;
+      margin-top: 4px;
+      font-size: 11px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.35;
+      white-space: normal;
+    }
+
+    .result-adjustment .positive { color: #b42318; font-weight: 900; }
+    .result-adjustment .negative { color: #087443; font-weight: 900; }
+    .result-adjustment .reason { color: var(--muted); }
+
+    .fit-card-adjustment {
+      display: grid;
+      gap: 2px;
+      margin-top: 5px;
+      padding-top: 5px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
     .current {
       color: var(--accent);
       font-weight: 900;
@@ -1109,7 +1148,8 @@
       }
 
       .toolbar-action,
-      .danger-button {
+      .danger-button,
+      .finish-button {
         width: 100%;
       }
 
@@ -1149,7 +1189,7 @@
     </div>
     <div class="meta">
       <div class="meta-row">
-        <span class="live"><span class="dot"></span><span data-i18n="live">LIVE</span></span>
+        <span class="live"><span class="dot"></span><span id="liveLabel" data-i18n="live">LIVE</span></span>
         <span id="updatedAt">-</span>
       </div>
       <div class="controls">
@@ -1182,6 +1222,7 @@
         </span>
       </label>
       <div class="toolbar-action">
+        <button class="finish-button" type="button" id="finalizeRaceButton">结束本场比赛</button>
         <button class="danger-button" type="button" id="clearRaceButton">清空本场数据</button>
       </div>
       <div class="summary">
@@ -1309,6 +1350,22 @@
     </form>
   </dialog>
 
+  <dialog id="finalizeRaceDialog" aria-labelledby="finalizeRaceTitle">
+    <form class="clear-form" id="finalizeRaceForm">
+      <h2 id="finalizeRaceTitle">结束本场比赛</h2>
+      <p id="finalizeRaceDescription"></p>
+      <label>
+        <span data-i18n="adminCode">管理员码</span>
+        <input id="finalizeAdminCode" type="password" autocomplete="current-password" required>
+      </label>
+      <div class="dialog-status" id="finalizeRaceStatus" role="status" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" type="button" id="cancelFinalizeButton" data-i18n="cancel">取消</button>
+        <button class="dialog-button finish-button" type="submit" id="confirmFinalizeButton">确认结束并保存</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
@@ -1321,6 +1378,15 @@
     const racingCount = document.querySelector("#racingCount");
     const finishedCount = document.querySelector("#finishedCount");
     const clearRaceButton = document.querySelector("#clearRaceButton");
+    const finalizeRaceButton = document.querySelector("#finalizeRaceButton");
+    const finalizeRaceDialog = document.querySelector("#finalizeRaceDialog");
+    const finalizeRaceForm = document.querySelector("#finalizeRaceForm");
+    const finalizeRaceDescription = document.querySelector("#finalizeRaceDescription");
+    const finalizeAdminCode = document.querySelector("#finalizeAdminCode");
+    const finalizeRaceStatus = document.querySelector("#finalizeRaceStatus");
+    const cancelFinalizeButton = document.querySelector("#cancelFinalizeButton");
+    const confirmFinalizeButton = document.querySelector("#confirmFinalizeButton");
+    const liveLabel = document.querySelector("#liveLabel");
     const clearRaceDialog = document.querySelector("#clearRaceDialog");
     const clearRaceForm = document.querySelector("#clearRaceForm");
     const clearRaceDescription = document.querySelector("#clearRaceDescription");
@@ -1332,6 +1398,8 @@
     const cancelClearButton = document.querySelector("#cancelClearButton");
     const confirmClearButton = document.querySelector("#confirmClearButton");
     let clearConfirmationStep = 1;
+    let activeRaceFinalized = false;
+    let leaderboardNowMs = Date.now();
     const adDeck = document.querySelector("#adDeck");
     const adStageContent = document.querySelector("#adStageContent");
     const adBadge = document.querySelector("#adBadge");
@@ -1407,10 +1475,16 @@
         mockGroup: "模拟比赛",
         liveGroup: "正式比赛",
         historyGroup: "历史比赛场次",
+        finalizeRace: "结束本场比赛",
+        finalizedRace: "本场已结束",
+        finalizeDescription: "结束 {race} 后，大屏计时会锁定在当前时刻并永久保留全部数据。此操作不会清空任何成绩。",
+        confirmFinalize: "确认结束并保存",
+        finalizing: "正在保存最终画面...",
+        finalizeSuccess: "本场比赛已结束，最终画面已保存。",
         clearRace: "清空本场数据",
         clearDisabled: "模拟数据不会写入数据库",
         clearRaceTitle: "清空本场数据",
-        adminCode: "管理员清空码",
+        adminCode: "管理员码",
         cancel: "取消",
         firstConfirm: "我确认继续",
         secondConfirmTitle: "第二次确认",
@@ -1428,6 +1502,9 @@
         status: "状态",
         current: "当前",
         elapsed: "用时",
+        originalTime: "原始",
+        penaltyTime: "加时",
+        creditTime: "减时",
         segmentDetails: "分段明细",
         segments: "分段",
         run500: "500m 跑步",
@@ -1475,10 +1552,16 @@
         mockGroup: "Mock race",
         liveGroup: "Live races",
         historyGroup: "Race history",
+        finalizeRace: "End race",
+        finalizedRace: "Race ended",
+        finalizeDescription: "Ending {race} freezes the leaderboard at the current time and preserves all data. No results are deleted.",
+        confirmFinalize: "End and save",
+        finalizing: "Saving final leaderboard...",
+        finalizeSuccess: "Race ended and the final leaderboard was saved.",
         clearRace: "Clear race data",
         clearDisabled: "Mock data is not stored in the database",
         clearRaceTitle: "Clear race data",
-        adminCode: "Administrator clear code",
+        adminCode: "Administrator code",
         cancel: "Cancel",
         firstConfirm: "Continue",
         secondConfirmTitle: "Second confirmation",
@@ -1496,6 +1579,9 @@
         status: "Status",
         current: "Current",
         elapsed: "Elapsed",
+        originalTime: "Original",
+        penaltyTime: "Penalty",
+        creditTime: "Credit",
         segmentDetails: "Segment details",
         segments: "segments",
         run500: "500m Run",
@@ -1721,6 +1807,9 @@
       clearRaceButton.textContent = t("clearRace");
       clearRaceButton.disabled = isMock;
       clearRaceButton.title = isMock ? t("clearDisabled") : t("clearRace");
+      finalizeRaceButton.textContent = activeRaceFinalized ? t("finalizedRace") : t("finalizeRace");
+      finalizeRaceButton.disabled = isMock || activeRaceFinalized;
+      liveLabel.textContent = activeRaceFinalized ? t("finalizedRace") : t("live");
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.set("raceId", race.raceId);
@@ -1915,6 +2004,29 @@
       return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
     }
 
+    function formatSignedAdjustment(ms) {
+      const value = Number(ms) || 0;
+      return `${value >= 0 ? "+" : "-"}${formatDuration(Math.abs(value))}`;
+    }
+
+    function resultAdjustmentMarkup(row, className = "result-adjustment") {
+      const adjustmentMs = Number(row.adjustmentMs) || 0;
+      const adjustments = Array.isArray(row.adjustments) ? row.adjustments : [];
+      if (!adjustmentMs && !adjustments.length) return "";
+      const detailLines = adjustments.map((adjustment) => {
+        const value = Number(adjustment.adjustmentMs) || 0;
+        const label = value >= 0 ? t("penaltyTime") : t("creditTime");
+        const tone = value >= 0 ? "positive" : "negative";
+        return `<span class="reason"><span class="${tone}">${escapeHtml(label)} ${formatSignedAdjustment(value)}</span> · ${escapeHtml(adjustment.reason || "-")}</span>`;
+      }).join("");
+      return `
+        <span class="${className}">
+          <span>${escapeHtml(t("originalTime"))} ${formatDuration(row.rawElapsedMs)}</span>
+          ${detailLines}
+        </span>
+      `;
+    }
+
     function translateStatus(status) {
       return i18n[language].statusText[status] || status;
     }
@@ -1990,7 +2102,7 @@
         const elapsed = storedElapsed !== null && storedElapsed !== undefined
           ? storedElapsed
           : Number.isFinite(startMs)
-            ? Math.max(0, Date.now() - startMs)
+            ? Math.max(0, leaderboardNowMs - startMs)
             : null;
         html += `<td class="split mono"${liveDurationAttributes(startMs)}>${formatDuration(elapsed)}</td>`;
       }
@@ -2002,12 +2114,13 @@
         ? Date.parse(row.startTime || row.checkpointTimes?.START || "")
         : NaN;
       const elapsed = Number.isFinite(startMs)
-        ? Math.max(0, Date.now() - startMs)
+        ? Math.max(0, leaderboardNowMs - startMs)
         : row.elapsedMs;
-      return `<td class="elapsed mono"${liveDurationAttributes(startMs)}>${formatDuration(elapsed)}</td>`;
+      return `<td class="elapsed mono"${liveDurationAttributes(startMs)}><strong>${formatDuration(elapsed)}</strong>${resultAdjustmentMarkup(row)}</td>`;
     }
 
     function updateLiveDurations() {
+      if (activeRaceFinalized) return;
       const nowMs = Date.now();
       document.querySelectorAll("[data-live-start-ms]").forEach((cell) => {
         const startMs = Number(cell.dataset.liveStartMs);
@@ -2128,6 +2241,7 @@
             <div class="fit-card-time">
               <span>${escapeHtml(t("elapsed"))}</span>
               <strong>${formatDuration(row.elapsedMs)}</strong>
+              ${resultAdjustmentMarkup(row, "fit-card-adjustment")}
             </div>
           </div>
           <div>
@@ -2152,7 +2266,9 @@
         latestCheckpoint: row.latestCheckpoint,
         checkpointTimes,
         splits: row.stationSplits,
-        segments: row.segmentSplits
+        segments: row.segmentSplits,
+        adjustmentMs: row.adjustmentMs,
+        adjustments: row.adjustments
       });
     }
 
@@ -2534,6 +2650,10 @@
     }
 
     function renderLeaderboard(payload, isDemoData) {
+      activeRaceFinalized = payload.race?.status === "finalized";
+      const payloadTimeMs = Date.parse(payload.generatedAt || "");
+      leaderboardNowMs = Number.isFinite(payloadTimeMs) ? payloadTimeMs : Date.now();
+      updateRaceControls(false);
       const rows = payload.leaderboard || [];
       const columns = configureSplitColumns(payload.race);
       const isFitMonster = columns.usesDetailedSegments;
@@ -2574,9 +2694,9 @@
         const memberLine = entryType === "individual"
           ? ""
           : `<span class="members">${escapeHtml(memberNames.join(" / "))}</span>`;
-        const detail = entryType === "individual"
-          ? `${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}`
-          : `${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(entryTypeLabel(entryType))}`;
+        const detailLine = entryType === "individual"
+          ? `<span>${t("bib")} ${escapeHtml(row.bibNumber || "-")} · ${escapeHtml(row.division || "-")}</span>`
+          : "";
 
         return `
           <tr class="${rowClasses}">
@@ -2585,7 +2705,7 @@
               <div class="athlete">
                 <strong>${escapeHtml(row.athleteName)}</strong>
                 ${memberLine}
-                <span>${detail}</span>
+                ${detailLine}
               </div>
             </td>
             <td><span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span></td>
@@ -2608,11 +2728,69 @@
       renderLeaderboard(payload, isDemoData);
     }
 
-    async function refreshLoop() {
+    async function refreshLoop(force = false) {
+      if (activeRaceFinalized && !force) return;
       try {
         await loadLeaderboard();
       } catch (error) {
         renderLeaderboardError(error);
+      }
+    }
+
+    function openFinalizeDialog() {
+      const race = selectedRace();
+      if (race.kind === "mock" || activeRaceFinalized) return;
+      finalizeRaceDescription.textContent = t("finalizeDescription").replace("{race}", race[language]);
+      finalizeAdminCode.value = "";
+      finalizeRaceStatus.textContent = "";
+      confirmFinalizeButton.textContent = t("confirmFinalize");
+      confirmFinalizeButton.disabled = false;
+      cancelFinalizeButton.disabled = false;
+      finalizeRaceDialog.showModal();
+      finalizeAdminCode.focus();
+    }
+
+    function closeFinalizeDialog() {
+      if (finalizeRaceDialog.open) finalizeRaceDialog.close();
+    }
+
+    async function submitFinalizeRace(event) {
+      event.preventDefault();
+      if (!finalizeAdminCode.value) {
+        finalizeRaceStatus.textContent = t("clearCodeRequired");
+        finalizeAdminCode.focus();
+        return;
+      }
+      confirmFinalizeButton.disabled = true;
+      cancelFinalizeButton.disabled = true;
+      finalizeRaceStatus.textContent = t("finalizing");
+      try {
+        const response = await window.timingApiFetch("/api/finalize-race", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: selectedRace().raceId,
+            adminCode: finalizeAdminCode.value
+          })
+        });
+        const responseText = await response.text();
+        let payload;
+        try {
+          payload = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          throw new Error(`HTTP ${response.status}: API did not return JSON`);
+        }
+        if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        activeRaceFinalized = false;
+        await refreshLoop(true);
+        finalizeRaceStatus.classList.add("success");
+        finalizeRaceStatus.textContent = t("finalizeSuccess");
+        window.setTimeout(closeFinalizeDialog, 900);
+      } catch (error) {
+        finalizeRaceStatus.textContent = error.message;
+        confirmFinalizeButton.disabled = false;
+        cancelFinalizeButton.disabled = false;
+        finalizeAdminCode.focus();
       }
     }
 
@@ -2684,7 +2862,7 @@
         previousSignatures = null;
         clearRaceStatus.classList.add("success");
         clearRaceStatus.textContent = t("clearSuccess");
-        await refreshLoop();
+        await refreshLoop(true);
         window.setTimeout(closeClearDialog, 700);
       } catch (error) {
         clearRaceStatus.textContent = error.message;
@@ -2705,17 +2883,24 @@
     document.querySelectorAll("[data-lang-button]").forEach((button) => {
       button.addEventListener("click", () => {
         applyLanguage(button.dataset.langButton);
-        refreshLoop();
+        refreshLoop(true);
       });
     });
 
     raceIdInput.addEventListener("change", () => {
       previousSignatures = null;
+      activeRaceFinalized = false;
       updateRaceControls();
       refreshLoop();
     });
 
     clearRaceButton.addEventListener("click", openClearDialog);
+    finalizeRaceButton.addEventListener("click", openFinalizeDialog);
+    cancelFinalizeButton.addEventListener("click", closeFinalizeDialog);
+    finalizeRaceForm.addEventListener("submit", submitFinalizeRace);
+    finalizeRaceDialog.addEventListener("click", (event) => {
+      if (event.target === finalizeRaceDialog) closeFinalizeDialog();
+    });
     cancelClearButton.addEventListener("click", closeClearDialog);
     clearRaceForm.addEventListener("submit", submitClearRace);
     clearRaceDialog.addEventListener("click", (event) => {

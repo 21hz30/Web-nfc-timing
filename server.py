@@ -71,8 +71,18 @@ RACE_PROFILE_COLUMNS = (
     "station_count",
     "checkpoints",
     "entry_type",
+    "status",
+    "finalized_at",
     "created_at",
     "updated_at",
+)
+RESULT_ADJUSTMENT_COLUMNS = (
+    "id",
+    "race_id",
+    "participant_id",
+    "adjustment_ms",
+    "reason",
+    "created_at",
 )
 RACE_MODES = {"two_reader_auto", "three_reader_auto", "station_checkpoints"}
 ENTRY_TYPES = {"individual", "doubles", "team"}
@@ -208,6 +218,16 @@ def init_db() -> None:
               UNIQUE (race_id, assignment)
             );
 
+            CREATE TABLE IF NOT EXISTS result_adjustments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              race_id TEXT NOT NULL,
+              participant_id INTEGER NOT NULL,
+              adjustment_ms INTEGER NOT NULL CHECK (adjustment_ms <> 0),
+              reason TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_participants_race
               ON participants (race_id, card_code);
 
@@ -216,6 +236,9 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_timing_events_card_station
               ON timing_events (race_id, card_code, station_id, event_time DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_result_adjustments_race_participant
+              ON result_adjustments (race_id, participant_id, created_at, id);
             """
         )
         ensure_participant_columns(db)
@@ -283,6 +306,12 @@ def ensure_race_profile_columns(db: sqlite3.Connection) -> None:
             "ALTER TABLE race_profiles "
             "ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'individual'"
         )
+    if "status" not in existing_columns:
+        db.execute(
+            "ALTER TABLE race_profiles ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+        )
+    if "finalized_at" not in existing_columns:
+        db.execute("ALTER TABLE race_profiles ADD COLUMN finalized_at TEXT")
 
 
 def ensure_timing_event_columns(db: sqlite3.Connection) -> None:
@@ -314,6 +343,8 @@ def make_race_profile(
     updated_at: str | None = None,
     checkpoints: list[str] | None = None,
     entry_type: str = "individual",
+    status: str = "active",
+    finalized_at: str | None = None,
 ) -> dict:
     if mode not in RACE_MODES:
         raise ValueError(
@@ -342,6 +373,8 @@ def make_race_profile(
         "station_count": station_count,
         "checkpoints": profile_checkpoints,
         "entry_type": entry_type,
+        "status": status,
+        "finalized_at": finalized_at,
         "created_at": created_at or now,
         "updated_at": updated_at or now,
     }
@@ -450,6 +483,8 @@ def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
         "station_count": int(source["station_count"]),
         "checkpoints": checkpoints,
         "entry_type": source.get("entry_type") or "individual",
+        "status": source.get("status") or "active",
+        "finalized_at": source.get("finalized_at"),
         "created_at": source["created_at"],
         "updated_at": source["updated_at"],
     }
@@ -471,6 +506,8 @@ def race_profile_response(profile: dict) -> dict:
         "checkpoints": profile["checkpoints"],
         "checkpointLayout": checkpoint_layout,
         "entryType": profile.get("entry_type") or "individual",
+        "status": profile.get("status") or "active",
+        "finalizedAt": profile.get("finalized_at"),
         "createdAt": profile["created_at"],
         "updatedAt": profile["updated_at"],
     }
@@ -491,15 +528,17 @@ def save_race_profile(profile: dict) -> dict:
             """
             INSERT INTO race_profiles (
               race_id, name, mode, station_count, checkpoints_json,
-              entry_type, created_at, updated_at
+              entry_type, status, finalized_at, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (race_id) DO UPDATE SET
               name = excluded.name,
               mode = excluded.mode,
               station_count = excluded.station_count,
               checkpoints_json = excluded.checkpoints_json,
               entry_type = excluded.entry_type,
+              status = excluded.status,
+              finalized_at = excluded.finalized_at,
               updated_at = excluded.updated_at
             """,
             (
@@ -509,6 +548,8 @@ def save_race_profile(profile: dict) -> dict:
                 profile["station_count"],
                 json.dumps(profile["checkpoints"]),
                 profile.get("entry_type") or "individual",
+                profile.get("status") or "active",
+                profile.get("finalized_at"),
                 profile["created_at"],
                 profile["updated_at"],
             ),
@@ -560,6 +601,8 @@ def normalize_race_profile_payload(payload: dict) -> dict:
         updated_at=utc_now(),
         checkpoints=checkpoints,
         entry_type=entry_type,
+        status=existing.get("status") or "active",
+        finalized_at=existing.get("finalized_at"),
     )
 
 
@@ -631,6 +674,18 @@ def participant_response(row: sqlite3.Row | dict) -> dict:
     return source
 
 
+def result_adjustment_response(row: sqlite3.Row | dict) -> dict:
+    source = row_to_dict(row) if isinstance(row, sqlite3.Row) else dict(row)
+    return {
+        "id": source.get("id"),
+        "raceId": source.get("race_id"),
+        "participantId": source.get("participant_id"),
+        "adjustmentMs": source.get("adjustment_ms"),
+        "reason": source.get("reason"),
+        "createdAt": source.get("created_at"),
+    }
+
+
 def timing_api_key() -> str:
     environment_key = os.environ.get("TIMING_API_KEY", "").strip()
     if environment_key:
@@ -670,7 +725,7 @@ def supabase_row(row: sqlite3.Row | dict, columns: tuple[str, ...]) -> dict:
 def supabase_upsert(table: str, records: list[dict]) -> None:
     if not records:
         return
-    if table not in {"participants", "timing_events", "race_profiles"}:
+    if table not in {"participants", "timing_events", "race_profiles", "result_adjustments"}:
         raise ValueError(f"Unsupported Supabase table: {table}")
     if not supabase_configured():
         raise RuntimeError("Supabase sync is not configured")
@@ -709,6 +764,8 @@ def sync_supabase_record(table: str, row: sqlite3.Row | dict) -> dict:
         columns = PARTICIPANT_COLUMNS
     elif table == "timing_events":
         columns = TIMING_EVENT_COLUMNS
+    elif table == "result_adjustments":
+        columns = RESULT_ADJUSTMENT_COLUMNS
     else:
         columns = RACE_PROFILE_COLUMNS
     attempted_at = utc_now()
@@ -742,6 +799,9 @@ def sync_all_to_supabase() -> dict:
         event_rows = db.execute(
             "SELECT * FROM timing_events ORDER BY id"
         ).fetchall()
+        adjustment_rows = db.execute(
+            "SELECT * FROM result_adjustments ORDER BY id"
+        ).fetchall()
 
     profiles = [
         supabase_row(race_profile_from_row(row), RACE_PROFILE_COLUMNS)
@@ -751,9 +811,13 @@ def sync_all_to_supabase() -> dict:
         supabase_row(row, PARTICIPANT_COLUMNS) for row in participant_rows
     ]
     events = [supabase_row(row, TIMING_EVENT_COLUMNS) for row in event_rows]
+    adjustments = [
+        supabase_row(row, RESULT_ADJUSTMENT_COLUMNS) for row in adjustment_rows
+    ]
     supabase_upsert("race_profiles", profiles)
     supabase_upsert("participants", participants)
     supabase_upsert("timing_events", events)
+    supabase_upsert("result_adjustments", adjustments)
     completed_at = utc_now()
     LAST_SUPABASE_SYNC.update(
         {"attemptedAt": completed_at, "saved": True, "error": None}
@@ -763,6 +827,7 @@ def sync_all_to_supabase() -> dict:
         "raceProfiles": len(profiles),
         "participants": len(participants),
         "timingEvents": len(events),
+        "resultAdjustments": len(adjustments),
         "syncedAt": completed_at,
     }
 
@@ -940,6 +1005,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_get_leaderboard(parsed.query)
             return
 
+        if parsed.path == "/api/result-adjustments":
+            self.handle_get_result_adjustments(parsed.query)
+            return
+
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -966,6 +1035,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/participants":
             self.handle_post_participant()
+            return
+
+        if parsed.path == "/api/result-adjustments":
+            self.handle_post_result_adjustment()
+            return
+
+        if parsed.path == "/api/finalize-race":
+            self.handle_post_finalize_race()
             return
 
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -1009,7 +1086,12 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "SELECT COUNT(*) FROM participants WHERE race_id = ?",
                     (race_id,),
                 ).fetchone()[0]
+                adjustment_count = db.execute(
+                    "SELECT COUNT(*) FROM result_adjustments WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
                 db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
+                db.execute("DELETE FROM result_adjustments WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM participants WHERE race_id = ?", (race_id,))
 
             self.send_json(
@@ -1019,6 +1101,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "deleted": {
                         "timingEvents": event_count,
                         "participants": participant_count,
+                        "resultAdjustments": adjustment_count,
                     },
                     "raceProfilePreserved": True,
                 }
@@ -1068,9 +1151,30 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "SELECT COUNT(*) FROM participants WHERE race_id = ? AND card_code = ?",
                     (race_id, card_code),
                 ).fetchone()[0]
+                adjustment_count = db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM result_adjustments
+                    WHERE race_id = ?
+                      AND participant_id IN (
+                        SELECT id FROM participants WHERE race_id = ? AND card_code = ?
+                      )
+                    """,
+                    (race_id, race_id, card_code),
+                ).fetchone()[0]
                 db.execute(
                     "DELETE FROM timing_events WHERE race_id = ? AND card_code = ?",
                     (race_id, card_code),
+                )
+                db.execute(
+                    """
+                    DELETE FROM result_adjustments
+                    WHERE race_id = ?
+                      AND participant_id IN (
+                        SELECT id FROM participants WHERE race_id = ? AND card_code = ?
+                      )
+                    """,
+                    (race_id, race_id, card_code),
                 )
                 db.execute(
                     "DELETE FROM participants WHERE race_id = ? AND card_code = ?",
@@ -1085,6 +1189,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "deleted": {
                         "timingEvents": event_count,
                         "participants": participant_count,
+                        "resultAdjustments": adjustment_count,
                     },
                     "raceProfilePreserved": True,
                 }
@@ -1264,6 +1369,177 @@ class TimingHandler(SimpleHTTPRequestHandler):
             }
         )
 
+    def handle_get_result_adjustments(self, query: str) -> None:
+        race_id = parse_qs(query).get("raceId", [""])[0].strip()
+        if not race_id:
+            self.send_json(
+                {"ok": False, "error": "raceId is required"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+        with connect_db() as db:
+            rows = db.execute(
+                """
+                SELECT *
+                FROM result_adjustments
+                WHERE race_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (race_id,),
+            ).fetchall()
+        self.send_json(
+            {
+                "ok": True,
+                "raceId": race_id,
+                "adjustments": [result_adjustment_response(row) for row in rows],
+            }
+        )
+
+    def handle_post_result_adjustment(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            participant_id = int(payload.get("participantId"))
+            adjustment_seconds = int(payload.get("adjustmentSeconds"))
+            reason = str(payload.get("reason") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Result adjustment is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if participant_id <= 0:
+                raise ValueError("participantId is required")
+            if adjustment_seconds == 0 or abs(adjustment_seconds) > 86400:
+                raise ValueError("adjustmentSeconds must be between -86400 and 86400 and cannot be zero")
+            if len(reason) < 2 or len(reason) > 500:
+                raise ValueError("reason must be between 2 and 500 characters")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            with connect_db() as db:
+                participant = db.execute(
+                    "SELECT * FROM participants WHERE race_id = ? AND id = ?",
+                    (race_id, participant_id),
+                ).fetchone()
+                if not participant:
+                    raise ValueError("Participant was not found in this race")
+                checkpoint_rows = db.execute(
+                    """
+                    SELECT station_id, event_time
+                    FROM timing_events
+                    WHERE race_id = ? AND participant_id = ? AND status = 'accepted'
+                      AND station_id IN ('START', 'END')
+                    ORDER BY event_time ASC, id ASC
+                    """,
+                    (race_id, participant_id),
+                ).fetchall()
+                checkpoint_times = {
+                    row["station_id"]: row["event_time"] for row in checkpoint_rows
+                }
+                raw_elapsed_ms = milliseconds_between(
+                    checkpoint_times.get("START"), checkpoint_times.get("END")
+                )
+                if raw_elapsed_ms is None:
+                    raise ValueError("Only finished participants can receive a result adjustment")
+                existing_total_ms = db.execute(
+                    """
+                    SELECT COALESCE(SUM(adjustment_ms), 0)
+                    FROM result_adjustments
+                    WHERE race_id = ? AND participant_id = ?
+                    """,
+                    (race_id, participant_id),
+                ).fetchone()[0]
+                adjustment_ms = adjustment_seconds * 1000
+                if raw_elapsed_ms + existing_total_ms + adjustment_ms < 0:
+                    raise ValueError("The adjusted final time cannot be below zero")
+                cursor = db.execute(
+                    """
+                    INSERT INTO result_adjustments (
+                      race_id, participant_id, adjustment_ms, reason, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (race_id, participant_id, adjustment_ms, reason, utc_now()),
+                )
+                row = db.execute(
+                    "SELECT * FROM result_adjustments WHERE id = ?",
+                    (cursor.lastrowid,),
+                ).fetchone()
+
+            cloud = sync_supabase_record("result_adjustments", row)
+            self.send_json(
+                {
+                    "ok": True,
+                    "adjustment": result_adjustment_response(row),
+                    "totalAdjustmentMs": existing_total_ms + adjustment_ms,
+                    "finalElapsedMs": raw_elapsed_ms + existing_total_ms + adjustment_ms,
+                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
+                    "cloudError": cloud["error"],
+                },
+                HTTPStatus.CREATED,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_finalize_race(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Race finalization is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if profile.get("status") != "finalized":
+                profile["status"] = "finalized"
+                profile["finalized_at"] = utc_now()
+                profile["updated_at"] = profile["finalized_at"]
+                profile = save_race_profile(profile)
+            cloud = sync_supabase_record("race_profiles", profile)
+            self.send_json(
+                {
+                    "ok": True,
+                    "race": race_profile_response(profile),
+                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
+                    "cloudError": cloud["error"],
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
     def handle_get_leaderboard(self, query: str) -> None:
         params = parse_qs(query)
         race_id = params.get("raceId", ["hyrox-sim-001"])[0]
@@ -1289,7 +1565,17 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 """,
                 (race_id,),
             ).fetchall()
+            adjustment_rows = db.execute(
+                """
+                SELECT *
+                FROM result_adjustments
+                WHERE race_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (race_id,),
+            ).fetchall()
 
+        generated_at = profile.get("finalized_at") or utc_now()
         leaderboard = self.build_leaderboard(
             participant_rows,
             event_rows,
@@ -1297,13 +1583,15 @@ class TimingHandler(SimpleHTTPRequestHandler):
             checkpoint_index,
             profile["station_count"],
             profile["mode"],
+            adjustment_rows,
+            generated_at,
         )
         self.send_json(
             {
                 "ok": True,
                 "raceId": race_id,
                 "race": race_profile_response(profile),
-                "generatedAt": utc_now(),
+                "generatedAt": generated_at,
                 "checkpoints": checkpoints,
                 "leaderboard": leaderboard,
             }
@@ -1317,12 +1605,19 @@ class TimingHandler(SimpleHTTPRequestHandler):
         checkpoint_index: dict[str, int],
         station_count: int,
         profile_mode: str,
+        adjustment_rows: list[sqlite3.Row] | None = None,
+        generated_at: str | None = None,
     ) -> list[dict]:
         events_by_participant: dict[int, list[sqlite3.Row]] = {}
         for event in event_rows:
             events_by_participant.setdefault(event["participant_id"], []).append(event)
+        adjustments_by_participant: dict[int, list[sqlite3.Row]] = {}
+        for adjustment in adjustment_rows or []:
+            adjustments_by_participant.setdefault(
+                adjustment["participant_id"], []
+            ).append(adjustment)
 
-        generated_at = utc_now()
+        generated_at = generated_at or utc_now()
         results = []
         for participant in participant_rows:
             participant_data = participant_response(participant)
@@ -1336,7 +1631,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
             progress_index = checkpoint_index.get(latest_checkpoint, -1)
             status = self.result_status(latest_checkpoint, end_time)
             elapsed_end = end_time if end_time else generated_at
-            elapsed_ms = milliseconds_between(start_time, elapsed_end) if start_time else None
+            raw_elapsed_ms = milliseconds_between(start_time, elapsed_end) if start_time else None
+            participant_adjustments = adjustments_by_participant.get(participant["id"], [])
+            adjustment_ms = sum(row["adjustment_ms"] for row in participant_adjustments)
+            elapsed_ms = (
+                max(0, raw_elapsed_ms + adjustment_ms)
+                if end_time and raw_elapsed_ms is not None
+                else raw_elapsed_ms
+            )
 
             results.append(
                 {
@@ -1363,6 +1665,12 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "startTime": start_time,
                     "finishTime": end_time,
                     "elapsedMs": elapsed_ms,
+                    "rawElapsedMs": raw_elapsed_ms,
+                    "adjustmentMs": adjustment_ms,
+                    "adjustments": [
+                        result_adjustment_response(row)
+                        for row in participant_adjustments
+                    ],
                     "checkpointTimes": checkpoint_times,
                     "stationSplits": self.station_splits(
                         checkpoint_times,
@@ -1585,6 +1893,12 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 )
 
             profile = get_race_profile(race_id)
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
             save_race_profile(profile)
             now = utc_now()
             with connect_db() as db:
@@ -1656,6 +1970,12 @@ class TimingHandler(SimpleHTTPRequestHandler):
             if not race_id:
                 raise ValueError("raceId is required")
             profile = get_race_profile(race_id)
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
             save_race_profile(profile)
             normalized = self.normalize_timing_payload(payload, profile)
         except (json.JSONDecodeError, ValueError) as error:

@@ -256,6 +256,13 @@ Purpose:
   real event. The session Race ID includes local event date/time (for example,
   `hoka-race-20260725-0900`) and is shared by registration, timing phones, and the
   leaderboard. Starting a new session never clears previous participants or events.
+- Finished participants support audited result adjustments from `admin.html`. Add-time
+  penalties and subtract-time credits are appended to `result_adjustments`, require
+  the administrator code plus a reason, and never rewrite the raw NFC event timeline.
+  The leaderboard displays the original time, each adjustment, and the adjusted final time.
+- The leaderboard's `End race` action uses the same administrator code as clearing.
+  It persists `race_profiles.status = finalized` plus `finalized_at`, freezes the
+  scoreboard across reloads/devices, preserves all data, and blocks later timing taps.
 - FitMonster rows expose alternating 500m run and named station segments; Wall Ball
   is the final segment and ends the race.
 - Official race cleanup requires the administrator clear code and two confirmation clicks.

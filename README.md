@@ -183,6 +183,16 @@ date and time, for example `hoka-race-20260725-0900`. Registration, timing devic
 and the leaderboard all use that same session ID, so previous sessions remain
 available as history. Do not clear or reuse a template Race ID to start a new event.
 
+Finished results can be adjusted from the participant table in `admin.html`. Each
+penalty or time credit requires the administrator code and a written reason. The
+system keeps the raw NFC elapsed time unchanged, stores every signed adjustment as
+an audit record, and ranks finished participants by the adjusted final time.
+
+At the end of a real event, use **End race** on the leaderboard instead of clearing
+the race. The action requires the same administrator code as race clearing, stores a
+permanent `finalized_at` timestamp, freezes all running durations at that instant,
+and rejects any later NFC taps. Clearing remains a destructive maintenance action.
+
 Supported modes:
 
 ```text

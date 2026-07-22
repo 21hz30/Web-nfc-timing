@@ -208,7 +208,10 @@ class TimingApiTests(unittest.TestCase):
             },
         )
         self.assertTrue(result["ok"])
-        self.assertEqual(result["deleted"], {"timingEvents": 1, "participants": 1})
+        self.assertEqual(
+            result["deleted"],
+            {"timingEvents": 1, "participants": 1, "resultAdjustments": 0},
+        )
         self.assertTrue(result["raceProfilePreserved"])
         self.assertEqual(
             self.request_json("/api/leaderboard?raceId=auto-test")["leaderboard"],
@@ -293,6 +296,106 @@ class TimingApiTests(unittest.TestCase):
         self.assertEqual(new_entries_after_reset, [])
         self.assertEqual(preserved_profile["raceId"], session_race_id)
 
+    def test_finalize_race_freezes_leaderboard_and_blocks_new_taps(self):
+        first = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(0, "RUN_IN"),
+        )
+        self.assertEqual(first["status"], "accepted")
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/finalize-race",
+                {"raceId": "auto-test", "adminCode": "wrong-code"},
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
+
+        finalized = self.request_json(
+            "/api/finalize-race",
+            {"raceId": "auto-test", "adminCode": "test-clear-code-1234"},
+        )["race"]
+        self.assertEqual(finalized["status"], "finalized")
+        self.assertTrue(finalized["finalizedAt"])
+        leaderboard = self.request_json("/api/leaderboard?raceId=auto-test")
+        self.assertEqual(leaderboard["generatedAt"], finalized["finalizedAt"])
+
+        finalized_again = self.request_json(
+            "/api/finalize-race",
+            {"raceId": "auto-test", "adminCode": "test-clear-code-1234"},
+        )["race"]
+        self.assertEqual(finalized_again["finalizedAt"], finalized["finalizedAt"])
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/timing-events",
+                self.timing_payload(1, "RUN_OUT"),
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.CONFLICT)
+
+    def test_result_adjustments_preserve_raw_time_and_record_reasons(self):
+        latest = None
+        for index in range(17):
+            role, expected_checkpoint = server.expected_auto_transition(latest)
+            response = self.request_json(
+                "/api/timing-events",
+                self.timing_payload(index, role),
+            )
+            self.assertEqual(response["status"], "accepted")
+            self.assertEqual(response["stationId"], expected_checkpoint)
+            latest = expected_checkpoint
+
+        participant_id = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"][0]["id"]
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/result-adjustments",
+                {
+                    "raceId": "auto-test",
+                    "participantId": participant_id,
+                    "adjustmentSeconds": 60,
+                    "reason": "Missed movement standard",
+                    "adminCode": "wrong-code",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
+
+        penalty = self.request_json(
+            "/api/result-adjustments",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "adjustmentSeconds": 60,
+                "reason": "Missed movement standard",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        credit = self.request_json(
+            "/api/result-adjustments",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "adjustmentSeconds": -15,
+                "reason": "Timing review correction",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(penalty["totalAdjustmentMs"], 60000)
+        self.assertEqual(credit["totalAdjustmentMs"], 45000)
+
+        result = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(result["rawElapsedMs"], 160000)
+        self.assertEqual(result["adjustmentMs"], 45000)
+        self.assertEqual(result["elapsedMs"], 205000)
+        self.assertEqual(
+            [item["adjustmentMs"] for item in result["adjustments"]],
+            [60000, -15000],
+        )
+        self.assertEqual(
+            [item["reason"] for item in result["adjustments"]],
+            ["Missed movement standard", "Timing review correction"],
+        )
+
     def test_delete_participant_requires_code_and_only_deletes_selected_card(self):
         event = self.request_json(
             "/api/timing-events",
@@ -342,7 +445,10 @@ class TimingApiTests(unittest.TestCase):
                 "adminCode": "test-clear-code-1234",
             },
         )
-        self.assertEqual(result["deleted"], {"timingEvents": 1, "participants": 1})
+        self.assertEqual(
+            result["deleted"],
+            {"timingEvents": 1, "participants": 1, "resultAdjustments": 0},
+        )
         participants = self.request_json(
             "/api/participants?raceId=auto-test"
         )["participants"]

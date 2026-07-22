@@ -98,7 +98,8 @@
     }
 
     input,
-    select {
+    select,
+    textarea {
       width: 100%;
       border: 1px solid #c8d1dc;
       border-radius: 6px;
@@ -106,6 +107,11 @@
       font: inherit;
       background: #ffffff;
       color: #121820;
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
     }
 
     button {
@@ -191,6 +197,30 @@
       gap: 10px;
       margin-top: 14px;
     }
+
+    .adjustment-summary {
+      margin: 12px 0;
+      padding: 10px;
+      border-radius: 6px;
+      background: #f3f6f9;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .adjustment-history {
+      max-height: 160px;
+      margin-top: 12px;
+      overflow-y: auto;
+      font-size: 13px;
+    }
+
+    .adjustment-history div {
+      padding: 7px 0;
+      border-bottom: 1px solid #e3e9f1;
+    }
+
+    .adjustment-positive { color: #a21616; font-weight: 900; }
+    .adjustment-negative { color: #087443; font-weight: 900; }
 
     .actions {
       display: flex;
@@ -561,12 +591,13 @@
               <th>Division</th>
               <th>Card</th>
               <th>Check-in</th>
+              <th>最终成绩</th>
               <th>Updated</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody id="participantsBody">
-            <tr class="empty-row"><td colspan="10">正在读取选手数据。</td></tr>
+            <tr class="empty-row"><td colspan="11">正在读取选手数据。</td></tr>
           </tbody>
         </table>
       </div>
@@ -610,6 +641,45 @@
     </form>
   </div>
 
+  <div id="resultAdjustmentModal" class="modal-backdrop" hidden>
+    <form id="resultAdjustmentForm" class="modal-card">
+      <h2>调整最终成绩</h2>
+      <p id="resultAdjustmentParticipant">请选择已完赛的参赛单位。</p>
+      <div id="resultAdjustmentSummary" class="adjustment-summary"></div>
+      <label>
+        调整方向
+        <select id="resultAdjustmentDirection">
+          <option value="1">增加时间（罚时）</option>
+          <option value="-1">减少时间</option>
+        </select>
+      </label>
+      <div class="grid">
+        <label>
+          分钟
+          <input id="resultAdjustmentMinutes" type="number" min="0" max="1440" step="1" value="0" required>
+        </label>
+        <label>
+          秒
+          <input id="resultAdjustmentSeconds" type="number" min="0" max="59" step="1" value="0" required>
+        </label>
+      </div>
+      <label>
+        调整原因
+        <textarea id="resultAdjustmentReason" maxlength="500" placeholder="例如：未完成规定动作，加时 30 秒" required></textarea>
+      </label>
+      <label>
+        管理员码
+        <input id="resultAdjustmentAdminCode" type="password" autocomplete="off" required>
+      </label>
+      <div id="resultAdjustmentHistory" class="adjustment-history"></div>
+      <div id="resultAdjustmentError" class="modal-error" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="cancelResultAdjustmentButton" class="secondary" type="button">取消</button>
+        <button type="submit">保存成绩调整</button>
+      </div>
+    </form>
+  </div>
+
   <script src="./timing-api.js"></script>
   <script>
     const form = document.querySelector("#participantForm");
@@ -648,6 +718,18 @@
     const adminCodeError = document.querySelector("#adminCodeError");
     const cancelAdminCodeButton = document.querySelector("#cancelAdminCodeButton");
     const verifyAdminCodeButton = document.querySelector("#verifyAdminCodeButton");
+    const resultAdjustmentModal = document.querySelector("#resultAdjustmentModal");
+    const resultAdjustmentForm = document.querySelector("#resultAdjustmentForm");
+    const resultAdjustmentParticipant = document.querySelector("#resultAdjustmentParticipant");
+    const resultAdjustmentSummary = document.querySelector("#resultAdjustmentSummary");
+    const resultAdjustmentDirection = document.querySelector("#resultAdjustmentDirection");
+    const resultAdjustmentMinutes = document.querySelector("#resultAdjustmentMinutes");
+    const resultAdjustmentSeconds = document.querySelector("#resultAdjustmentSeconds");
+    const resultAdjustmentReason = document.querySelector("#resultAdjustmentReason");
+    const resultAdjustmentAdminCode = document.querySelector("#resultAdjustmentAdminCode");
+    const resultAdjustmentHistory = document.querySelector("#resultAdjustmentHistory");
+    const resultAdjustmentError = document.querySelector("#resultAdjustmentError");
+    const cancelResultAdjustmentButton = document.querySelector("#cancelResultAdjustmentButton");
     const pageParams = new URLSearchParams(window.location.search);
     const officialRaces = [
       {
@@ -671,7 +753,9 @@
     ];
     let activeEntryType = "individual";
     let visibleParticipants = [];
+    let visibleResults = new Map();
     let editingCardCode = "";
+    let adjustingParticipant = null;
     const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
 
     function escapeHtml(value) {
@@ -689,6 +773,24 @@
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return value;
       return date.toLocaleTimeString();
+    }
+
+    function formatDuration(ms) {
+      if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return "-";
+      const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function formatAdjustment(ms) {
+      const value = Number(ms) || 0;
+      const sign = value >= 0 ? "+" : "-";
+      return `${sign}${formatDuration(Math.abs(value))}`;
+    }
+
+    function adjustmentClass(ms) {
+      return Number(ms) >= 0 ? "adjustment-positive" : "adjustment-negative";
     }
 
     function setStatus(message, isError = false) {
@@ -889,6 +991,84 @@
       if (event.target === adminCodeModal) closeAdminCodeModal();
     });
 
+    function closeResultAdjustmentModal() {
+      resultAdjustmentModal.hidden = true;
+      resultAdjustmentForm.reset();
+      resultAdjustmentMinutes.value = "0";
+      resultAdjustmentSeconds.value = "0";
+      resultAdjustmentError.textContent = "";
+      adjustingParticipant = null;
+    }
+
+    function openResultAdjustment(participant) {
+      const result = visibleResults.get(String(participant.id));
+      if (!result || result.status !== "finished") {
+        setStatus("只有已经完成比赛的参赛单位可以调整最终成绩。", true);
+        return;
+      }
+      adjustingParticipant = participant;
+      resultAdjustmentForm.reset();
+      resultAdjustmentMinutes.value = "0";
+      resultAdjustmentSeconds.value = "0";
+      resultAdjustmentError.textContent = "";
+      resultAdjustmentParticipant.textContent = `${participant.athlete_name} · ${participant.card_code}`;
+      const adjustment = Number(result.adjustmentMs) || 0;
+      resultAdjustmentSummary.innerHTML = `
+        原始成绩：<strong>${formatDuration(result.rawElapsedMs)}</strong><br>
+        累计调整：<strong class="${adjustmentClass(adjustment)}">${formatAdjustment(adjustment)}</strong><br>
+        当前最终成绩：<strong>${formatDuration(result.elapsedMs)}</strong>
+      `;
+      const history = Array.isArray(result.adjustments) ? result.adjustments : [];
+      resultAdjustmentHistory.innerHTML = history.length
+        ? history.map((item) => `
+            <div>
+              <span class="${adjustmentClass(item.adjustmentMs)}">${formatAdjustment(item.adjustmentMs)}</span>
+              · ${escapeHtml(item.reason)} · ${formatTime(item.createdAt)}
+            </div>
+          `).join("")
+        : "<div>暂无成绩调整记录。</div>";
+      resultAdjustmentModal.hidden = false;
+      resultAdjustmentMinutes.focus();
+    }
+
+    cancelResultAdjustmentButton.addEventListener("click", closeResultAdjustmentModal);
+    resultAdjustmentModal.addEventListener("click", (event) => {
+      if (event.target === resultAdjustmentModal) closeResultAdjustmentModal();
+    });
+
+    resultAdjustmentForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!adjustingParticipant) return;
+      const minutes = Number(resultAdjustmentMinutes.value) || 0;
+      const seconds = Number(resultAdjustmentSeconds.value) || 0;
+      const totalSeconds = Math.trunc(minutes * 60 + seconds);
+      if (totalSeconds <= 0) {
+        resultAdjustmentError.textContent = "调整时间必须大于 0 秒。";
+        return;
+      }
+      const signedSeconds = totalSeconds * Number(resultAdjustmentDirection.value);
+      resultAdjustmentError.textContent = "正在保存...";
+      try {
+        await requestJson("/api/result-adjustments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: selectedRaceId(),
+            participantId: adjustingParticipant.id,
+            adjustmentSeconds: signedSeconds,
+            reason: resultAdjustmentReason.value.trim(),
+            adminCode: resultAdjustmentAdminCode.value
+          })
+        });
+        const name = adjustingParticipant.athlete_name;
+        closeResultAdjustmentModal();
+        setStatus(`已保存 ${name} 的成绩调整：${formatAdjustment(signedSeconds * 1000)}。`);
+        await refresh();
+      } catch (error) {
+        resultAdjustmentError.textContent = `保存失败：${error.message}`;
+      }
+    });
+
     function raceOptionLabel(race) {
       const official = officialRaces.find((item) => item.raceId === race.raceId);
       const category = entryTypeLabel(race.entryType || official?.entryType || "individual");
@@ -989,17 +1169,23 @@
     }
 
     async function loadParticipants(raceId = selectedRaceId()) {
-      const payload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
+      const [payload, leaderboardPayload] = await Promise.all([
+        requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`),
+        requestJson(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`)
+      ]);
       if (selectedRaceId() !== raceId) return;
       const participants = payload.participants || [];
       visibleParticipants = participants;
+      visibleResults = new Map(
+        (leaderboardPayload.leaderboard || []).map((result) => [String(result.participantId), result])
+      );
       metricParticipants.textContent = participants.length;
       metricCheckedIn.textContent = participants.filter(
         (participant) => participant.check_in_status === "checked_in"
       ).length;
       if (!participants.length) {
         participantsBody.innerHTML = `
-          <tr class="empty-row"><td colspan="10">当前比赛还没有参赛单位，请先在上方登记并绑定 NFC 卡。</td></tr>
+          <tr class="empty-row"><td colspan="11">当前比赛还没有参赛单位，请先在上方登记并绑定 NFC 卡。</td></tr>
         `;
         return;
       }
@@ -1008,6 +1194,13 @@
         const memberNames = Array.isArray(participant.member_names)
           ? participant.member_names
           : [participant.athlete_name];
+        const result = visibleResults.get(String(participant.id));
+        const adjustment = Number(result?.adjustmentMs) || 0;
+        const finalResult = result?.status === "finished"
+          ? `<strong>${formatDuration(result.elapsedMs)}</strong>${adjustment
+              ? `<br><span class="${adjustmentClass(adjustment)}">${formatAdjustment(adjustment)}</span>`
+              : ""}`
+          : "未完赛";
         return `
           <tr>
             <td>${escapeHtml(entryTypeLabel(entryType))}</td>
@@ -1018,10 +1211,12 @@
             <td>${escapeHtml(participant.division || "-")}</td>
             <td class="mono">${escapeHtml(participant.card_code)}</td>
             <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
+            <td class="mono">${finalResult}</td>
             <td class="mono">${formatTime(participant.updated_at)}</td>
             <td>
               <div class="row-actions">
                 <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}">编辑</button>
+                <button class="secondary compact" type="button" data-action="adjust" data-index="${visibleParticipants.indexOf(participant)}" ${result?.status === "finished" ? "" : "disabled"}>成绩调整</button>
                 <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}">删除绑定</button>
               </div>
             </td>
@@ -1203,6 +1398,7 @@
       const participant = visibleParticipants[Number(button.dataset.index)];
       if (!participant) return;
       if (button.dataset.action === "edit") editParticipant(participant);
+      if (button.dataset.action === "adjust") openResultAdjustment(participant);
       if (button.dataset.action === "delete") deleteParticipant(participant);
     });
 

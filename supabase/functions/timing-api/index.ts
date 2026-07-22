@@ -223,6 +223,8 @@ function defaultRaceProfile(raceId: string): DatabaseRow {
     station_count: 8,
     checkpoints: buildCheckpoints("two_reader_auto", 8),
     entry_type: raceId === "hoka-race" ? "team" : "individual",
+    status: "active",
+    finalized_at: null,
     created_at: now,
     updated_at: now,
   };
@@ -237,6 +239,8 @@ function raceResponse(profile: DatabaseRow): JsonObject {
     checkpoints: profile.checkpoints,
     checkpointLayout: checkpointLayout(profile),
     entryType: profile.entry_type || "individual",
+    status: profile.status || "active",
+    finalizedAt: profile.finalized_at || null,
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -291,6 +295,27 @@ async function raceEvents(
   }
   if (options.limit) query.limit = String(options.limit);
   return await databaseRequest("timing_events", { query });
+}
+
+async function raceAdjustments(raceId: string): Promise<DatabaseRow[]> {
+  return await databaseRequest("result_adjustments", {
+    query: {
+      select: "*",
+      race_id: `eq.${raceId}`,
+      order: "created_at.asc,id.asc",
+    },
+  });
+}
+
+function resultAdjustmentResponse(row: DatabaseRow): JsonObject {
+  return {
+    id: row.id,
+    raceId: row.race_id,
+    participantId: row.participant_id,
+    adjustmentMs: Number(row.adjustment_ms),
+    reason: row.reason,
+    createdAt: row.created_at,
+  };
 }
 
 function mergeParticipantDetails(
@@ -358,6 +383,8 @@ function buildLeaderboard(
   participants: DatabaseRow[],
   events: DatabaseRow[],
   profile: DatabaseRow,
+  adjustments: DatabaseRow[] = [],
+  frozenAt?: string,
 ): JsonObject[] {
   const checkpoints: string[] = profile.checkpoints;
   const usesStationBoundaries = checkpointLayout(profile) === "station_boundaries";
@@ -367,8 +394,16 @@ function buildLeaderboard(
     const key = String(event.participant_id);
     eventsByParticipant.set(key, [...(eventsByParticipant.get(key) || []), event]);
   }
+  const adjustmentsByParticipant = new Map<string, DatabaseRow[]>();
+  for (const adjustment of adjustments) {
+    const key = String(adjustment.participant_id);
+    adjustmentsByParticipant.set(key, [
+      ...(adjustmentsByParticipant.get(key) || []),
+      adjustment,
+    ]);
+  }
 
-  const generatedAt = new Date().toISOString();
+  const generatedAt = frozenAt || new Date().toISOString();
   const results = participants.map((participant) => {
     const checkpointTimes: Record<string, string> = {};
     for (const event of eventsByParticipant.get(String(participant.id)) || []) {
@@ -440,6 +475,18 @@ function buildLeaderboard(
       }
     }
 
+    const participantAdjustments = adjustmentsByParticipant.get(String(participant.id)) || [];
+    const adjustmentMs = participantAdjustments.reduce(
+      (total, adjustment) => total + Number(adjustment.adjustment_ms || 0),
+      0,
+    );
+    const rawElapsedMs = startTime
+      ? millisecondsBetween(startTime, finishTime || generatedAt)
+      : null;
+    const elapsedMs = finishTime && rawElapsedMs !== null
+      ? Math.max(0, rawElapsedMs + adjustmentMs)
+      : rawElapsedMs;
+
     return {
       participantId: participant.id,
       athleteName: participant.athlete_name,
@@ -464,7 +511,10 @@ function buildLeaderboard(
       latestCheckpoint,
       startTime,
       finishTime,
-      elapsedMs: startTime ? millisecondsBetween(startTime, finishTime || generatedAt) : null,
+      elapsedMs,
+      rawElapsedMs,
+      adjustmentMs,
+      adjustments: participantAdjustments.map(resultAdjustmentResponse),
       checkpointTimes,
       stationSplits,
       segmentSplits,
@@ -534,6 +584,16 @@ async function handleGet(route: string, url: URL): Promise<Response> {
     return jsonResponse({ ok: true, participants: await raceParticipants(raceId) });
   }
 
+  if (route === "/result-adjustments") {
+    const raceId = requiredRaceId(url.searchParams.get("raceId"));
+    const adjustments = await raceAdjustments(raceId);
+    return jsonResponse({
+      ok: true,
+      raceId,
+      adjustments: adjustments.map(resultAdjustmentResponse),
+    });
+  }
+
   if (route === "/device-bindings") {
     const raceId = requiredRaceId(url.searchParams.get("raceId"));
     const bindings = await databaseRequest("device_bindings", {
@@ -565,17 +625,24 @@ async function handleGet(route: string, url: URL): Promise<Response> {
   if (route === "/leaderboard") {
     const raceId = requiredRaceId(url.searchParams.get("raceId") || "hyrox-sim-001");
     const profile = (await findRaceProfile(raceId)) || defaultRaceProfile(raceId);
-    const [participants, events] = await Promise.all([
+    const [participants, events, adjustments] = await Promise.all([
       raceParticipants(raceId),
       raceEvents(raceId, { acceptedOnly: true }),
+      raceAdjustments(raceId),
     ]);
     return jsonResponse({
       ok: true,
       raceId,
       race: raceResponse(profile),
-      generatedAt: new Date().toISOString(),
+      generatedAt: profile.finalized_at || new Date().toISOString(),
       checkpoints: profile.checkpoints,
-      leaderboard: buildLeaderboard(participants, events, profile),
+      leaderboard: buildLeaderboard(
+        participants,
+        events,
+        profile,
+        adjustments,
+        profile.finalized_at || undefined,
+      ),
     });
   }
 
@@ -606,6 +673,11 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       query: { race_id: `eq.${raceId}` },
       prefer: "return=representation",
     });
+    const deletedAdjustments = await databaseRequest("result_adjustments", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
     const deletedParticipants = await databaseRequest("participants", {
       method: "DELETE",
       query: { race_id: `eq.${raceId}` },
@@ -617,6 +689,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       deleted: {
         timingEvents: deletedEvents.length,
         participants: deletedParticipants.length,
+        resultAdjustments: deletedAdjustments.length,
       },
       raceProfilePreserved: true,
     });
@@ -643,11 +716,25 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     }
 
     const query = { race_id: `eq.${raceId}`, card_code: `eq.${cardCode}` };
+    const matchedParticipants = await databaseRequest("participants", {
+      query: { select: "id", ...query },
+    });
     const deletedEvents = await databaseRequest("timing_events", {
       method: "DELETE",
       query,
       prefer: "return=representation",
     });
+    let deletedAdjustments: DatabaseRow[] = [];
+    if (matchedParticipants.length) {
+      deletedAdjustments = await databaseRequest("result_adjustments", {
+        method: "DELETE",
+        query: {
+          race_id: `eq.${raceId}`,
+          participant_id: `in.(${matchedParticipants.map((row: DatabaseRow) => row.id).join(",")})`,
+        },
+        prefer: "return=representation",
+      });
+    }
     const deletedParticipants = await databaseRequest("participants", {
       method: "DELETE",
       query,
@@ -660,8 +747,140 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       deleted: {
         timingEvents: deletedEvents.length,
         participants: deletedParticipants.length,
+        resultAdjustments: deletedAdjustments.length,
       },
       raceProfilePreserved: true,
+    });
+  }
+
+  if (route === "/result-adjustments") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Result adjustment is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const adjustmentSeconds = Number(payload.adjustmentSeconds);
+    const reason = String(payload.reason || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      throw new Error("participantId is required");
+    }
+    if (
+      !Number.isInteger(adjustmentSeconds)
+      || adjustmentSeconds === 0
+      || Math.abs(adjustmentSeconds) > 86400
+    ) {
+      throw new Error(
+        "adjustmentSeconds must be between -86400 and 86400 and cannot be zero",
+      );
+    }
+    if (reason.length < 2 || reason.length > 500) {
+      throw new Error("reason must be between 2 and 500 characters");
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+
+    const participants = await databaseRequest("participants", {
+      query: {
+        select: "*",
+        race_id: `eq.${raceId}`,
+        id: `eq.${participantId}`,
+        limit: "1",
+      },
+    });
+    if (!participants[0]) throw new Error("Participant was not found in this race");
+    const [checkpointEvents, existingAdjustments] = await Promise.all([
+      databaseRequest("timing_events", {
+        query: {
+          select: "station_id,event_time",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participantId}`,
+          status: "eq.accepted",
+          station_id: "in.(START,END)",
+          order: "event_time.asc,id.asc",
+        },
+      }),
+      databaseRequest("result_adjustments", {
+        query: {
+          select: "adjustment_ms",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participantId}`,
+        },
+      }),
+    ]);
+    const checkpointTimes: Record<string, string> = {};
+    for (const event of checkpointEvents) {
+      if (!checkpointTimes[event.station_id]) checkpointTimes[event.station_id] = event.event_time;
+    }
+    const rawElapsedMs = millisecondsBetween(
+      checkpointTimes.START || null,
+      checkpointTimes.END || null,
+    );
+    if (rawElapsedMs === null) {
+      throw new Error("Only finished participants can receive a result adjustment");
+    }
+    const existingTotalMs = existingAdjustments.reduce(
+      (total: number, adjustment: DatabaseRow) => total + Number(adjustment.adjustment_ms || 0),
+      0,
+    );
+    const adjustmentMs = adjustmentSeconds * 1000;
+    if (rawElapsedMs + existingTotalMs + adjustmentMs < 0) {
+      throw new Error("The adjusted final time cannot be below zero");
+    }
+    const rows = await databaseRequest("result_adjustments", {
+      method: "POST",
+      body: {
+        race_id: raceId,
+        participant_id: participantId,
+        adjustment_ms: adjustmentMs,
+        reason,
+        created_at: new Date().toISOString(),
+      },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      adjustment: resultAdjustmentResponse(rows[0]),
+      totalAdjustmentMs: existingTotalMs + adjustmentMs,
+      finalElapsedMs: rawElapsedMs + existingTotalMs + adjustmentMs,
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
+    }, 201);
+  }
+
+  if (route === "/finalize-race") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Race finalization is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const suppliedCode = String(payload.adminCode || "");
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const existing = await ensureRaceProfile(raceId);
+    if (existing.status === "finalized" && existing.finalized_at) {
+      return jsonResponse({
+        ok: true,
+        race: raceResponse(existing),
+        storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+        cloudError: null,
+      });
+    }
+    const finalizedAt = new Date().toISOString();
+    const rows = await databaseRequest("race_profiles", {
+      method: "PATCH",
+      query: { race_id: `eq.${raceId}` },
+      body: { status: "finalized", finalized_at: finalizedAt, updated_at: finalizedAt },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      race: raceResponse(rows[0]),
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
     });
   }
 
@@ -711,6 +930,8 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       station_count: stationCount,
       checkpoints,
       entry_type: entryType,
+      status: existing?.status || "active",
+      finalized_at: existing?.finalized_at || null,
       created_at: existing?.created_at || now,
       updated_at: now,
     };
@@ -832,7 +1053,13 @@ async function handlePost(route: string, request: Request): Promise<Response> {
 
   if (route === "/timing-events") {
     const raceId = requiredRaceId(payload.raceId);
-    await ensureRaceProfile(raceId);
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.status === "finalized") {
+      return jsonResponse(
+        { ok: false, status: "race_finalized", error: "This race has ended" },
+        409,
+      );
+    }
     const result = await databaseRequest("rpc/process_timing_event_v3", {
       method: "POST",
       body: { p_payload: payload },
