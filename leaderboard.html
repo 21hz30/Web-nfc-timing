@@ -1123,6 +1123,146 @@
       text-align: center;
     }
 
+    body[data-race-theme="hoka"] {
+      color-scheme: light;
+      --bg: #009dff;
+      --panel: #ffffff;
+      --header-border: #d8e5ee;
+      --table-head: #eaf5fb;
+      --row: #ffffff;
+      --row-alt: #f5f9fc;
+      --leader-row: #f0f9ff;
+      --text: #08253d;
+      --muted: #617588;
+      --muted-strong: #29465d;
+      --line: #d7e5ee;
+      --input-bg: #ffffff;
+      --input-border: rgba(255, 255, 255, 0.72);
+      --accent: #008de6;
+      --time: #08253d;
+      --flash: rgba(0, 157, 255, 0.12);
+      --flash-border: #009dff;
+      --status-text: #29465d;
+      --status-border: #b7ccda;
+      --brand-accent: #e0ff05;
+      background: #009dff;
+    }
+
+    body[data-race-theme="hoka"] header {
+      border-bottom-color: rgba(255, 255, 255, 0.32);
+      background: #009dff;
+      color: #ffffff;
+    }
+
+    body[data-race-theme="hoka"] .brand-logo {
+      border: 2px solid #e0ff05;
+      box-shadow: 0 0 0 1px rgba(8, 37, 61, 0.08);
+    }
+
+    body[data-race-theme="hoka"] .brand-eyebrow,
+    body[data-race-theme="hoka"] h1,
+    body[data-race-theme="hoka"] .sub,
+    body[data-race-theme="hoka"] .live {
+      color: #e0ff05;
+    }
+
+    body[data-race-theme="hoka"] .brand-eyebrow {
+      font-size: 12px;
+    }
+
+    body[data-race-theme="hoka"] .sub {
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    body[data-race-theme="hoka"] .meta {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    body[data-race-theme="hoka"] .dot {
+      background: #e0ff05;
+    }
+
+    body[data-race-theme="hoka"] .controls .toggle[aria-label="Theme"] {
+      display: none;
+    }
+
+    body[data-race-theme="hoka"] .controls .toggle {
+      border-color: rgba(255, 255, 255, 0.5);
+      background: rgba(0, 83, 142, 0.22);
+    }
+
+    body[data-race-theme="hoka"] .controls .toggle button {
+      border-right-color: rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.82);
+    }
+
+    body[data-race-theme="hoka"] .controls .toggle button.active {
+      background: #e0ff05;
+      color: #08253d;
+    }
+
+    body[data-race-theme="hoka"] main {
+      background: #009dff;
+    }
+
+    body[data-race-theme="hoka"] .toolbar label {
+      color: #ffffff;
+    }
+
+    body[data-race-theme="hoka"] .toolbar select {
+      border-color: rgba(255, 255, 255, 0.76);
+      background: #ffffff;
+      color: #08253d;
+      box-shadow: 0 4px 14px rgba(0, 79, 130, 0.12);
+    }
+
+    body[data-race-theme="hoka"] .metric {
+      border-color: rgba(255, 255, 255, 0.54);
+      background: rgba(0, 89, 153, 0.2);
+      color: #ffffff;
+    }
+
+    body[data-race-theme="hoka"] .metric span {
+      color: rgba(255, 255, 255, 0.82);
+    }
+
+    body[data-race-theme="hoka"] .metric strong {
+      color: #e0ff05;
+    }
+
+    body[data-race-theme="hoka"] .finish-button {
+      border-color: #e0ff05;
+      background: #e0ff05;
+      color: #08253d;
+    }
+
+    body[data-race-theme="hoka"] .danger-button {
+      border-color: rgba(255, 255, 255, 0.82);
+      background: transparent;
+      color: #ffffff;
+    }
+
+    body[data-race-theme="hoka"] .danger-button:disabled,
+    body[data-race-theme="hoka"] .finish-button:disabled {
+      border-color: rgba(255, 255, 255, 0.36);
+      color: rgba(255, 255, 255, 0.62);
+    }
+
+    body[data-race-theme="hoka"] .table-wrap {
+      border-color: rgba(8, 37, 61, 0.12);
+      background: #ffffff;
+      box-shadow: 0 12px 28px rgba(0, 74, 124, 0.16);
+    }
+
+    body[data-race-theme="hoka"] th {
+      color: #3f6078;
+    }
+
+    body[data-race-theme="hoka"] tbody tr.leader {
+      border-left-color: #009dff;
+    }
+
     @media (max-width: 1180px) {
       .scoreboard-layout {
         grid-template-columns: 1fr;
@@ -1521,6 +1661,11 @@
     };
     const hokaDemoAnchorMs = Date.now();
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
+    const hokaSeriesThemeRaceIds = new Set([
+      "hoka-race-sh",
+      "hoka-race-hz",
+      "hoka-race-final"
+    ]);
     const initialRaceId = forceDemoData
       ? "src-hyrox"
       : requestedRaceId || "fitmonster-hyrox-single";
@@ -1831,6 +1976,10 @@
         || String(raceId || "").startsWith("hoka-race-");
     }
 
+    function usesHokaSeriesTheme(raceId) {
+      return hokaSeriesThemeRaceIds.has(String(raceId || ""));
+    }
+
     function isOfficialRaceId(raceId) {
       return raceId === "fitmonster-hyrox-single" || raceId === "hoka-race";
     }
@@ -1897,6 +2046,7 @@
       const race = selectedRace();
       const isMock = race.kind === "mock";
       const isTemplate = Boolean(race.isTemplate) || isOfficialRaceId(race.raceId);
+      updateRaceBranding(race.raceId);
       clearRaceButton.textContent = t("clearRace");
       clearRaceButton.disabled = isMock || isTemplate;
       clearRaceButton.title = isMock
@@ -1916,6 +2066,26 @@
         url.searchParams.delete("mock");
         window.history.replaceState({}, "", url);
       }
+    }
+
+    function updateRaceBranding(raceId) {
+      const usesHokaTheme = usesHokaSeriesTheme(raceId);
+      const brandEyebrow = document.querySelector(".brand-eyebrow");
+      const title = document.querySelector("h1");
+      const subtitle = document.querySelector(".sub");
+      if (usesHokaTheme) {
+        document.body.dataset.raceTheme = "hoka";
+        brandEyebrow.textContent = "HOKA";
+        title.textContent = "HOKA 团队挑战赛 2026";
+        subtitle.textContent = "TOGETHER WE FLY HIGHER";
+        document.title = "HOKA 团队挑战赛 2026 · 实时排名";
+        return;
+      }
+      delete document.body.dataset.raceTheme;
+      brandEyebrow.textContent = t("brandEyebrow");
+      title.textContent = t("title");
+      subtitle.textContent = t("subtitle");
+      document.title = "SRC Simulation Race Live Timing";
     }
 
     function escapeHtml(value) {
