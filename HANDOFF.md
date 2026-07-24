@@ -248,7 +248,9 @@ Purpose:
 
 - Register/check participant details.
 - Bind NFC card code to participant.
-- Edit an existing participant while keeping the bound Card Code locked.
+- Edit an existing participant's Card Code, entry/team name, and member names after
+  administrator-code verification. The participant ID stays unchanged so timing history
+  remains attached, and duplicate Card Codes are rejected.
 - Delete one Card Code binding and its selected-race timing events with the administrator code.
 - Load Supabase race profiles into a selector with the official races first.
 - Show selected-race totals for participants, check-ins, finishes, timing events,
@@ -370,6 +372,7 @@ Current API endpoints:
 GET  /api/health
 GET  /api/participants?raceId=hyrox-sim-001
 POST /api/participants
+POST /api/update-participant
 POST /api/delete-participant
 GET  /api/timing-events?raceId=hyrox-sim-001&limit=100
 POST /api/timing-events
@@ -633,7 +636,8 @@ Important production correction:
 - No authentication yet.
 - The JWT-disabled Edge API is suitable only for test data until authentication is added.
 - No participant search or bulk-edit workflow; individual rows can be edited.
-- Card replacement is intentionally delete-old then register-new; there is no one-click transfer of timing history.
+- Password-protected participant edits preserve timing history, but there is not yet a
+  per-field audit log recording the old and new Card Code, team name, or member names.
 - Race cleanup has a dedicated server-side clear code and two-step UI confirmation, but full administrator
   authentication and rate limiting are still required before production use.
 - No central device registry or configuration lock yet.
@@ -652,7 +656,7 @@ Important production correction:
 1. Add full administrator authentication and rate limiting around destructive actions.
    This remains intentionally deferred; items 2-5 from the 2026-07-22 audit are implemented.
 2. Add participant search and bulk editing in `admin.html`.
-3. Add an audited NFC card replacement workflow if timing history ever needs to transfer.
+3. Add a participant-edit audit log for Card Code, entry-name, and member changes.
 4. Add wave-start management and race exception review for missed/wrong taps.
 5. Add a persistent device retry queue for temporary network loss.
 6. Add a central device registry and configuration lock.

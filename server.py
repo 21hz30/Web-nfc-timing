@@ -1081,6 +1081,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_post_delete_participant()
             return
 
+        if parsed.path == "/api/update-participant":
+            self.handle_post_update_participant()
+            return
+
         if parsed.path == "/api/timing-events":
             self.handle_post_timing_event()
             return
@@ -1217,43 +1221,37 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 return
 
             with connect_db() as db:
-                event_count = db.execute(
-                    "SELECT COUNT(*) FROM timing_events WHERE race_id = ? AND card_code = ?",
+                participant = db.execute(
+                    "SELECT id FROM participants WHERE race_id = ? AND card_code = ?",
                     (race_id, card_code),
-                ).fetchone()[0]
-                participant_count = db.execute(
-                    "SELECT COUNT(*) FROM participants WHERE race_id = ? AND card_code = ?",
-                    (race_id, card_code),
-                ).fetchone()[0]
-                adjustment_count = db.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM result_adjustments
-                    WHERE race_id = ?
-                      AND participant_id IN (
-                        SELECT id FROM participants WHERE race_id = ? AND card_code = ?
-                      )
-                    """,
-                    (race_id, race_id, card_code),
-                ).fetchone()[0]
-                db.execute(
-                    "DELETE FROM timing_events WHERE race_id = ? AND card_code = ?",
-                    (race_id, card_code),
-                )
-                db.execute(
-                    """
-                    DELETE FROM result_adjustments
-                    WHERE race_id = ?
-                      AND participant_id IN (
-                        SELECT id FROM participants WHERE race_id = ? AND card_code = ?
-                      )
-                    """,
-                    (race_id, race_id, card_code),
-                )
-                db.execute(
-                    "DELETE FROM participants WHERE race_id = ? AND card_code = ?",
-                    (race_id, card_code),
-                )
+                ).fetchone()
+                participant_id = participant["id"] if participant else None
+                if participant_id is None:
+                    event_count = 0
+                    adjustment_count = 0
+                    participant_count = 0
+                else:
+                    event_count = db.execute(
+                        "SELECT COUNT(*) FROM timing_events WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()[0]
+                    adjustment_count = db.execute(
+                        "SELECT COUNT(*) FROM result_adjustments WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()[0]
+                    participant_count = 1
+                    db.execute(
+                        "DELETE FROM timing_events WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    )
+                    db.execute(
+                        "DELETE FROM result_adjustments WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    )
+                    db.execute(
+                        "DELETE FROM participants WHERE race_id = ? AND id = ?",
+                        (race_id, participant_id),
+                    )
 
             self.send_json(
                 {
@@ -1266,6 +1264,148 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "resultAdjustments": adjustment_count,
                     },
                     "raceProfilePreserved": True,
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_update_participant(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            try:
+                participant_id = int(payload.get("participantId"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("participantId is required") from error
+            card_code = normalize_card_code(payload.get("cardCode"))
+            confirmation = str(payload.get("confirmation") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            entry = normalize_participant_entry(payload)
+            entry_type = entry["entry_type"]
+            check_in_status = str(payload.get("checkInStatus") or "checked_in").strip()
+
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Participant editing is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if participant_id <= 0:
+                raise ValueError("participantId is required")
+            if not card_code or len(card_code) > 100:
+                raise ValueError("cardCode is required and must be 100 characters or fewer")
+            if confirmation != "UPDATE_PARTICIPANT":
+                raise ValueError("Participant update confirmation is required")
+            if check_in_status not in {"not_checked_in", "checked_in"}:
+                raise ValueError(
+                    "checkInStatus must be not_checked_in or checked_in"
+                )
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            phone = (
+                str(payload.get("phone") or "").strip() or None
+                if entry_type == "individual"
+                else None
+            )
+            gender = (
+                str(payload.get("gender") or "").strip() or None
+                if entry_type == "individual"
+                else None
+            )
+            division = (
+                str(payload.get("division") or "").strip() or None
+                if entry_type == "individual"
+                else None
+            )
+            now = utc_now()
+            try:
+                with connect_db() as db:
+                    existing = db.execute(
+                        "SELECT * FROM participants WHERE race_id = ? AND id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()
+                    if not existing:
+                        self.send_json(
+                            {"ok": False, "error": "Participant was not found in this race"},
+                            HTTPStatus.NOT_FOUND,
+                        )
+                        return
+                    db.execute(
+                        """
+                        UPDATE participants
+                        SET card_code = ?,
+                            athlete_name = ?,
+                            bib_number = ?,
+                            entry_type = ?,
+                            member_names = ?,
+                            phone = ?,
+                            gender = ?,
+                            division = ?,
+                            check_in_status = ?,
+                            updated_at = ?
+                        WHERE race_id = ? AND id = ?
+                        """,
+                        (
+                            card_code,
+                            entry["display_name"],
+                            str(payload.get("bibNumber") or "").strip() or None,
+                            entry_type,
+                            json.dumps(entry["member_names"], ensure_ascii=False),
+                            phone,
+                            gender,
+                            division,
+                            check_in_status,
+                            now,
+                            race_id,
+                            participant_id,
+                        ),
+                    )
+                    row = db.execute(
+                        "SELECT * FROM participants WHERE race_id = ? AND id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()
+            except sqlite3.IntegrityError as error:
+                self.send_json(
+                    {
+                        "ok": False,
+                        "error": "This Card Code is already bound to another participant in this race",
+                    },
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            cloud = sync_supabase_record("participants", row)
+            self.send_json(
+                {
+                    "ok": True,
+                    "participant": participant_response(row),
+                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
+                    "cloudError": cloud["error"],
                 }
             )
         except (json.JSONDecodeError, ValueError) as error:
@@ -2120,54 +2260,55 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 return
             save_race_profile(profile)
             now = utc_now()
-            with connect_db() as db:
-                db.execute(
-                    """
-                    INSERT INTO participants (
-                      race_id,
-                      card_code,
-                      athlete_name,
-                      bib_number,
-                      entry_type,
-                      member_names,
-                      phone,
-                      gender,
-                      division,
-                      check_in_status,
-                      created_at,
-                      updated_at
+            try:
+                with connect_db() as db:
+                    db.execute(
+                        """
+                        INSERT INTO participants (
+                          race_id,
+                          card_code,
+                          athlete_name,
+                          bib_number,
+                          entry_type,
+                          member_names,
+                          phone,
+                          gender,
+                          division,
+                          check_in_status,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            race_id,
+                            card_code,
+                            athlete_name,
+                            bib_number,
+                            entry_type,
+                            json.dumps(member_names, ensure_ascii=False),
+                            phone,
+                            gender,
+                            division,
+                            check_in_status,
+                            now,
+                            now,
+                        ),
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (race_id, card_code) DO UPDATE SET
-                      athlete_name = excluded.athlete_name,
-                      bib_number = excluded.bib_number,
-                      entry_type = excluded.entry_type,
-                      member_names = excluded.member_names,
-                      phone = excluded.phone,
-                      gender = excluded.gender,
-                      division = excluded.division,
-                      check_in_status = excluded.check_in_status,
-                      updated_at = excluded.updated_at
-                    """,
-                    (
-                        race_id,
-                        card_code,
-                        athlete_name,
-                        bib_number,
-                        entry_type,
-                        json.dumps(member_names, ensure_ascii=False),
-                        phone,
-                        gender,
-                        division,
-                        check_in_status,
-                        now,
-                        now,
-                    ),
+                    row = db.execute(
+                        "SELECT * FROM participants WHERE race_id = ? AND card_code = ?",
+                        (race_id, card_code),
+                    ).fetchone()
+            except sqlite3.IntegrityError:
+                self.send_json(
+                    {
+                        "ok": False,
+                        "status": "participant_update_requires_admin",
+                        "error": "This Card Code is already bound; use administrator-verified editing",
+                    },
+                    HTTPStatus.CONFLICT,
                 )
-                row = db.execute(
-                    "SELECT * FROM participants WHERE race_id = ? AND card_code = ?",
-                    (race_id, card_code),
-                ).fetchone()
+                return
 
             cloud = sync_supabase_record("participants", row)
             participant = participant_response(row)

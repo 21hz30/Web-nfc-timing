@@ -353,6 +353,20 @@ class TimingApiTests(unittest.TestCase):
                 self.timing_payload(1, "RUN_OUT"),
             )
         self.assertEqual(error_context.exception.code, HTTPStatus.CONFLICT)
+        self.assert_post_error(
+            "/api/update-participant",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "cardCode": "SIM-001-UPDATED",
+                "athleteName": "Updated after finish",
+                "entryType": "individual",
+                "memberNames": ["Updated after finish"],
+                "confirmation": "UPDATE_PARTICIPANT",
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.CONFLICT,
+        )
 
     def test_reopen_race_requires_reason_confirmation_and_restores_timing(self):
         self.request_json("/api/timing-events", self.timing_payload(0, "RUN_IN"))
@@ -524,6 +538,19 @@ class TimingApiTests(unittest.TestCase):
                     "raceId": template_id,
                     "cardCode": "LOCKED-001",
                     "confirmation": "DELETE_PARTICIPANT",
+                    "adminCode": "test-clear-code-1234",
+                },
+            ),
+            (
+                "/api/update-participant",
+                {
+                    "raceId": template_id,
+                    "participantId": 1,
+                    "cardCode": "LOCKED-002",
+                    "athleteName": "Changed template participant",
+                    "entryType": "individual",
+                    "memberNames": ["Changed template participant"],
+                    "confirmation": "UPDATE_PARTICIPANT",
                     "adminCode": "test-clear-code-1234",
                 },
             ),
@@ -725,6 +752,117 @@ class TimingApiTests(unittest.TestCase):
         self.assertEqual(
             self.request_json("/api/race-config?raceId=auto-test")["race"]["raceId"],
             "auto-test",
+        )
+
+    def test_admin_can_update_team_card_and_name_without_losing_timing(self):
+        team = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "TEAM-EDIT-OLD",
+                "athleteName": "Original Team",
+                "entryType": "team",
+                "memberNames": ["Runner 1", "Runner 2", "Runner 3", "Runner 4"],
+                "checkInStatus": "checked_in",
+            },
+        )["participant"]
+        self.assert_post_error(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "TEAM-EDIT-OLD",
+                "athleteName": "Unauthorized Rename",
+                "entryType": "team",
+                "memberNames": ["Wrong 1", "Wrong 2", "Wrong 3", "Wrong 4"],
+                "checkInStatus": "checked_in",
+            },
+            HTTPStatus.CONFLICT,
+        )
+        original = next(
+            row
+            for row in self.request_json(
+                "/api/participants?raceId=auto-test"
+            )["participants"]
+            if row["id"] == team["id"]
+        )
+        self.assertEqual(original["athlete_name"], "Original Team")
+        first_event = self.request_json(
+            "/api/timing-events",
+            self.timing_payload_for_card(0, "RUN_IN", "TEAM-EDIT-OLD", "team-edit"),
+        )
+        self.assertEqual(first_event["status"], "accepted")
+
+        update_payload = {
+            "raceId": "auto-test",
+            "participantId": team["id"],
+            "cardCode": "TEAM-EDIT-NEW",
+            "athleteName": "Updated Team Name",
+            "entryType": "team",
+            "memberNames": ["Alice", "Bob", "Chris", "Dana"],
+            "checkInStatus": "checked_in",
+            "confirmation": "UPDATE_PARTICIPANT",
+            "adminCode": "test-clear-code-1234",
+        }
+        missing_confirmation = {**update_payload}
+        missing_confirmation.pop("confirmation")
+        self.assert_post_error(
+            "/api/update-participant",
+            missing_confirmation,
+            HTTPStatus.BAD_REQUEST,
+        )
+        self.assert_post_error(
+            "/api/update-participant",
+            {**update_payload, "adminCode": "wrong-code"},
+            HTTPStatus.FORBIDDEN,
+        )
+
+        updated = self.request_json(
+            "/api/update-participant",
+            update_payload,
+        )["participant"]
+        self.assertEqual(updated["id"], team["id"])
+        self.assertEqual(updated["card_code"], "TEAM-EDIT-NEW")
+        self.assertEqual(updated["athlete_name"], "Updated Team Name")
+        self.assertEqual(updated["member_names"], ["Alice", "Bob", "Chris", "Dana"])
+
+        second_event = self.request_json(
+            "/api/timing-events",
+            self.timing_payload_for_card(2, "RUN_OUT", "TEAM-EDIT-NEW", "team-edit"),
+        )
+        self.assertEqual(second_event["status"], "accepted")
+        self.assertEqual(second_event["stationId"], "STATION_1_ENTER")
+
+        leaderboard = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"]
+        result = next(row for row in leaderboard if row["participantId"] == team["id"])
+        self.assertEqual(result["athleteName"], "Updated Team Name")
+        self.assertEqual(result["cardCode"], "TEAM-EDIT-NEW")
+        self.assertEqual(result["latestCheckpoint"], "STATION_1_ENTER")
+
+        self.assert_post_error(
+            "/api/update-participant",
+            {**update_payload, "cardCode": "SIM-001"},
+            HTTPStatus.CONFLICT,
+        )
+        participants = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"]
+        refreshed = next(row for row in participants if row["id"] == team["id"])
+        self.assertEqual(refreshed["card_code"], "TEAM-EDIT-NEW")
+
+        deleted = self.request_json(
+            "/api/delete-participant",
+            {
+                "raceId": "auto-test",
+                "cardCode": "TEAM-EDIT-NEW",
+                "confirmation": "DELETE_PARTICIPANT",
+                "adminCode": "test-clear-code-1234",
+            },
+        )["deleted"]
+        self.assertEqual(
+            deleted,
+            {"timingEvents": 2, "participants": 1, "resultAdjustments": 0},
         )
 
     def test_device_binding_requires_explicit_confirmation_and_reserves_assignment(self):

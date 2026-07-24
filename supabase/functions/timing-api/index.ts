@@ -749,18 +749,23 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     const matchedParticipants = await databaseRequest("participants", {
       query: { select: "id", ...query },
     });
-    const deletedEvents = await databaseRequest("timing_events", {
-      method: "DELETE",
-      query,
-      prefer: "return=representation",
-    });
+    let deletedEvents: DatabaseRow[] = [];
     let deletedAdjustments: DatabaseRow[] = [];
     if (matchedParticipants.length) {
+      const participantIds = matchedParticipants.map((row: DatabaseRow) => row.id).join(",");
+      deletedEvents = await databaseRequest("timing_events", {
+        method: "DELETE",
+        query: {
+          race_id: `eq.${raceId}`,
+          participant_id: `in.(${participantIds})`,
+        },
+        prefer: "return=representation",
+      });
       deletedAdjustments = await databaseRequest("result_adjustments", {
         method: "DELETE",
         query: {
           race_id: `eq.${raceId}`,
-          participant_id: `in.(${matchedParticipants.map((row: DatabaseRow) => row.id).join(",")})`,
+          participant_id: `in.(${participantIds})`,
         },
         prefer: "return=representation",
       });
@@ -780,6 +785,111 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         resultAdjustments: deletedAdjustments.length,
       },
       raceProfilePreserved: true,
+    });
+  }
+
+  if (route === "/update-participant") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Participant editing is not configured" }, 503);
+    }
+
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const cardCode = String(payload.cardCode || "").trim().toUpperCase();
+    const confirmation = String(payload.confirmation || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    const entry = normalizeParticipantEntry(payload);
+    const checkInStatus = String(payload.checkInStatus || "checked_in").trim();
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      throw new Error("participantId is required");
+    }
+    if (!cardCode || cardCode.length > 100) {
+      throw new Error("cardCode is required and must be 100 characters or fewer");
+    }
+    if (confirmation !== "UPDATE_PARTICIPANT") {
+      throw new Error("Participant update confirmation is required");
+    }
+    if (!new Set(["not_checked_in", "checked_in"]).has(checkInStatus)) {
+      throw new Error("checkInStatus must be not_checked_in or checked_in");
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse(
+        { ok: false, status: "race_finalized", error: "This race has ended" },
+        409,
+      );
+    }
+
+    const existingRows = await databaseRequest("participants", {
+      query: {
+        select: "id",
+        race_id: `eq.${raceId}`,
+        id: `eq.${participantId}`,
+        limit: "1",
+      },
+    });
+    if (!existingRows[0]) {
+      return jsonResponse({ ok: false, error: "Participant was not found in this race" }, 404);
+    }
+
+    let rows: DatabaseRow[];
+    try {
+      rows = await databaseRequest("participants", {
+        method: "PATCH",
+        query: {
+          race_id: `eq.${raceId}`,
+          id: `eq.${participantId}`,
+        },
+        body: {
+          card_code: cardCode,
+          athlete_name: entry.displayName,
+          bib_number: String(payload.bibNumber || "").trim() || null,
+          entry_type: entry.entryType,
+          member_names: entry.memberNames,
+          phone: entry.entryType === "individual"
+            ? String(payload.phone || "").trim() || null
+            : null,
+          gender: entry.entryType === "individual"
+            ? String(payload.gender || "").trim() || null
+            : null,
+          division: entry.entryType === "individual"
+            ? String(payload.division || "").trim() || null
+            : null,
+          check_in_status: checkInStatus,
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "return=representation",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("participants_race_card_key") || message.includes("duplicate key value")) {
+        return jsonResponse({
+          ok: false,
+          error: "This Card Code is already bound to another participant in this race",
+        }, 409);
+      }
+      throw error;
+    }
+    if (!rows[0]) {
+      return jsonResponse({ ok: false, error: "Participant was not found in this race" }, 404);
+    }
+    return jsonResponse({
+      ok: true,
+      participant: rows[0],
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
     });
   }
 
@@ -1093,14 +1203,6 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         409,
       );
     }
-    const existingRows = await databaseRequest("participants", {
-      query: {
-        select: "created_at",
-        race_id: `eq.${raceId}`,
-        card_code: `eq.${cardCode}`,
-        limit: "1",
-      },
-    });
     const now = new Date().toISOString();
     const participant = {
       race_id: raceId,
@@ -1119,15 +1221,27 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         ? String(payload.division || "").trim() || null
         : null,
       check_in_status: checkInStatus,
-      created_at: existingRows[0]?.created_at || now,
+      created_at: now,
       updated_at: now,
     };
-    const rows = await databaseRequest("participants", {
-      method: "POST",
-      query: { on_conflict: "race_id,card_code" },
-      body: participant,
-      prefer: "resolution=merge-duplicates,return=representation",
-    });
+    let rows: DatabaseRow[];
+    try {
+      rows = await databaseRequest("participants", {
+        method: "POST",
+        body: participant,
+        prefer: "return=representation",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("participants_race_card_key") || message.includes("duplicate key value")) {
+        return jsonResponse({
+          ok: false,
+          status: "participant_update_requires_admin",
+          error: "This Card Code is already bound; use administrator-verified editing",
+        }, 409);
+      }
+      throw error;
+    }
     return jsonResponse({
       ok: true,
       participant: rows[0],
