@@ -806,13 +806,19 @@
       }[role] || role;
     }
 
+    function usesStationBoundaries() {
+      return raceProfile?.mode === "station_checkpoints"
+        && Array.isArray(raceProfile.checkpoints)
+        && !raceProfile.checkpoints.includes("STATION_1_START");
+    }
+
     function checkpointLabel(checkpoint) {
       if (checkpoint === "START") {
-        const usesStationBoundaries = raceProfile?.mode === "station_checkpoints"
-          && !raceProfile.checkpoints.includes("STATION_1_START");
-        return usesStationBoundaries ? "第 1 站开始 / START" : "开始第 1 圈跑步";
+        return usesStationBoundaries() ? "比赛开始 / START" : "开始第 1 圈跑步";
       }
-      if (checkpoint === "END") return "正式完赛";
+      if (checkpoint === "END") {
+        return usesStationBoundaries() ? "最终结束 / FINAL END" : "正式完赛";
+      }
       if (checkpoint === "AUTO_RUN_OUT") return "跑步出口 · 未推进";
       if (checkpoint === "AUTO_RUN_IN") return "跑步入口 · 未推进";
       if (checkpoint === "AUTO_FINISH") return "终点 · 未推进";
@@ -822,7 +828,13 @@
       if (!match) return checkpoint || "未分配 checkpoint";
 
       const stationNumber = Number(match[1]);
-      if (match[2] === "START") return "第 " + stationNumber + " 站打卡";
+      if (match[2] === "START") {
+        if (usesStationBoundaries() && stationNumber > 1) {
+          const completedStation = stationNumber - 1;
+          return `第 ${completedStation} 站结束 / STATION ${completedStation} END`;
+        }
+        return "第 " + stationNumber + " 站打卡";
+      }
       if (match[2] === "ENTER") {
         return `第 ${stationNumber} 圈跑步完成 · 进入第 ${stationNumber} 站`;
       }
@@ -1028,7 +1040,10 @@
       const deviceId = elements.deviceId.value.trim();
       const ownBinding = currentDeviceBinding();
       if (ownBinding) {
-        elements.deviceBindingStatus.textContent = `已绑定：${ownBinding.device_id} · ${ownBinding.assignment}`;
+        const assignment = raceProfile?.mode === "station_checkpoints"
+          ? checkpointLabel(ownBinding.assignment)
+          : shortRoleLabel(ownBinding.assignment);
+        elements.deviceBindingStatus.textContent = `已绑定：${ownBinding.device_id} · ${assignment}`;
         elements.deviceBindingStatus.dataset.tone = "success";
         elements.bindDeviceButton.textContent = "重新确认绑定";
       } else if (deviceId) {
@@ -1067,7 +1082,10 @@
       if (!response.ok || !payload.ok) throw new Error(payload.error || ("HTTP " + response.status));
       await loadDeviceBindings();
       bindingConfirmed = true;
-      setStatus(`设备绑定成功：${deviceId} · ${assignment}`, "success");
+      const assignmentLabel = raceProfile?.mode === "station_checkpoints"
+        ? checkpointLabel(assignment)
+        : shortRoleLabel(assignment);
+      setStatus(`设备绑定成功：${deviceId} · ${assignmentLabel}`, "success");
     }
 
     async function ensureDeviceBinding() {
@@ -1101,7 +1119,7 @@
       elements.stationField.classList.toggle("hidden", isAuto);
       elements.roleName.textContent = isAuto
         ? roleLabel(elements.gateRole.value)
-        : `手动 · ${elements.stationId.value}`;
+        : `手动 · ${checkpointLabel(elements.stationId.value)}`;
       elements.deviceMeta.textContent = `${elements.raceId.value.trim() || "No race"} · ${elements.deviceId.value.trim() || "No device"}`;
       elements.testVoiceButton.disabled = !elements.voiceEnabled.checked;
       if (!document.body.classList.contains("scanning")) renderReadyState();
