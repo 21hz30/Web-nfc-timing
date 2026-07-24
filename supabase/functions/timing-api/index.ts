@@ -666,6 +666,60 @@ async function handleGet(route: string, url: URL): Promise<Response> {
 async function handlePost(route: string, request: Request): Promise<Response> {
   const payload = await readJsonBody(request);
 
+  if (route === "/reset-timing") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Timing reset is not configured" }, 503);
+    }
+
+    const raceId = requiredRaceId(payload.raceId);
+    const confirmation = String(payload.confirmation || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (confirmation !== "SECOND_CONFIRMATION") {
+      return jsonResponse({ ok: false, error: "Second confirmation is required" }, 400);
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator clear code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse({
+        ok: false,
+        status: "race_finalized",
+        error: "Reopen this race before resetting its timing",
+      }, 409);
+    }
+
+    const deletedEvents = await databaseRequest("timing_events", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
+    const deletedAdjustments = await databaseRequest("result_adjustments", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      raceId,
+      deleted: {
+        timingEvents: deletedEvents.length,
+        resultAdjustments: deletedAdjustments.length,
+      },
+      participantsPreserved: true,
+      deviceBindingsPreserved: true,
+      raceProfilePreserved: true,
+    });
+  }
+
   if (route === "/reset-race") {
     const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
     if (configuredCode.length < 8) {

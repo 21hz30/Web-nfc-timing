@@ -234,6 +234,94 @@ class TimingApiTests(unittest.TestCase):
             "auto-test",
         )
 
+    def test_reset_timing_preserves_participants_cards_and_device_bindings(self):
+        event = self.request_json(
+            "/api/timing-events",
+            self.timing_payload(0, "RUN_IN"),
+        )
+        self.assertEqual(event["status"], "accepted")
+        binding = self.request_json(
+            "/api/device-bindings",
+            {
+                "raceId": "auto-test",
+                "deviceId": "reset-test-reader",
+                "assignment": "RUN_IN",
+            },
+        )
+        self.assertTrue(binding["ok"])
+        with server.connect_db() as db:
+            participant_id = db.execute(
+                "SELECT id FROM participants WHERE race_id = ? AND card_code = ?",
+                ("auto-test", "SIM-001"),
+            ).fetchone()[0]
+            db.execute(
+                """
+                INSERT INTO result_adjustments (
+                  race_id, participant_id, adjustment_ms, reason, created_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("auto-test", participant_id, 30000, "Reset timing test", server.utc_now()),
+            )
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/reset-timing",
+                {
+                    "raceId": "auto-test",
+                    "adminCode": "test-clear-code-1234",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.BAD_REQUEST)
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/reset-timing",
+                {
+                    "raceId": "auto-test",
+                    "confirmation": "SECOND_CONFIRMATION",
+                    "adminCode": "wrong-code",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
+
+        result = self.request_json(
+            "/api/reset-timing",
+            {
+                "raceId": "auto-test",
+                "confirmation": "SECOND_CONFIRMATION",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["deleted"],
+            {"timingEvents": 1, "resultAdjustments": 1},
+        )
+        self.assertTrue(result["participantsPreserved"])
+        self.assertTrue(result["deviceBindingsPreserved"])
+
+        participants = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"]
+        self.assertEqual(len(participants), 1)
+        self.assertEqual(participants[0]["card_code"], "SIM-001")
+        bindings = self.request_json(
+            "/api/device-bindings?raceId=auto-test"
+        )["bindings"]
+        self.assertEqual(len(bindings), 1)
+        self.assertEqual(bindings[0]["device_id"], "reset-test-reader")
+        self.assertEqual(
+            self.request_json("/api/result-adjustments?raceId=auto-test")["adjustments"],
+            [],
+        )
+        leaderboard = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"]
+        self.assertEqual(len(leaderboard), 1)
+        self.assertEqual(leaderboard[0]["status"], "not_started")
+        self.assertIsNone(leaderboard[0]["elapsedMs"])
+
     def test_dated_race_session_preserves_previous_race_history(self):
         source_race_id = "hoka-race-20260720-0900"
         session_race_id = "hoka-race-20260725-0900"

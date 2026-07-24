@@ -1073,6 +1073,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/reset-timing":
+            self.handle_post_reset_timing()
+            return
+
         if parsed.path == "/api/reset-race":
             self.handle_post_reset_race()
             return
@@ -1114,6 +1118,79 @@ class TimingHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def handle_post_reset_timing(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            confirmation = str(payload.get("confirmation") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Timing reset is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if (
+                not race_id
+                or len(race_id) > 80
+                or not all(character.isalnum() or character in "-_" for character in race_id)
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if confirmation != "SECOND_CONFIRMATION":
+                raise ValueError("Second confirmation is required")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator clear code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {
+                        "ok": False,
+                        "status": "race_finalized",
+                        "error": "Reopen this race before resetting its timing",
+                    },
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            with connect_db() as db:
+                event_count = db.execute(
+                    "SELECT COUNT(*) FROM timing_events WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
+                adjustment_count = db.execute(
+                    "SELECT COUNT(*) FROM result_adjustments WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
+                db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
+                db.execute("DELETE FROM result_adjustments WHERE race_id = ?", (race_id,))
+
+            self.send_json(
+                {
+                    "ok": True,
+                    "raceId": race_id,
+                    "deleted": {
+                        "timingEvents": event_count,
+                        "resultAdjustments": adjustment_count,
+                    },
+                    "participantsPreserved": True,
+                    "deviceBindingsPreserved": True,
+                    "raceProfilePreserved": True,
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
     def handle_post_reset_race(self) -> None:
         try:

@@ -252,6 +252,10 @@ Purpose:
   administrator-code verification. The participant ID stays unchanged so timing history
   remains attached, and duplicate Card Codes are rejected.
 - Delete one Card Code binding and its selected-race timing events with the administrator code.
+- The leaderboard has separate `Reset timing` and `Clear race data` actions. Reset timing
+  requires the same administrator code and two confirmations, deletes only timing events
+  and result adjustments, and preserves participants, team details, Card Codes, device
+  bindings, and the race profile. Clear race data remains the full participant/data deletion.
 - Load Supabase race profiles into a selector with the official races first.
 - Show selected-race totals for participants, check-ins, finishes, timing events,
   and rejected/error events.

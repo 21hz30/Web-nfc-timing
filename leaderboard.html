@@ -202,10 +202,40 @@
 
     .toolbar {
       display: grid;
-      grid-template-columns: minmax(280px, 360px) auto 1fr;
+      grid-template-columns: minmax(280px, 360px) auto 1fr 40px;
       gap: 12px;
       align-items: end;
       margin-bottom: 12px;
+    }
+
+    .toolbar.is-collapsed {
+      grid-template-columns: 1fr 40px;
+      min-height: 40px;
+    }
+
+    .toolbar.is-collapsed > label,
+    .toolbar.is-collapsed > .toolbar-action,
+    .toolbar.is-collapsed > .summary {
+      display: none;
+    }
+
+    .toolbar.is-collapsed .toolbar-toggle {
+      grid-column: 2;
+    }
+
+    .toolbar-toggle {
+      display: grid;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      font-size: 20px;
+      font-weight: 900;
+      cursor: pointer;
     }
 
     label {
@@ -239,6 +269,7 @@
     }
 
     .danger-button,
+    .reset-button,
     .finish-button,
     .dialog-button {
       min-height: 40px;
@@ -256,6 +287,14 @@
       height: 38px;
       min-height: 38px;
       padding-block: 7px;
+    }
+
+    .reset-button {
+      height: 38px;
+      min-height: 38px;
+      padding-block: 7px;
+      border-color: #b86e00;
+      color: #ffb84d;
     }
 
     .finish-button {
@@ -299,13 +338,17 @@
     }
 
     body[data-theme="light"] .danger-button,
+    body[data-theme="light"] .reset-button,
     body[data-theme="light"] .dialog-button {
       color: #9f1d15;
     }
 
+    body[data-theme="light"] .reset-button { color: #925700; }
+
     body[data-theme="light"] .finish-button { color: #ffffff; }
 
     .danger-button:disabled,
+    .reset-button:disabled,
     .finish-button:disabled {
       border-color: var(--line);
       color: var(--muted);
@@ -1084,6 +1127,22 @@
     .result-adjustment .negative { color: #087443; font-weight: 900; }
     .result-adjustment .reason { color: var(--muted); }
 
+    .adjustment-note {
+      min-width: 170px;
+      white-space: normal;
+    }
+
+    .adjustment-note .reason {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .adjustment-note .positive { color: #b42318; font-weight: 900; }
+    .adjustment-note .negative { color: #087443; font-weight: 900; }
+
     .fit-card-adjustment {
       display: grid;
       gap: 2px;
@@ -1169,9 +1228,19 @@
     }
 
     body[data-race-theme="hoka"] header {
+      grid-template-columns: auto minmax(0, 1fr);
       border-bottom-color: rgba(255, 255, 255, 0.32);
       background: #009dff;
       color: #ffffff;
+    }
+
+    body[data-race-theme="hoka"] .brand-lockup {
+      display: contents;
+    }
+
+    body[data-race-theme="hoka"] .brand-copy {
+      justify-self: end;
+      text-align: right;
     }
 
     body[data-race-theme="hoka"] .brand-logo.is-hoka {
@@ -1182,15 +1251,13 @@
       box-shadow: none;
     }
 
-    body[data-race-theme="hoka"] .brand-eyebrow,
     body[data-race-theme="hoka"] h1,
-    body[data-race-theme="hoka"] .sub,
-    body[data-race-theme="hoka"] .live {
+    body[data-race-theme="hoka"] .sub {
       color: #e0ff05;
     }
 
     body[data-race-theme="hoka"] .brand-eyebrow {
-      font-size: 12px;
+      display: none;
     }
 
     body[data-race-theme="hoka"] .sub {
@@ -1199,7 +1266,7 @@
     }
 
     body[data-race-theme="hoka"] .meta {
-      color: rgba(255, 255, 255, 0.9);
+      display: none;
     }
 
     body[data-race-theme="hoka"] .dot {
@@ -1266,7 +1333,15 @@
       color: #ffffff;
     }
 
+    body[data-race-theme="hoka"] .reset-button,
+    body[data-race-theme="hoka"] .toolbar-toggle {
+      border-color: rgba(255, 255, 255, 0.82);
+      background: rgba(0, 89, 153, 0.2);
+      color: #ffffff;
+    }
+
     body[data-race-theme="hoka"] .danger-button:disabled,
+    body[data-race-theme="hoka"] .reset-button:disabled,
     body[data-race-theme="hoka"] .finish-button:disabled {
       border-color: rgba(255, 255, 255, 0.36);
       color: rgba(255, 255, 255, 0.62);
@@ -1300,9 +1375,40 @@
     }
 
     @media (max-width: 820px) {
-      header,
-      .toolbar {
+      header {
         grid-template-columns: 1fr;
+      }
+
+      .toolbar,
+      .toolbar.is-collapsed {
+        grid-template-columns: minmax(0, 1fr) 40px;
+      }
+
+      .toolbar > label {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .toolbar > .toolbar-action,
+      .toolbar > .summary {
+        grid-column: 1 / -1;
+      }
+
+      .toolbar > .toolbar-toggle {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      body[data-race-theme="hoka"] header {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
+      body[data-race-theme="hoka"] h1 {
+        font-size: 21px;
+      }
+
+      body[data-race-theme="hoka"] .sub {
+        font-size: 11px;
       }
 
       .brand-lockup {
@@ -1336,8 +1442,20 @@
 
       .toolbar-action,
       .danger-button,
+      .reset-button,
       .finish-button {
         width: 100%;
+      }
+
+      .toolbar-action {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .toolbar-action button {
+        padding-inline: 6px;
+        font-size: 13px;
+        white-space: nowrap;
       }
 
       .dialog-actions {
@@ -1410,6 +1528,7 @@
       </label>
       <div class="toolbar-action">
         <button class="finish-button" type="button" id="finalizeRaceButton">结束本场比赛</button>
+        <button class="reset-button" type="button" id="resetTimingButton">计时归零</button>
         <button class="danger-button" type="button" id="clearRaceButton">清空本场数据</button>
       </div>
       <div class="summary">
@@ -1426,6 +1545,9 @@
           <strong id="finishedCount">0</strong>
         </div>
       </div>
+      <button class="toolbar-toggle" type="button" id="toolbarToggleButton" aria-expanded="true" title="折叠比赛控制">
+        <span id="toolbarToggleIcon" aria-hidden="true">⌃</span>
+      </button>
     </div>
 
     <div class="scoreboard-layout">
@@ -1448,10 +1570,11 @@
               <th data-split-column="6">S6</th>
               <th data-split-column="7">S7</th>
               <th data-split-column="8">S8</th>
+              <th id="adjustmentHeader" data-i18n="notes">备注</th>
             </tr>
           </thead>
           <tbody id="leaderboardBody">
-            <tr><td class="empty" colspan="13">Waiting for timing data...</td></tr>
+            <tr><td class="empty" colspan="14">Waiting for timing data...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1537,6 +1660,28 @@
     </form>
   </dialog>
 
+  <dialog id="resetTimingDialog" aria-labelledby="resetTimingTitle">
+    <form class="clear-form" id="resetTimingForm">
+      <h2 id="resetTimingTitle" data-i18n="resetTimingTitle">计时归零</h2>
+      <p id="resetTimingDescription"></p>
+      <div id="resetTimingCodeStep">
+        <label>
+          <span data-i18n="adminCode">管理员码</span>
+          <input id="resetTimingAdminCode" type="password" autocomplete="current-password" required>
+        </label>
+      </div>
+      <div id="resetTimingFinalStep" hidden>
+        <strong data-i18n="secondConfirmTitle">第二次确认</strong>
+        <p id="resetTimingFinalDescription"></p>
+      </div>
+      <div class="dialog-status" id="resetTimingStatus" role="status" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" type="button" id="cancelResetTimingButton" data-i18n="cancel">取消</button>
+        <button class="dialog-button" type="submit" id="confirmResetTimingButton" data-i18n="firstConfirm">我确认继续</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="finalizeRaceDialog" aria-labelledby="finalizeRaceTitle">
     <form class="clear-form" id="finalizeRaceForm">
       <h2 id="finalizeRaceTitle">结束本场比赛</h2>
@@ -1592,7 +1737,21 @@
     const racingCount = document.querySelector("#racingCount");
     const racingMetricLabel = document.querySelector("#racingMetricLabel");
     const finishedCount = document.querySelector("#finishedCount");
+    const toolbar = document.querySelector(".toolbar");
+    const toolbarToggleButton = document.querySelector("#toolbarToggleButton");
+    const toolbarToggleIcon = document.querySelector("#toolbarToggleIcon");
     const clearRaceButton = document.querySelector("#clearRaceButton");
+    const resetTimingButton = document.querySelector("#resetTimingButton");
+    const resetTimingDialog = document.querySelector("#resetTimingDialog");
+    const resetTimingForm = document.querySelector("#resetTimingForm");
+    const resetTimingDescription = document.querySelector("#resetTimingDescription");
+    const resetTimingCodeStep = document.querySelector("#resetTimingCodeStep");
+    const resetTimingFinalStep = document.querySelector("#resetTimingFinalStep");
+    const resetTimingFinalDescription = document.querySelector("#resetTimingFinalDescription");
+    const resetTimingAdminCode = document.querySelector("#resetTimingAdminCode");
+    const resetTimingStatus = document.querySelector("#resetTimingStatus");
+    const cancelResetTimingButton = document.querySelector("#cancelResetTimingButton");
+    const confirmResetTimingButton = document.querySelector("#confirmResetTimingButton");
     const finalizeRaceButton = document.querySelector("#finalizeRaceButton");
     const finalizeRaceDialog = document.querySelector("#finalizeRaceDialog");
     const finalizeRaceForm = document.querySelector("#finalizeRaceForm");
@@ -1624,6 +1783,7 @@
     const cancelClearButton = document.querySelector("#cancelClearButton");
     const confirmClearButton = document.querySelector("#confirmClearButton");
     let clearConfirmationStep = 1;
+    let resetTimingConfirmationStep = 1;
     let reopenConfirmationStep = 1;
     let activeRaceFinalized = false;
     let activeRaceIsTemplate = false;
@@ -1647,6 +1807,7 @@
     const adMediaValue = document.querySelector("#adMediaValue");
     let language = localStorage.getItem("hyroxLeaderboardLanguage") || "zh";
     let theme = localStorage.getItem("hyroxLeaderboardTheme") || "dark";
+    let toolbarCollapsed = localStorage.getItem("hyroxLeaderboardToolbarCollapsed") === "1";
     let previousSignatures = null;
     let adIndex = 0;
     let adPaused = false;
@@ -1726,6 +1887,14 @@
         confirmFinalize: "确认结束并保存",
         finalizing: "正在保存最终画面...",
         finalizeSuccess: "本场比赛已结束，最终画面已保存。",
+        resetTiming: "计时归零",
+        resetTimingTitle: "计时归零",
+        resetTimingDescription: "这会将 {race} 的所有计时和成绩调整归零，参赛者、团队名称、Card Code 和设备绑定都会保留。",
+        finalResetTimingDescription: "确认将 {race} 的计时归零吗？所有参赛单位会恢复为未开始状态。",
+        finalConfirmResetTiming: "最终确认归零",
+        resettingTiming: "正在归零...",
+        resetTimingSuccess: "计时已归零，参赛者和绑卡已保留。",
+        resetFinalizedDisabled: "已结束的比赛需要先恢复，才能归零计时。",
         clearRace: "清空本场数据",
         clearDisabled: "模拟数据不会写入数据库",
         clearRaceTitle: "清空本场数据",
@@ -1751,6 +1920,9 @@
         originalTime: "原始",
         penaltyTime: "加时",
         creditTime: "减时",
+        notes: "备注",
+        collapseControls: "折叠比赛控制",
+        expandControls: "展开比赛控制",
         segmentDetails: "分段明细",
         segments: "分段",
         run500: "500m 跑步",
@@ -1815,6 +1987,14 @@
         confirmFinalize: "End and save",
         finalizing: "Saving final leaderboard...",
         finalizeSuccess: "Race ended and the final leaderboard was saved.",
+        resetTiming: "Reset timing",
+        resetTimingTitle: "Reset timing",
+        resetTimingDescription: "This resets all timing and result adjustments for {race}, while preserving entries, team names, Card Codes, and device bindings.",
+        finalResetTimingDescription: "Reset timing for {race}? Every entry will return to Not Started.",
+        finalConfirmResetTiming: "Final reset",
+        resettingTiming: "Resetting timing...",
+        resetTimingSuccess: "Timing reset. Entries and card bindings were preserved.",
+        resetFinalizedDisabled: "Reopen the ended race before resetting timing.",
         clearRace: "Clear race data",
         clearDisabled: "Mock data is not stored in the database",
         clearRaceTitle: "Clear race data",
@@ -1840,6 +2020,9 @@
         originalTime: "Original",
         penaltyTime: "Penalty",
         creditTime: "Credit",
+        notes: "Notes",
+        collapseControls: "Collapse race controls",
+        expandControls: "Expand race controls",
         segmentDetails: "Segment details",
         segments: "segments",
         run500: "500m Run",
@@ -2083,6 +2266,13 @@
       clearRaceButton.title = isMock
         ? t("clearDisabled")
         : isTemplate ? t("templateReadOnly") : t("clearRace");
+      resetTimingButton.textContent = t("resetTiming");
+      resetTimingButton.disabled = isMock || isTemplate || activeRaceFinalized;
+      resetTimingButton.title = isMock
+        ? t("clearDisabled")
+        : isTemplate
+          ? t("templateReadOnly")
+          : activeRaceFinalized ? t("resetFinalizedDisabled") : t("resetTiming");
       finalizeRaceButton.textContent = activeRaceFinalized ? t("reopenRace") : t("finalizeRace");
       finalizeRaceButton.disabled = isMock || isTemplate;
       finalizeRaceButton.title = isTemplate ? t("templateReadOnly") : finalizeRaceButton.textContent;
@@ -2117,10 +2307,10 @@
       });
       if (usesHokaTheme) {
         document.body.dataset.raceTheme = "hoka";
-        brandEyebrow.textContent = "HOKA";
-        title.textContent = "HOKA 团队挑战赛 2026";
+        brandEyebrow.textContent = "";
+        title.textContent = "HOKA 团队挑战赛2026";
         subtitle.textContent = "TOGETHER WE FLY HIGHER";
-        document.title = "HOKA 团队挑战赛 2026 · 实时排名";
+        document.title = "HOKA 团队挑战赛2026 · 实时排名";
         return;
       }
       delete document.body.dataset.raceTheme;
@@ -2149,6 +2339,19 @@
       });
     }
 
+    function setToolbarCollapsed(collapsed) {
+      toolbarCollapsed = Boolean(collapsed);
+      toolbar.classList.toggle("is-collapsed", toolbarCollapsed);
+      toolbarToggleButton.setAttribute("aria-expanded", String(!toolbarCollapsed));
+      toolbarToggleButton.setAttribute(
+        "aria-label",
+        t(toolbarCollapsed ? "expandControls" : "collapseControls")
+      );
+      toolbarToggleButton.title = t(toolbarCollapsed ? "expandControls" : "collapseControls");
+      toolbarToggleIcon.textContent = toolbarCollapsed ? "⌄" : "⌃";
+      localStorage.setItem("hyroxLeaderboardToolbarCollapsed", toolbarCollapsed ? "1" : "0");
+    }
+
     function applyLanguage(nextLanguage) {
       language = nextLanguage;
       document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -2161,6 +2364,7 @@
       });
       buildRaceOptions();
       updateRaceControls(false);
+      setToolbarCollapsed(toolbarCollapsed);
       renderAd();
     }
 
@@ -2329,18 +2533,27 @@
       const adjustmentMs = Number(row.adjustmentMs) || 0;
       const adjustments = Array.isArray(row.adjustments) ? row.adjustments : [];
       if (!adjustmentMs && !adjustments.length) return "";
-      const detailLines = adjustments.map((adjustment) => {
-        const value = Number(adjustment.adjustmentMs) || 0;
-        const label = value >= 0 ? t("penaltyTime") : t("creditTime");
-        const tone = value >= 0 ? "positive" : "negative";
-        return `<span class="reason"><span class="${tone}">${escapeHtml(label)} ${formatSignedAdjustment(value)}</span> · ${escapeHtml(adjustment.reason || "-")}</span>`;
-      }).join("");
+      const detailLines = resultAdjustmentDetailLines(adjustments);
       return `
         <span class="${className}">
           <span>${escapeHtml(t("originalTime"))} ${formatDuration(row.rawElapsedMs)}</span>
           ${detailLines}
         </span>
       `;
+    }
+
+    function resultAdjustmentDetailLines(adjustments) {
+      return (Array.isArray(adjustments) ? adjustments : []).map((adjustment) => {
+        const value = Number(adjustment.adjustmentMs) || 0;
+        const label = value >= 0 ? t("penaltyTime") : t("creditTime");
+        const tone = value >= 0 ? "positive" : "negative";
+        return `<span class="reason"><span class="${tone}">${escapeHtml(label)} ${formatSignedAdjustment(value)}</span> · ${escapeHtml(adjustment.reason || "-")}</span>`;
+      }).join("");
+    }
+
+    function adjustmentNoteCell(row) {
+      const details = resultAdjustmentDetailLines(row.adjustments);
+      return `<td class="adjustment-note">${details || "-"}</td>`;
     }
 
     function translateStatus(status) {
@@ -2383,6 +2596,7 @@
       scoreboardLayout.classList.toggle("fitmonster-mode", usesDetailedSegments);
       scoreboardLayout.classList.toggle("station-mode", usesStationTiming);
       document.querySelector("#segmentHeader").hidden = !usesDetailedSegments;
+      document.querySelector("#adjustmentHeader").hidden = usesDetailedSegments;
       document.querySelectorAll("[data-split-column]").forEach((header) => {
         const stationNumber = Number(header.dataset.splitColumn);
         header.hidden = usesDetailedSegments || stationNumber > stationCount;
@@ -2394,7 +2608,7 @@
         stationCount,
         usesDetailedSegments,
         usesStationBoundaries,
-        visibleDetailColumns: usesDetailedSegments ? 1 : stationCount
+        visibleDetailColumns: usesDetailedSegments ? 1 : stationCount + 1
       };
     }
 
@@ -2432,7 +2646,7 @@
       const elapsed = Number.isFinite(startMs)
         ? Math.max(0, leaderboardNowMs - startMs)
         : row.elapsedMs;
-      return `<td class="elapsed mono"${liveDurationAttributes(startMs)}><strong>${formatDuration(elapsed)}</strong>${resultAdjustmentMarkup(row)}</td>`;
+      return `<td class="elapsed mono"${liveDurationAttributes(startMs)}><strong>${formatDuration(elapsed)}</strong></td>`;
     }
 
     function updateLiveDurations() {
@@ -2654,7 +2868,13 @@
           latestCheckpoint: "END",
           startTime: demoIsoFrom(hokaDemoAnchorMs, finishedTotal + 300000),
           finishTime: demoIsoFrom(hokaDemoAnchorMs, 300000),
-          elapsedMs: finishedTotal,
+          rawElapsedMs: finishedTotal,
+          adjustmentMs: 45000,
+          adjustments: [
+            { adjustmentMs: 60000, reason: "站点违规罚时" },
+            { adjustmentMs: -15000, reason: "裁判复核减时" }
+          ],
+          elapsedMs: finishedTotal + 45000,
           checkpointTimes: {
             ...hokaDemoCheckpointTimes(finishedTotal + 300000, finishedDurations, 5),
             END: demoIsoFrom(hokaDemoAnchorMs, 300000)
@@ -3032,7 +3252,8 @@
             ${elapsedCell(row)}
             ${columns.usesDetailedSegments
               ? segmentDetailCell(row.segmentSplits)
-              : stationSplitCells(row, columns.stationCount, columns.usesStationBoundaries)}
+              : stationSplitCells(row, columns.stationCount, columns.usesStationBoundaries)
+                + adjustmentNoteCell(row)}
           </tr>
         `;
       }).join("");
@@ -3202,6 +3423,89 @@
       }
     }
 
+    function openResetTimingDialog() {
+      const race = selectedRace();
+      if (race.kind === "mock" || race.isTemplate || activeRaceFinalized) return;
+      const raceName = race[language];
+      resetTimingDescription.textContent = t("resetTimingDescription").replace("{race}", raceName);
+      resetTimingFinalDescription.textContent = t("finalResetTimingDescription").replace("{race}", raceName);
+      resetTimingAdminCode.value = "";
+      resetTimingStatus.textContent = "";
+      resetTimingStatus.classList.remove("success");
+      resetTimingConfirmationStep = 1;
+      resetTimingCodeStep.hidden = false;
+      resetTimingFinalStep.hidden = true;
+      confirmResetTimingButton.textContent = t("firstConfirm");
+      confirmResetTimingButton.disabled = false;
+      cancelResetTimingButton.disabled = false;
+      resetTimingDialog.showModal();
+      resetTimingAdminCode.focus();
+    }
+
+    function closeResetTimingDialog() {
+      if (resetTimingDialog.open) resetTimingDialog.close();
+    }
+
+    async function submitResetTiming(event) {
+      event.preventDefault();
+      const raceId = selectedRace().raceId;
+      if (resetTimingConfirmationStep === 1) {
+        if (!resetTimingAdminCode.value) {
+          resetTimingStatus.textContent = t("clearCodeRequired");
+          resetTimingAdminCode.focus();
+          return;
+        }
+        resetTimingConfirmationStep = 2;
+        resetTimingCodeStep.hidden = true;
+        resetTimingFinalStep.hidden = false;
+        confirmResetTimingButton.textContent = t("finalConfirmResetTiming");
+        resetTimingStatus.textContent = "";
+        confirmResetTimingButton.focus();
+        return;
+      }
+
+      confirmResetTimingButton.disabled = true;
+      cancelResetTimingButton.disabled = true;
+      resetTimingStatus.classList.remove("success");
+      resetTimingStatus.textContent = t("resettingTiming");
+      try {
+        const response = await window.timingApiFetch("/api/reset-timing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId,
+            confirmation: "SECOND_CONFIRMATION",
+            adminCode: resetTimingAdminCode.value
+          })
+        });
+        const responseText = await response.text();
+        let payload;
+        try {
+          payload = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          throw new Error(`HTTP ${response.status}: API did not return JSON`);
+        }
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        previousSignatures = null;
+        lastLeaderboardRefreshMs = 0;
+        await refreshLoop(true);
+        resetTimingStatus.classList.add("success");
+        resetTimingStatus.textContent = t("resetTimingSuccess");
+        window.setTimeout(closeResetTimingDialog, 900);
+      } catch (error) {
+        resetTimingStatus.textContent = error.message;
+        resetTimingConfirmationStep = 1;
+        resetTimingCodeStep.hidden = false;
+        resetTimingFinalStep.hidden = true;
+        confirmResetTimingButton.textContent = t("firstConfirm");
+        confirmResetTimingButton.disabled = false;
+        cancelResetTimingButton.disabled = false;
+        resetTimingAdminCode.focus();
+      }
+    }
+
     function openClearDialog() {
       const race = selectedRace();
       if (race.kind === "mock" || race.isTemplate) return;
@@ -3304,6 +3608,15 @@
       refreshLoop();
     });
 
+    toolbarToggleButton.addEventListener("click", () => {
+      setToolbarCollapsed(!toolbarCollapsed);
+    });
+    resetTimingButton.addEventListener("click", openResetTimingDialog);
+    cancelResetTimingButton.addEventListener("click", closeResetTimingDialog);
+    resetTimingForm.addEventListener("submit", submitResetTiming);
+    resetTimingDialog.addEventListener("click", (event) => {
+      if (event.target === resetTimingDialog) closeResetTimingDialog();
+    });
     clearRaceButton.addEventListener("click", openClearDialog);
     finalizeRaceButton.addEventListener("click", () => {
       if (activeRaceFinalized) openReopenDialog();

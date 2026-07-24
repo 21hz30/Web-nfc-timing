@@ -178,6 +178,9 @@ Mock races cannot be cleared because they never write to the database. An offici
 race requires the administrator clear code and two confirmation clicks before
 `POST /api/reset-race` deletes its participants and timing events. The selected
 Race ID is sent by the page automatically; the user does not need to type it.
+`POST /api/reset-timing` uses the same two-step administrator confirmation but only
+deletes timing events and result adjustments. Participants, team details, Card Codes,
+device bindings, and the race profile remain available for another test run.
 
 For every real event, create a dated race session from the FitMonster or Hoka template
 in `admin.html` before registering participants. Session IDs use the event's local
