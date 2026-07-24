@@ -78,6 +78,13 @@
       object-fit: contain;
     }
 
+    .brand img.is-hoka {
+      width: 106px;
+      padding: 8px 10px;
+      border-color: #009dff;
+      background: #009dff;
+    }
+
     .brand-copy {
       min-width: 0;
     }
@@ -590,7 +597,7 @@
   <main>
     <header class="topbar">
       <div class="brand">
-        <img src="./assets/src-logo.png" alt="SRC">
+        <img id="brandLogo" src="./assets/src-logo.png" alt="SRC logo">
         <div class="brand-copy">
           <h1>NFC 计时闸机</h1>
           <div id="deviceMeta" class="device-meta">设备尚未配置</div>
@@ -772,6 +779,7 @@
       raceProfileStatus: document.querySelector("#raceProfileStatus")
       ,deviceBindingStatus: document.querySelector("#deviceBindingStatus")
       ,bindDeviceButton: document.querySelector("#bindDeviceButton")
+      ,brandLogo: document.querySelector("#brandLogo")
     };
 
     const settingsKey = "srcNfcTimingSettingsV2";
@@ -804,6 +812,20 @@
         RUN_OUT: "跑步出口",
         FINISH: "终点"
       }[role] || role;
+    }
+
+    function isHokaRaceId(raceId) {
+      return raceId === "hoka-race"
+        || String(raceId || "").startsWith("hoka-race-");
+    }
+
+    function updateRaceLogo() {
+      const usesHokaLogo = isHokaRaceId(elements.raceId.value.trim());
+      elements.brandLogo.src = usesHokaLogo
+        ? "./assets/hoka-logo-white.png"
+        : "./assets/src-logo.png";
+      elements.brandLogo.alt = usesHokaLogo ? "HOKA logo" : "SRC logo";
+      elements.brandLogo.classList.toggle("is-hoka", usesHokaLogo);
     }
 
     function usesStationBoundaries() {
@@ -1115,6 +1137,7 @@
 
     function renderConfiguration() {
       const isAuto = elements.timingMode.value === "auto";
+      updateRaceLogo();
       elements.gateRoleField.classList.toggle("hidden", !isAuto);
       elements.stationField.classList.toggle("hidden", isAuto);
       elements.roleName.textContent = isAuto

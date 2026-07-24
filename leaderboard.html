@@ -99,6 +99,13 @@
       object-fit: contain;
     }
 
+    .brand-logo.is-hoka {
+      width: 132px;
+      padding: 9px 11px;
+      border: 1px solid rgba(255, 255, 255, 0.42);
+      background: #009dff;
+    }
+
     .brand-copy {
       min-width: 0;
     }
@@ -621,6 +628,19 @@
       width: 76px;
       border-radius: 8px;
       background: #ffffff;
+    }
+
+    .ad-logo.is-hoka {
+      width: min(220px, 82%);
+      padding: 14px 16px;
+      border-radius: 7px;
+      background: #009dff;
+    }
+
+    .ad-logo.compact.is-hoka {
+      width: 124px;
+      padding: 9px 11px;
+      background: #009dff;
     }
 
     .ad-brand-frame,
@@ -1154,9 +1174,12 @@
       color: #ffffff;
     }
 
-    body[data-race-theme="hoka"] .brand-logo {
-      border: 2px solid #e0ff05;
-      box-shadow: 0 0 0 1px rgba(8, 37, 61, 0.08);
+    body[data-race-theme="hoka"] .brand-logo.is-hoka {
+      width: 140px;
+      padding: 8px 0;
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
     }
 
     body[data-race-theme="hoka"] .brand-eyebrow,
@@ -1291,6 +1314,13 @@
         height: 54px;
       }
 
+      .brand-logo.is-hoka,
+      body[data-race-theme="hoka"] .brand-logo.is-hoka {
+        width: 112px;
+        height: 54px;
+        padding: 7px 0;
+      }
+
       .meta,
       .meta-row,
       .controls,
@@ -1337,7 +1367,7 @@
 <body data-theme="dark">
   <header>
     <div class="brand-lockup">
-      <img class="brand-logo" src="./assets/src-logo.png" alt="SRC logo">
+      <img id="brandLogo" class="brand-logo" src="./assets/src-logo.png" alt="SRC logo">
       <div class="brand-copy">
         <div class="brand-eyebrow" data-i18n="brandEyebrow">Brand demo</div>
         <h1 data-i18n="title">SRC Simulation Race</h1>
@@ -1552,6 +1582,7 @@
   <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
+    const brandLogo = document.querySelector("#brandLogo");
     const fitMonsterGrid = document.querySelector("#fitMonsterGrid");
     const leaderboardTableWrap = document.querySelector(".table-wrap");
     const scoreboardLayout = document.querySelector(".scoreboard-layout");
@@ -2070,9 +2101,20 @@
 
     function updateRaceBranding(raceId) {
       const usesHokaTheme = usesHokaSeriesTheme(raceId);
+      const usesHokaLogo = isHokaRaceId(raceId);
       const brandEyebrow = document.querySelector(".brand-eyebrow");
       const title = document.querySelector("h1");
       const subtitle = document.querySelector(".sub");
+      brandLogo.src = usesHokaLogo
+        ? "./assets/hoka-logo-white.png"
+        : "./assets/src-logo.png";
+      brandLogo.alt = usesHokaLogo ? "HOKA logo" : "SRC logo";
+      brandLogo.classList.toggle("is-hoka", usesHokaLogo);
+      document.querySelectorAll(".ad-logo").forEach((logo) => {
+        logo.src = brandLogo.src;
+        logo.alt = brandLogo.alt;
+        logo.classList.toggle("is-hoka", usesHokaLogo);
+      });
       if (usesHokaTheme) {
         document.body.dataset.raceTheme = "hoka";
         brandEyebrow.textContent = "HOKA";
@@ -2127,6 +2169,12 @@
     }
 
     function renderAdVisual(campaign, copy) {
+      const usesHokaLogo = isHokaRaceId(selectedRace().raceId);
+      const logoSource = usesHokaLogo
+        ? "./assets/hoka-logo-white.png"
+        : "./assets/src-logo.png";
+      const logoAlt = usesHokaLogo ? "HOKA logo" : "SRC logo";
+      const logoClass = usesHokaLogo ? " is-hoka" : "";
       if (campaign.visual === "video") {
         return `
           <div class="ad-video-frame">
@@ -2151,7 +2199,7 @@
       if (campaign.visual === "package") {
         return `
           <div class="ad-package-frame">
-            <img class="ad-logo compact" src="./assets/src-logo.png" alt="SRC logo">
+            <img class="ad-logo compact${logoClass}" src="${logoSource}" alt="${logoAlt}">
             <div class="ad-package-grid">
               ${copy.items.map((item) => `
                 <div>
@@ -2176,7 +2224,7 @@
 
       return `
         <div class="ad-brand-frame">
-          <img class="ad-logo" src="./assets/src-logo.png" alt="SRC logo">
+          <img class="ad-logo${logoClass}" src="${logoSource}" alt="${logoAlt}">
           <div class="ad-wordmark">
             ${escapeHtml(copy.visualTitle)}
             <small>${escapeHtml(copy.visualSub)}</small>
