@@ -175,6 +175,50 @@
       box-shadow: 0 18px 50px rgb(18 24 32 / 24%);
     }
 
+    .modal-card.wide-modal {
+      width: min(560px, 100%);
+      max-height: calc(100vh - 36px);
+      overflow-y: auto;
+    }
+
+    .modal-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 12px 0;
+    }
+
+    .modal-grid[hidden] {
+      display: none;
+    }
+
+    .modal-section {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid #d7dee7;
+    }
+
+    .modal-section[hidden] {
+      display: none;
+    }
+
+    .control-state {
+      display: inline-flex;
+      min-height: 28px;
+      align-items: center;
+      margin-top: 8px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: #e8eef5;
+      color: #344052;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .control-state.paused { background: #fff3cd; color: #7a4b00; }
+    .control-state.dnf { background: #ffe4e1; color: #9b1c1c; }
+    .control-state.finished { background: #def7ec; color: #03543f; }
+
     .modal-card h2 {
       margin-bottom: 6px;
     }
@@ -380,6 +424,8 @@
       .grid {
         grid-template-columns: 1fr;
       }
+
+      .modal-grid { grid-template-columns: 1fr; }
 
       .member-fields {
         grid-template-columns: 1fr;
@@ -680,6 +726,81 @@
     </form>
   </div>
 
+  <div id="manualResultModal" class="modal-backdrop" hidden>
+    <form id="manualResultForm" class="modal-card wide-modal">
+      <h2>手动录入最终成绩</h2>
+      <p id="manualResultParticipant">为特殊情况直接录入开始/结束时间或总用时，原始刷卡记录不会被修改。</p>
+      <div id="manualResultSummary" class="adjustment-summary"></div>
+      <label>
+        录入方式
+        <select id="manualResultMode">
+          <option value="start_finish">开始时间 + 结束时间</option>
+          <option value="elapsed">直接输入总用时</option>
+        </select>
+      </label>
+      <div id="manualStartFinishFields" class="modal-grid">
+        <label>
+          开始时间
+          <input id="manualStartTime" type="datetime-local" step="1">
+        </label>
+        <label>
+          结束时间
+          <input id="manualFinishTime" type="datetime-local" step="1">
+        </label>
+      </div>
+      <div id="manualElapsedFields" class="modal-grid" hidden>
+        <label>
+          总分钟
+          <input id="manualElapsedMinutes" type="number" min="0" max="1440" step="1" value="0">
+        </label>
+        <label>
+          秒
+          <input id="manualElapsedSeconds" type="number" min="0" max="59" step="1" value="0">
+        </label>
+      </div>
+      <label>
+        录入原因
+        <textarea id="manualResultReason" maxlength="500" placeholder="例如：现场设备故障，根据备用计时记录补录" required></textarea>
+      </label>
+      <label>
+        管理员码
+        <input id="manualResultAdminCode" type="password" autocomplete="off" required>
+      </label>
+      <div id="manualResultHistory" class="adjustment-history"></div>
+      <div id="manualResultError" class="modal-error" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="cancelManualResultButton" class="secondary" type="button">取消</button>
+        <button type="submit">保存手动成绩</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="timingControlModal" class="modal-backdrop" hidden>
+    <form id="timingControlForm" class="modal-card wide-modal">
+      <h2>选手计时控制</h2>
+      <p id="timingControlParticipant">暂停会冻结计时；恢复后从原进度继续。退赛会立即标记为 DNF。</p>
+      <div id="timingControlSummary" class="adjustment-summary"></div>
+      <label>
+        操作
+        <select id="timingControlAction"></select>
+      </label>
+      <label class="modal-section">
+        操作原因
+        <textarea id="timingControlReason" maxlength="500" placeholder="例如：设备复核期间暂停计时" required></textarea>
+      </label>
+      <label>
+        管理员码
+        <input id="timingControlAdminCode" type="password" autocomplete="off" required>
+      </label>
+      <div id="timingControlHistory" class="adjustment-history"></div>
+      <div id="timingControlError" class="modal-error" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="cancelTimingControlButton" class="secondary" type="button">取消</button>
+        <button type="submit">确认操作</button>
+      </div>
+    </form>
+  </div>
+
   <script src="./timing-api.js"></script>
   <script>
     const form = document.querySelector("#participantForm");
@@ -732,6 +853,32 @@
     const resultAdjustmentHistory = document.querySelector("#resultAdjustmentHistory");
     const resultAdjustmentError = document.querySelector("#resultAdjustmentError");
     const cancelResultAdjustmentButton = document.querySelector("#cancelResultAdjustmentButton");
+    const manualResultModal = document.querySelector("#manualResultModal");
+    const manualResultForm = document.querySelector("#manualResultForm");
+    const manualResultParticipant = document.querySelector("#manualResultParticipant");
+    const manualResultSummary = document.querySelector("#manualResultSummary");
+    const manualResultMode = document.querySelector("#manualResultMode");
+    const manualStartFinishFields = document.querySelector("#manualStartFinishFields");
+    const manualElapsedFields = document.querySelector("#manualElapsedFields");
+    const manualStartTime = document.querySelector("#manualStartTime");
+    const manualFinishTime = document.querySelector("#manualFinishTime");
+    const manualElapsedMinutes = document.querySelector("#manualElapsedMinutes");
+    const manualElapsedSeconds = document.querySelector("#manualElapsedSeconds");
+    const manualResultReason = document.querySelector("#manualResultReason");
+    const manualResultAdminCode = document.querySelector("#manualResultAdminCode");
+    const manualResultHistory = document.querySelector("#manualResultHistory");
+    const manualResultError = document.querySelector("#manualResultError");
+    const cancelManualResultButton = document.querySelector("#cancelManualResultButton");
+    const timingControlModal = document.querySelector("#timingControlModal");
+    const timingControlForm = document.querySelector("#timingControlForm");
+    const timingControlParticipant = document.querySelector("#timingControlParticipant");
+    const timingControlSummary = document.querySelector("#timingControlSummary");
+    const timingControlAction = document.querySelector("#timingControlAction");
+    const timingControlReason = document.querySelector("#timingControlReason");
+    const timingControlAdminCode = document.querySelector("#timingControlAdminCode");
+    const timingControlHistory = document.querySelector("#timingControlHistory");
+    const timingControlError = document.querySelector("#timingControlError");
+    const cancelTimingControlButton = document.querySelector("#cancelTimingControlButton");
     const pageParams = new URLSearchParams(window.location.search);
     const officialRaces = [
       {
@@ -760,6 +907,8 @@
     let editingParticipantId = null;
     let editingCardCode = "";
     let adjustingParticipant = null;
+    let manualResultParticipantRecord = null;
+    let timingControlParticipantRecord = null;
     const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
 
     function isTemplateRaceId(raceId) {
@@ -796,6 +945,33 @@
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return value;
       return date.toLocaleTimeString();
+    }
+
+    function toDateTimeLocal(value = new Date()) {
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 19);
+    }
+
+    function resultStatusLabel(status) {
+      return {
+        not_started: "未开始",
+        racing: "计时中",
+        paused: "已暂停",
+        finished: "已完赛",
+        dnf: "DNF 退赛",
+        dns: "DNS 未出发"
+      }[status] || status || "未开始";
+    }
+
+    function timingActionLabel(action) {
+      return {
+        pause: "暂停计时",
+        resume: "恢复计时",
+        dnf: "标记 DNF 退赛",
+        restore: "撤销 DNF 并恢复"
+      }[action] || action;
     }
 
     function formatDuration(ms) {
@@ -1111,6 +1287,189 @@
       }
     });
 
+    function applyManualResultMode() {
+      const usesTimes = manualResultMode.value === "start_finish";
+      manualStartFinishFields.hidden = !usesTimes;
+      manualElapsedFields.hidden = usesTimes;
+      manualStartTime.required = usesTimes;
+      manualFinishTime.required = usesTimes;
+      manualElapsedMinutes.required = !usesTimes;
+      manualElapsedSeconds.required = !usesTimes;
+    }
+
+    function closeManualResultModal() {
+      manualResultModal.hidden = true;
+      manualResultForm.reset();
+      manualResultError.textContent = "";
+      manualResultParticipantRecord = null;
+      applyManualResultMode();
+    }
+
+    function openManualResult(participant) {
+      const result = visibleResults.get(String(participant.id)) || {};
+      manualResultParticipantRecord = participant;
+      manualResultForm.reset();
+      manualResultMode.value = result.manualResult?.entryMode || "start_finish";
+      const now = new Date();
+      const defaultStart = result.startTime || result.rawStartTime || now;
+      manualStartTime.value = toDateTimeLocal(defaultStart);
+      manualFinishTime.value = toDateTimeLocal(result.finishTime || now);
+      const currentSeconds = Math.max(0, Math.floor(Number(result.elapsedMs || 0) / 1000));
+      manualElapsedMinutes.value = String(Math.floor(currentSeconds / 60));
+      manualElapsedSeconds.value = String(currentSeconds % 60);
+      manualResultError.textContent = "";
+      manualResultParticipant.textContent = `${participant.athlete_name} · ${participant.card_code}`;
+      manualResultSummary.innerHTML = `
+        当前状态：<strong>${escapeHtml(resultStatusLabel(result.status))}</strong><br>
+        原始计时：<strong>${formatDuration(result.rawElapsedMs)}</strong><br>
+        当前最终成绩：<strong>${formatDuration(result.elapsedMs)}</strong>
+      `;
+      const history = Array.isArray(result.manualResults) ? result.manualResults : [];
+      manualResultHistory.innerHTML = history.length
+        ? `<strong>手动成绩记录</strong>${history.map((item) => `
+            <div>
+              ${item.entryMode === "start_finish" ? "开始/结束时间" : "总用时"}
+              · <strong>${formatDuration(item.elapsedMs)}</strong>
+              · ${escapeHtml(item.reason)} · ${formatTime(item.createdAt)}
+            </div>
+          `).join("")}`
+        : "<div>暂无手动成绩记录。</div>";
+      applyManualResultMode();
+      manualResultModal.hidden = false;
+      (manualResultMode.value === "start_finish" ? manualStartTime : manualElapsedMinutes).focus();
+    }
+
+    manualResultMode.addEventListener("change", applyManualResultMode);
+    cancelManualResultButton.addEventListener("click", closeManualResultModal);
+    manualResultModal.addEventListener("click", (event) => {
+      if (event.target === manualResultModal) closeManualResultModal();
+    });
+
+    manualResultForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!manualResultParticipantRecord) return;
+      const entryMode = manualResultMode.value;
+      const body = {
+        raceId: selectedRaceId(),
+        participantId: manualResultParticipantRecord.id,
+        entryMode,
+        reason: manualResultReason.value.trim(),
+        adminCode: manualResultAdminCode.value
+      };
+      if (entryMode === "start_finish") {
+        const start = new Date(manualStartTime.value);
+        const finish = new Date(manualFinishTime.value);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(finish.getTime()) || finish < start) {
+          manualResultError.textContent = "结束时间必须晚于或等于开始时间。";
+          return;
+        }
+        body.startTime = start.toISOString();
+        body.finishTime = finish.toISOString();
+      } else {
+        const elapsedSeconds = Math.trunc(
+          (Number(manualElapsedMinutes.value) || 0) * 60
+          + (Number(manualElapsedSeconds.value) || 0)
+        );
+        if (elapsedSeconds <= 0) {
+          manualResultError.textContent = "总用时必须大于 0 秒。";
+          return;
+        }
+        body.elapsedSeconds = elapsedSeconds;
+      }
+      manualResultError.textContent = "正在保存...";
+      try {
+        const participantName = manualResultParticipantRecord.athlete_name;
+        await requestJson("/api/manual-results", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        closeManualResultModal();
+        setStatus(`已保存 ${participantName} 的手动最终成绩，原始刷卡记录保持不变。`);
+        await refresh();
+      } catch (error) {
+        manualResultError.textContent = `保存失败：${error.message}`;
+      }
+    });
+
+    function availableTimingActions(result) {
+      if (!result || result.status === "finished" || result.status === "dns") return [];
+      if (result.status === "paused") return ["resume", "dnf"];
+      if (result.status === "dnf") {
+        return result.timingControlState === "dnf" ? ["restore"] : [];
+      }
+      if (result.status === "racing") return ["pause", "dnf"];
+      if (result.status === "not_started") return ["dnf"];
+      return [];
+    }
+
+    function closeTimingControlModal() {
+      timingControlModal.hidden = true;
+      timingControlForm.reset();
+      timingControlError.textContent = "";
+      timingControlParticipantRecord = null;
+    }
+
+    function openTimingControl(participant) {
+      const result = visibleResults.get(String(participant.id));
+      const actions = availableTimingActions(result);
+      if (!actions.length) {
+        setStatus("当前状态没有可用的计时控制操作。", true);
+        return;
+      }
+      timingControlParticipantRecord = participant;
+      timingControlForm.reset();
+      timingControlAction.replaceChildren(
+        ...actions.map((action) => new Option(timingActionLabel(action), action))
+      );
+      timingControlError.textContent = "";
+      timingControlParticipant.textContent = `${participant.athlete_name} · ${participant.card_code}`;
+      timingControlSummary.innerHTML = `
+        当前状态：<span class="control-state ${escapeHtml(result.status)}">${escapeHtml(resultStatusLabel(result.status))}</span><br>
+        当前进度：<strong>${escapeHtml(result.current || "-")}</strong><br>
+        当前计时：<strong>${formatDuration(result.elapsedMs)}</strong>
+      `;
+      const history = Array.isArray(result.timingControls) ? result.timingControls : [];
+      timingControlHistory.innerHTML = history.length
+        ? `<strong>计时控制记录</strong>${history.map((item) => `
+            <div>${escapeHtml(timingActionLabel(item.action))} · ${escapeHtml(item.reason)} · ${formatTime(item.createdAt)}</div>
+          `).join("")}`
+        : "<div>暂无计时控制记录。</div>";
+      timingControlModal.hidden = false;
+      timingControlAction.focus();
+    }
+
+    cancelTimingControlButton.addEventListener("click", closeTimingControlModal);
+    timingControlModal.addEventListener("click", (event) => {
+      if (event.target === timingControlModal) closeTimingControlModal();
+    });
+
+    timingControlForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!timingControlParticipantRecord) return;
+      timingControlError.textContent = "正在保存...";
+      try {
+        const action = timingControlAction.value;
+        const participantName = timingControlParticipantRecord.athlete_name;
+        await requestJson("/api/participant-timing-controls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: selectedRaceId(),
+            participantId: timingControlParticipantRecord.id,
+            action,
+            reason: timingControlReason.value.trim(),
+            adminCode: timingControlAdminCode.value
+          })
+        });
+        closeTimingControlModal();
+        setStatus(`已对 ${participantName} 执行：${timingActionLabel(action)}。`);
+        await refresh();
+      } catch (error) {
+        timingControlError.textContent = `操作失败：${error.message}`;
+      }
+    });
+
     function raceOptionLabel(race) {
       const official = officialRaces.find((item) => item.raceId === race.raceId);
       const category = entryTypeLabel(race.entryType || official?.entryType || "individual");
@@ -1240,11 +1599,23 @@
           : [participant.athlete_name];
         const result = visibleResults.get(String(participant.id));
         const adjustment = Number(result?.adjustmentMs) || 0;
+        const manualBadge = result?.manualResult
+          ? `<br><span class="control-state">手动成绩</span>`
+          : "";
         const finalResult = result?.status === "finished"
           ? `<strong>${formatDuration(result.elapsedMs)}</strong>${adjustment
               ? `<br><span class="${adjustmentClass(adjustment)}">${formatAdjustment(adjustment)}</span>`
-              : ""}`
-          : "未完赛";
+              : ""}${manualBadge}`
+          : result?.status === "paused"
+            ? `<strong>${formatDuration(result.elapsedMs)}</strong><br><span class="control-state paused">已暂停</span>`
+            : result?.status === "dnf"
+              ? `<strong>DNF</strong>${result.elapsedMs !== null && result.elapsedMs !== undefined
+                  ? `<br>${formatDuration(result.elapsedMs)}`
+                  : ""}`
+              : result?.status === "racing"
+                ? `<strong>${formatDuration(result.elapsedMs)}</strong><br>计时中`
+                : resultStatusLabel(result?.status);
+        const controlActions = availableTimingActions(result);
         return `
           <tr>
             <td>${escapeHtml(entryTypeLabel(entryType))}</td>
@@ -1260,7 +1631,9 @@
             <td>
               <div class="row-actions">
                 <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>编辑</button>
-                <button class="secondary compact" type="button" data-action="adjust" data-index="${visibleParticipants.indexOf(participant)}" ${result?.status === "finished" && !isTemplateRaceId(raceId) ? "" : "disabled"}>成绩调整</button>
+                <button class="secondary compact" type="button" data-action="adjust" data-index="${visibleParticipants.indexOf(participant)}" ${result?.status === "finished" && !isTemplateRaceId(raceId) ? "" : "disabled"}>加减时间</button>
+                <button class="secondary compact" type="button" data-action="manual-result" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>手动成绩</button>
+                <button class="secondary compact" type="button" data-action="timing-control" data-index="${visibleParticipants.indexOf(participant)}" ${controlActions.length && !isTemplateRaceId(raceId) ? "" : "disabled"}>计时控制</button>
                 <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>删除绑定</button>
               </div>
             </td>
@@ -1470,6 +1843,8 @@
       if (!participant) return;
       if (button.dataset.action === "edit") editParticipant(participant);
       if (button.dataset.action === "adjust") openResultAdjustment(participant);
+      if (button.dataset.action === "manual-result") openManualResult(participant);
+      if (button.dataset.action === "timing-control") openTimingControl(participant);
       if (button.dataset.action === "delete") deleteParticipant(participant);
     });
 

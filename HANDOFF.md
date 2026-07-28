@@ -16,7 +16,7 @@ The current proof of concept supports:
 - Individual, doubles, and team registration with one NFC card per timed entry.
 - Front-desk registration intentionally omits Bib for the current rehearsal flow;
   the database field remains optional for backward compatibility.
-- Live leaderboard with two mock races, two official races, explicit mock/live labels,
+- Live leaderboard with two mock races, featured live races, explicit mock/live labels,
   protected per-race cleanup, theme/language toggles, and F1-style row update flash.
 - Full-screen accepted/error feedback, sound, vibration, and screen wake lock on timing devices.
 - Configurable 3-60 second duplicate protection, defaulting to 10 seconds.
@@ -36,10 +36,18 @@ The current proof of concept supports:
   physical location from a role, allowing venues with multiple checkpoints.
 - Admin race selector and data overview for participants, check-ins, finishes,
   timing events, rejected events, empty data states, and race-specific leaderboard links.
+- Administrator-audited manual final results using either start/finish timestamps or
+  a total elapsed time. Raw NFC events remain unchanged.
+- Per-participant pause/resume and DNF/restore controls. Paused intervals are excluded
+  from total and active-station clocks, and taps are blocked while paused or DNF.
+- A dedicated mobile HOKA leaderboard layout with team cards, five station states,
+  live total time, and result/control notes. Desktop keeps the comparison table.
+- Three matching HOKA series profiles: Shanghai (`hoka-race-sh`), Hangzhou
+  (`hoka-race-hz`), and Final (`hoka-race-final`).
 
-The current implementation is suitable for controlled rehearsal testing. Authentication,
-offline device retry, and race-day correction tools are still required before handling
-real participant data at a production race.
+The current implementation is suitable for controlled rehearsal testing. Strong device/admin
+authentication and offline device retry are still required before handling real participant
+data at a production race.
 
 ## Current Supabase Connection
 
@@ -63,6 +71,7 @@ supabase/migrations/20260718010000_configure_hoka_station_boundaries.sql
 supabase/migrations/20260718020000_add_participant_entry_types.sql
 supabase/migrations/20260721090000_add_result_adjustments.sql
 supabase/migrations/20260722080000_add_race_reopen_and_templates.sql
+supabase/migrations/20260727090000_add_manual_results_and_timing_controls.sql
 ```
 
 It creates these RLS-protected tables:
@@ -73,32 +82,16 @@ public.timing_events
 public.race_profiles
 public.device_bindings
 public.result_adjustments
+public.manual_results
+public.participant_timing_controls
 public.race_admin_actions
 ```
 
-Current verified cloud data:
-
-```
-9 race profiles
-15 participants
-60 timing events
-0 orphaned timing events
-```
-
-The original local data was 8 participants and 14 events. One additional
-`supabase-e2e-20260716` participant and `START` event were added as a live
-connection test. A `Saturday Demo` participant and a complete 5-station test
-sequence were also added. These development records are intentionally still
-present for test verification. `cloud-api-e2e-20260716` and
-`cloud-auto-e2e-20260716` verify the live fixed-checkpoint and concurrent two-reader
-paths respectively.
-
-The official profiles are `fitmonster-hyrox-single` and `hoka-race`.
-`CODEX-FIT-20260717-V2`, `CODEX-HOKA-20260717-V2`, and
-`CODEX-HOKA-BOUNDARY-20260718` are complete live smoke-test records. The boundary
-record verifies the corrected six-device Hoka sequence and 1/2/3/4/5-minute adjacent
-splits. They intentionally remain in Supabase so both leaderboards can be verified
-without scanning physical cards.
+Cloud record totals are intentionally not pinned in this handoff because registration
+and race-day activity change them continuously. The verified HOKA series profiles are
+`hoka-race-sh`, `hoka-race-hz`, and `hoka-race-final`; Hangzhou and Final were created
+without copying Shanghai participants, bindings, events, results, or controls. The
+fixed `fitmonster-hyrox-single` and `hoka-race` IDs remain read-only templates.
 
 ### Storage Flow
 
@@ -107,7 +100,7 @@ Online Admin/NFC browser
   -> timing.hybridtraining.cn/api/*
   -> Vercel external rewrite
   -> Supabase timing-api Edge Function
-  -> process_timing_event_v2 PostgreSQL RPC (per-athlete transaction lock)
+  -> process_timing_event_v3 PostgreSQL RPC (per-athlete transaction lock)
   -> Supabase PostgreSQL (authoritative online store)
 
 Local Admin/NFC browser
@@ -129,7 +122,7 @@ startup sync retries the full local dataset.
 
 ### Supabase Security
 
-- RLS is enabled on all three public tables.
+- RLS is enabled on all managed public tables.
 - The `anon` role has no useful access without the server-only
   `X-Timing-API-Key` header.
 - The private token is stored in the ignored root file `.timing-api-key`.
@@ -252,11 +245,15 @@ Purpose:
   administrator-code verification. The participant ID stays unchanged so timing history
   remains attached, and duplicate Card Codes are rejected.
 - Delete one Card Code binding and its selected-race timing events with the administrator code.
+- Enter a special final result by start/finish timestamps or exact total elapsed time.
+- Pause/resume an active participant or mark/restore DNF with a required reason and
+  administrator-code verification.
 - The leaderboard has separate `Reset timing` and `Clear race data` actions. Reset timing
-  requires the same administrator code and two confirmations, deletes only timing events
-  and result adjustments, and preserves participants, team details, Card Codes, device
-  bindings, and the race profile. Clear race data remains the full participant/data deletion.
-- Load Supabase race profiles into a selector with the official races first.
+  requires the same administrator code and two confirmations, deletes timing events,
+  adjustments, manual results, and timing controls, and preserves participants, team details,
+  Card Codes, device bindings, and the race profile. Clear race data remains the full
+  participant/data deletion.
+- Load Supabase race profiles into a selector with the featured live races first.
 - Show selected-race totals for participants, check-ins, finishes, timing events,
   and rejected/error events.
 - Link directly to the selected race's live leaderboard.
@@ -439,7 +436,7 @@ confirm the Device ID and selected role/checkpoint with **绑定本机角色** b
 starting NFC. Hoka needs 6 devices:
 Station 1 also records START, Stations 2-5 each end the previous segment and start
 the next, and END closes Station 5. FitMonster needs 3 devices: RUN_OUT, RUN_IN, and
-FINISH. The scanner Race ID dropdown lists these two official races first and groups
+FINISH. The scanner Race ID dropdown lists featured live races first and groups
 older development profiles under **其他 / 测试比赛**.
 
 Timing event payload example:
@@ -606,7 +603,7 @@ https://lfzvkqwpekgtkcnpzbqj.supabase.co/functions/v1/timing-api/*
 The Edge Function source is tracked in `supabase/functions/timing-api/`. Requests
 must include the project's public publishable key; the browser helper
 `timing-api.js` adds it automatically. Timing writes use the service-role-only
-`process_timing_event_v2` RPC and a transaction-level advisory lock per race/card.
+`process_timing_event_v3` RPC and a transaction-level advisory lock per race/card.
 
 The earlier Vercel deployment is still documented for historical reference:
 
@@ -652,7 +649,7 @@ Important production correction:
 - The local Python API still uses SQLite as its primary race engine; cloud-created
   participants are not pulled back into SQLite automatically.
 - No official deployment config for 火山云 yet.
-- Leaderboard selection includes SRC and Hoka browser-only demos plus the two official profiles.
+- Leaderboard selection includes SRC and HOKA browser-only demos plus the live and template profiles.
 - Local database currently contains test records from development.
 
 ## Recommended Next Steps

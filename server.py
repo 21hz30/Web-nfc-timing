@@ -85,6 +85,25 @@ RESULT_ADJUSTMENT_COLUMNS = (
     "reason",
     "created_at",
 )
+MANUAL_RESULT_COLUMNS = (
+    "id",
+    "race_id",
+    "participant_id",
+    "entry_mode",
+    "start_time",
+    "finish_time",
+    "elapsed_ms",
+    "reason",
+    "created_at",
+)
+PARTICIPANT_TIMING_CONTROL_COLUMNS = (
+    "id",
+    "race_id",
+    "participant_id",
+    "action",
+    "reason",
+    "created_at",
+)
 RACE_ADMIN_ACTION_COLUMNS = (
     "id",
     "race_id",
@@ -236,6 +255,29 @@ def init_db() -> None:
               FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS manual_results (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              race_id TEXT NOT NULL,
+              participant_id INTEGER NOT NULL,
+              entry_mode TEXT NOT NULL CHECK (entry_mode IN ('start_finish', 'elapsed')),
+              start_time TEXT,
+              finish_time TEXT,
+              elapsed_ms INTEGER NOT NULL CHECK (elapsed_ms BETWEEN 0 AND 86400000),
+              reason TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS participant_timing_controls (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              race_id TEXT NOT NULL,
+              participant_id INTEGER NOT NULL,
+              action TEXT NOT NULL CHECK (action IN ('pause', 'resume', 'dnf', 'restore')),
+              reason TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS race_admin_actions (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               race_id TEXT NOT NULL,
@@ -255,6 +297,12 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_result_adjustments_race_participant
               ON result_adjustments (race_id, participant_id, created_at, id);
+
+            CREATE INDEX IF NOT EXISTS idx_manual_results_race_participant
+              ON manual_results (race_id, participant_id, created_at DESC, id DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_participant_timing_controls_race_participant
+              ON participant_timing_controls (race_id, participant_id, created_at, id);
 
             CREATE INDEX IF NOT EXISTS idx_race_admin_actions_race_created
               ON race_admin_actions (race_id, created_at DESC, id DESC);
@@ -441,6 +489,22 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
         (
             "hoka-race",
             "Hoka Race",
+            "station_checkpoints",
+            5,
+            build_station_boundary_checkpoints(5),
+            "team",
+        ),
+        (
+            "hoka-race-hz",
+            "HOKA 团队挑战赛 - 杭州站",
+            "station_checkpoints",
+            5,
+            build_station_boundary_checkpoints(5),
+            "team",
+        ),
+        (
+            "hoka-race-final",
+            "HOKA 团队挑战赛 - 决赛",
             "station_checkpoints",
             5,
             build_station_boundary_checkpoints(5),
@@ -720,6 +784,93 @@ def result_adjustment_response(row: sqlite3.Row | dict) -> dict:
     }
 
 
+def manual_result_response(row: sqlite3.Row | dict) -> dict:
+    source = row_to_dict(row) if isinstance(row, sqlite3.Row) else dict(row)
+    return {
+        "id": source.get("id"),
+        "raceId": source.get("race_id"),
+        "participantId": source.get("participant_id"),
+        "entryMode": source.get("entry_mode"),
+        "startTime": source.get("start_time"),
+        "finishTime": source.get("finish_time"),
+        "elapsedMs": source.get("elapsed_ms"),
+        "reason": source.get("reason"),
+        "createdAt": source.get("created_at"),
+    }
+
+
+def timing_control_response(row: sqlite3.Row | dict) -> dict:
+    source = row_to_dict(row) if isinstance(row, sqlite3.Row) else dict(row)
+    return {
+        "id": source.get("id"),
+        "raceId": source.get("race_id"),
+        "participantId": source.get("participant_id"),
+        "action": source.get("action"),
+        "reason": source.get("reason"),
+        "createdAt": source.get("created_at"),
+    }
+
+
+def timing_control_summary(
+    rows: list[sqlite3.Row] | list[dict],
+    horizon: str,
+) -> dict:
+    horizon_time = parse_iso(horizon)
+    if not horizon_time:
+        return {"state": "active", "intervals": [], "latest": None}
+
+    inactive_at = None
+    intervals = []
+    state = "active"
+    latest = None
+    ordered_rows = sorted(
+        rows,
+        key=lambda row: (
+            str(row["created_at"] if isinstance(row, sqlite3.Row) else row.get("created_at") or ""),
+            int(row["id"] if isinstance(row, sqlite3.Row) else row.get("id") or 0),
+        ),
+    )
+    for row in ordered_rows:
+        source = row_to_dict(row) if isinstance(row, sqlite3.Row) else dict(row)
+        action_time = parse_iso(source.get("created_at"))
+        if not action_time or action_time > horizon_time:
+            continue
+        action = source.get("action")
+        latest = source
+        if action in {"pause", "dnf"}:
+            if inactive_at is None:
+                inactive_at = action_time
+            state = action
+        elif action in {"resume", "restore"}:
+            if inactive_at is not None:
+                intervals.append((inactive_at, action_time))
+                inactive_at = None
+            state = "active"
+
+    if inactive_at is not None:
+        intervals.append((inactive_at, horizon_time))
+    return {"state": state, "intervals": intervals, "latest": latest}
+
+
+def controlled_milliseconds_between(
+    start: str | None,
+    end: str | None,
+    control_summary: dict,
+) -> int | None:
+    base_ms = milliseconds_between(start, end)
+    start_time = parse_iso(start) if start else None
+    end_time = parse_iso(end) if end else None
+    if base_ms is None or not start_time or not end_time:
+        return base_ms
+    excluded_ms = 0
+    for interval_start, interval_end in control_summary.get("intervals", []):
+        overlap_start = max(start_time, interval_start)
+        overlap_end = min(end_time, interval_end)
+        if overlap_end > overlap_start:
+            excluded_ms += int((overlap_end - overlap_start).total_seconds() * 1000)
+    return max(0, base_ms - excluded_ms)
+
+
 def timing_api_key() -> str:
     environment_key = os.environ.get("TIMING_API_KEY", "").strip()
     if environment_key:
@@ -774,6 +925,8 @@ def supabase_upsert(table: str, records: list[dict]) -> None:
         "timing_events",
         "race_profiles",
         "result_adjustments",
+        "manual_results",
+        "participant_timing_controls",
         "race_admin_actions",
     }:
         raise ValueError(f"Unsupported Supabase table: {table}")
@@ -816,6 +969,10 @@ def sync_supabase_record(table: str, row: sqlite3.Row | dict) -> dict:
         columns = TIMING_EVENT_COLUMNS
     elif table == "result_adjustments":
         columns = RESULT_ADJUSTMENT_COLUMNS
+    elif table == "manual_results":
+        columns = MANUAL_RESULT_COLUMNS
+    elif table == "participant_timing_controls":
+        columns = PARTICIPANT_TIMING_CONTROL_COLUMNS
     elif table == "race_admin_actions":
         columns = RACE_ADMIN_ACTION_COLUMNS
     else:
@@ -854,6 +1011,12 @@ def sync_all_to_supabase() -> dict:
         adjustment_rows = db.execute(
             "SELECT * FROM result_adjustments ORDER BY id"
         ).fetchall()
+        manual_result_rows = db.execute(
+            "SELECT * FROM manual_results ORDER BY id"
+        ).fetchall()
+        timing_control_rows = db.execute(
+            "SELECT * FROM participant_timing_controls ORDER BY id"
+        ).fetchall()
         admin_action_rows = db.execute(
             "SELECT * FROM race_admin_actions ORDER BY id"
         ).fetchall()
@@ -869,6 +1032,13 @@ def sync_all_to_supabase() -> dict:
     adjustments = [
         supabase_row(row, RESULT_ADJUSTMENT_COLUMNS) for row in adjustment_rows
     ]
+    manual_results = [
+        supabase_row(row, MANUAL_RESULT_COLUMNS) for row in manual_result_rows
+    ]
+    timing_controls = [
+        supabase_row(row, PARTICIPANT_TIMING_CONTROL_COLUMNS)
+        for row in timing_control_rows
+    ]
     admin_actions = [
         supabase_row(row, RACE_ADMIN_ACTION_COLUMNS) for row in admin_action_rows
     ]
@@ -876,6 +1046,8 @@ def sync_all_to_supabase() -> dict:
     supabase_upsert("participants", participants)
     supabase_upsert("timing_events", events)
     supabase_upsert("result_adjustments", adjustments)
+    supabase_upsert("manual_results", manual_results)
+    supabase_upsert("participant_timing_controls", timing_controls)
     supabase_upsert("race_admin_actions", admin_actions)
     completed_at = utc_now()
     LAST_SUPABASE_SYNC.update(
@@ -887,6 +1059,8 @@ def sync_all_to_supabase() -> dict:
         "participants": len(participants),
         "timingEvents": len(events),
         "resultAdjustments": len(adjustments),
+        "manualResults": len(manual_results),
+        "timingControls": len(timing_controls),
         "raceAdminActions": len(admin_actions),
         "syncedAt": completed_at,
     }
@@ -1069,6 +1243,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_get_result_adjustments(parsed.query)
             return
 
+        if parsed.path == "/api/manual-results":
+            self.handle_get_manual_results(parsed.query)
+            return
+
+        if parsed.path == "/api/participant-timing-controls":
+            self.handle_get_participant_timing_controls(parsed.query)
+            return
+
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -1107,6 +1289,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/result-adjustments":
             self.handle_post_result_adjustment()
+            return
+
+        if parsed.path == "/api/manual-results":
+            self.handle_post_manual_result()
+            return
+
+        if parsed.path == "/api/participant-timing-controls":
+            self.handle_post_participant_timing_control()
             return
 
         if parsed.path == "/api/finalize-race":
@@ -1173,8 +1363,21 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "SELECT COUNT(*) FROM result_adjustments WHERE race_id = ?",
                     (race_id,),
                 ).fetchone()[0]
+                manual_result_count = db.execute(
+                    "SELECT COUNT(*) FROM manual_results WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
+                timing_control_count = db.execute(
+                    "SELECT COUNT(*) FROM participant_timing_controls WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
                 db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM result_adjustments WHERE race_id = ?", (race_id,))
+                db.execute("DELETE FROM manual_results WHERE race_id = ?", (race_id,))
+                db.execute(
+                    "DELETE FROM participant_timing_controls WHERE race_id = ?",
+                    (race_id,),
+                )
 
             self.send_json(
                 {
@@ -1183,6 +1386,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "deleted": {
                         "timingEvents": event_count,
                         "resultAdjustments": adjustment_count,
+                        "manualResults": manual_result_count,
+                        "timingControls": timing_control_count,
                     },
                     "participantsPreserved": True,
                     "deviceBindingsPreserved": True,
@@ -1240,8 +1445,21 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "SELECT COUNT(*) FROM result_adjustments WHERE race_id = ?",
                     (race_id,),
                 ).fetchone()[0]
+                manual_result_count = db.execute(
+                    "SELECT COUNT(*) FROM manual_results WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
+                timing_control_count = db.execute(
+                    "SELECT COUNT(*) FROM participant_timing_controls WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
                 db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM result_adjustments WHERE race_id = ?", (race_id,))
+                db.execute("DELETE FROM manual_results WHERE race_id = ?", (race_id,))
+                db.execute(
+                    "DELETE FROM participant_timing_controls WHERE race_id = ?",
+                    (race_id,),
+                )
                 db.execute("DELETE FROM participants WHERE race_id = ?", (race_id,))
 
             self.send_json(
@@ -1252,6 +1470,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "timingEvents": event_count,
                         "participants": participant_count,
                         "resultAdjustments": adjustment_count,
+                        "manualResults": manual_result_count,
+                        "timingControls": timing_control_count,
                     },
                     "raceProfilePreserved": True,
                 }
@@ -1306,6 +1526,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 if participant_id is None:
                     event_count = 0
                     adjustment_count = 0
+                    manual_result_count = 0
+                    timing_control_count = 0
                     participant_count = 0
                 else:
                     event_count = db.execute(
@@ -1316,6 +1538,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "SELECT COUNT(*) FROM result_adjustments WHERE race_id = ? AND participant_id = ?",
                         (race_id, participant_id),
                     ).fetchone()[0]
+                    manual_result_count = db.execute(
+                        "SELECT COUNT(*) FROM manual_results WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()[0]
+                    timing_control_count = db.execute(
+                        "SELECT COUNT(*) FROM participant_timing_controls WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()[0]
                     participant_count = 1
                     db.execute(
                         "DELETE FROM timing_events WHERE race_id = ? AND participant_id = ?",
@@ -1323,6 +1553,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     )
                     db.execute(
                         "DELETE FROM result_adjustments WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    )
+                    db.execute(
+                        "DELETE FROM manual_results WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    )
+                    db.execute(
+                        "DELETE FROM participant_timing_controls WHERE race_id = ? AND participant_id = ?",
                         (race_id, participant_id),
                     )
                     db.execute(
@@ -1339,6 +1577,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "timingEvents": event_count,
                         "participants": participant_count,
                         "resultAdjustments": adjustment_count,
+                        "manualResults": manual_result_count,
+                        "timingControls": timing_control_count,
                     },
                     "raceProfilePreserved": True,
                 }
@@ -1756,8 +1996,29 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 checkpoint_times = {
                     row["station_id"]: row["event_time"] for row in checkpoint_rows
                 }
-                raw_elapsed_ms = milliseconds_between(
-                    checkpoint_times.get("START"), checkpoint_times.get("END")
+                latest_manual_result = db.execute(
+                    "SELECT * FROM manual_results WHERE race_id = ? AND participant_id = ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (race_id, participant_id),
+                ).fetchone()
+                control_rows = db.execute(
+                    "SELECT * FROM participant_timing_controls "
+                    "WHERE race_id = ? AND participant_id = ? ORDER BY created_at, id",
+                    (race_id, participant_id),
+                ).fetchall()
+                finish_time = checkpoint_times.get("END")
+                control_summary = timing_control_summary(
+                    control_rows,
+                    finish_time or utc_now(),
+                )
+                raw_elapsed_ms = (
+                    latest_manual_result["elapsed_ms"]
+                    if latest_manual_result
+                    else controlled_milliseconds_between(
+                        checkpoint_times.get("START"),
+                        finish_time,
+                        control_summary,
+                    )
                 )
                 if raw_elapsed_ms is None:
                     raise ValueError("Only finished participants can receive a result adjustment")
@@ -1792,6 +2053,257 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "adjustment": result_adjustment_response(row),
                     "totalAdjustmentMs": existing_total_ms + adjustment_ms,
                     "finalElapsedMs": raw_elapsed_ms + existing_total_ms + adjustment_ms,
+                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
+                    "cloudError": cloud["error"],
+                },
+                HTTPStatus.CREATED,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_get_manual_results(self, query: str) -> None:
+        race_id = parse_qs(query).get("raceId", [""])[0].strip()
+        if not race_id:
+            self.send_json(
+                {"ok": False, "error": "raceId is required"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+        with connect_db() as db:
+            rows = db.execute(
+                "SELECT * FROM manual_results WHERE race_id = ? "
+                "ORDER BY created_at ASC, id ASC",
+                (race_id,),
+            ).fetchall()
+        self.send_json(
+            {
+                "ok": True,
+                "raceId": race_id,
+                "manualResults": [manual_result_response(row) for row in rows],
+            }
+        )
+
+    def handle_post_manual_result(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            participant_id = int(payload.get("participantId"))
+            entry_mode = str(payload.get("entryMode") or "").strip()
+            reason = str(payload.get("reason") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Manual result entry is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not race_id or len(race_id) > 80 or not all(
+                character.isalnum() or character in "-_" for character in race_id
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if participant_id <= 0:
+                raise ValueError("participantId is required")
+            if entry_mode not in {"start_finish", "elapsed"}:
+                raise ValueError("entryMode must be start_finish or elapsed")
+            if len(reason) < 2 or len(reason) > 500:
+                raise ValueError("reason must be between 2 and 500 characters")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            start_time = None
+            finish_time = None
+            if entry_mode == "start_finish":
+                start_time = str(payload.get("startTime") or "").strip()
+                finish_time = str(payload.get("finishTime") or "").strip()
+                if not parse_iso(start_time) or not parse_iso(finish_time):
+                    raise ValueError("startTime and finishTime must be ISO-8601")
+                elapsed_ms = milliseconds_between(start_time, finish_time)
+                if elapsed_ms is None or parse_iso(finish_time) < parse_iso(start_time):
+                    raise ValueError("finishTime must not be earlier than startTime")
+            else:
+                elapsed_seconds = int(payload.get("elapsedSeconds"))
+                if elapsed_seconds <= 0:
+                    raise ValueError("elapsedSeconds must be greater than zero")
+                elapsed_ms = elapsed_seconds * 1000
+            if elapsed_ms > 86400000:
+                raise ValueError("Manual result cannot exceed 24 hours")
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            with connect_db() as db:
+                participant = db.execute(
+                    "SELECT id FROM participants WHERE race_id = ? AND id = ?",
+                    (race_id, participant_id),
+                ).fetchone()
+                if not participant:
+                    raise ValueError("Participant was not found in this race")
+                cursor = db.execute(
+                    """
+                    INSERT INTO manual_results (
+                      race_id, participant_id, entry_mode, start_time,
+                      finish_time, elapsed_ms, reason, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        race_id,
+                        participant_id,
+                        entry_mode,
+                        start_time,
+                        finish_time,
+                        elapsed_ms,
+                        reason,
+                        utc_now(),
+                    ),
+                )
+                row = db.execute(
+                    "SELECT * FROM manual_results WHERE id = ?",
+                    (cursor.lastrowid,),
+                ).fetchone()
+
+            cloud = sync_supabase_record("manual_results", row)
+            self.send_json(
+                {
+                    "ok": True,
+                    "manualResult": manual_result_response(row),
+                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
+                    "cloudError": cloud["error"],
+                },
+                HTTPStatus.CREATED,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_get_participant_timing_controls(self, query: str) -> None:
+        race_id = parse_qs(query).get("raceId", [""])[0].strip()
+        if not race_id:
+            self.send_json(
+                {"ok": False, "error": "raceId is required"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+        with connect_db() as db:
+            rows = db.execute(
+                "SELECT * FROM participant_timing_controls WHERE race_id = ? "
+                "ORDER BY created_at ASC, id ASC",
+                (race_id,),
+            ).fetchall()
+        self.send_json(
+            {
+                "ok": True,
+                "raceId": race_id,
+                "controls": [timing_control_response(row) for row in rows],
+            }
+        )
+
+    def handle_post_participant_timing_control(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            participant_id = int(payload.get("participantId"))
+            action = str(payload.get("action") or "").strip().lower()
+            reason = str(payload.get("reason") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Participant timing control is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not race_id or len(race_id) > 80 or not all(
+                character.isalnum() or character in "-_" for character in race_id
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if participant_id <= 0:
+                raise ValueError("participantId is required")
+            if action not in {"pause", "resume", "dnf", "restore"}:
+                raise ValueError("action must be pause, resume, dnf, or restore")
+            if len(reason) < 2 or len(reason) > 500:
+                raise ValueError("reason must be between 2 and 500 characters")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                raise ValueError("Reopen this race before changing participant timing")
+
+            now = utc_now()
+            with connect_db() as db:
+                participant = db.execute(
+                    "SELECT id FROM participants WHERE race_id = ? AND id = ?",
+                    (race_id, participant_id),
+                ).fetchone()
+                if not participant:
+                    raise ValueError("Participant was not found in this race")
+                finish_event = db.execute(
+                    "SELECT 1 FROM timing_events WHERE race_id = ? AND participant_id = ? "
+                    "AND status = 'accepted' AND station_id = 'END' LIMIT 1",
+                    (race_id, participant_id),
+                ).fetchone()
+                manual_result = db.execute(
+                    "SELECT 1 FROM manual_results WHERE race_id = ? AND participant_id = ? LIMIT 1",
+                    (race_id, participant_id),
+                ).fetchone()
+                if finish_event or manual_result:
+                    raise ValueError("A finished participant cannot be paused or marked DNF")
+                controls = db.execute(
+                    "SELECT * FROM participant_timing_controls "
+                    "WHERE race_id = ? AND participant_id = ? ORDER BY created_at, id",
+                    (race_id, participant_id),
+                ).fetchall()
+                current_state = timing_control_summary(controls, now)["state"]
+                if action == "pause":
+                    start_event = db.execute(
+                        "SELECT 1 FROM timing_events WHERE race_id = ? AND participant_id = ? "
+                        "AND status = 'accepted' AND station_id = 'START' LIMIT 1",
+                        (race_id, participant_id),
+                    ).fetchone()
+                    if not start_event:
+                        raise ValueError("Only a started participant can be paused")
+                    if current_state != "active":
+                        raise ValueError("Participant timing is not currently running")
+                elif action == "resume" and current_state != "pause":
+                    raise ValueError("Participant timing is not paused")
+                elif action == "dnf" and current_state == "dnf":
+                    raise ValueError("Participant is already marked DNF")
+                elif action == "restore" and current_state != "dnf":
+                    raise ValueError("Only a DNF participant can be restored")
+
+                cursor = db.execute(
+                    "INSERT INTO participant_timing_controls "
+                    "(race_id, participant_id, action, reason, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (race_id, participant_id, action, reason, now),
+                )
+                row = db.execute(
+                    "SELECT * FROM participant_timing_controls WHERE id = ?",
+                    (cursor.lastrowid,),
+                ).fetchone()
+
+            cloud = sync_supabase_record("participant_timing_controls", row)
+            self.send_json(
+                {
+                    "ok": True,
+                    "control": timing_control_response(row),
+                    "state": "active" if action in {"resume", "restore"} else action,
                     "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
                     "cloudError": cloud["error"],
                 },
@@ -1981,6 +2493,24 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 """,
                 (race_id,),
             ).fetchall()
+            manual_result_rows = db.execute(
+                """
+                SELECT *
+                FROM manual_results
+                WHERE race_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (race_id,),
+            ).fetchall()
+            timing_control_rows = db.execute(
+                """
+                SELECT *
+                FROM participant_timing_controls
+                WHERE race_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (race_id,),
+            ).fetchall()
 
         generated_at = profile.get("finalized_at") or utc_now()
         leaderboard = self.build_leaderboard(
@@ -1991,6 +2521,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
             profile["station_count"],
             profile["mode"],
             adjustment_rows,
+            manual_result_rows,
+            timing_control_rows,
             generated_at,
             profile.get("status") == "finalized",
         )
@@ -2014,6 +2546,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
         station_count: int,
         profile_mode: str,
         adjustment_rows: list[sqlite3.Row] | None = None,
+        manual_result_rows: list[sqlite3.Row] | None = None,
+        timing_control_rows: list[sqlite3.Row] | None = None,
         generated_at: str | None = None,
         is_finalized: bool = False,
     ) -> list[dict]:
@@ -2025,6 +2559,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
             adjustments_by_participant.setdefault(
                 adjustment["participant_id"], []
             ).append(adjustment)
+        manual_results_by_participant: dict[int, list[sqlite3.Row]] = {}
+        for manual_result in manual_result_rows or []:
+            manual_results_by_participant.setdefault(
+                manual_result["participant_id"], []
+            ).append(manual_result)
+        controls_by_participant: dict[int, list[sqlite3.Row]] = {}
+        for control in timing_control_rows or []:
+            controls_by_participant.setdefault(control["participant_id"], []).append(control)
 
         generated_at = generated_at or utc_now()
         results = []
@@ -2034,20 +2576,70 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 events_by_participant.get(participant["id"], []),
                 checkpoint_index,
             )
-            start_time = checkpoint_times.get("START")
-            end_time = checkpoint_times.get("END")
+            raw_start_time = checkpoint_times.get("START")
+            raw_finish_time = checkpoint_times.get("END")
+            participant_manual_results = manual_results_by_participant.get(
+                participant["id"], []
+            )
+            latest_manual_result = (
+                participant_manual_results[-1] if participant_manual_results else None
+            )
+            start_time = (
+                latest_manual_result["start_time"]
+                if latest_manual_result and latest_manual_result["start_time"]
+                else raw_start_time
+            )
+            end_time = (
+                latest_manual_result["finish_time"]
+                if latest_manual_result and latest_manual_result["finish_time"]
+                else raw_finish_time
+            )
             latest_checkpoint = self.latest_checkpoint(checkpoint_times, checkpoint_index)
             progress_index = checkpoint_index.get(latest_checkpoint, -1)
-            status = self.result_status(latest_checkpoint, end_time, is_finalized)
+            participant_controls = controls_by_participant.get(participant["id"], [])
             elapsed_end = end_time if end_time else generated_at
-            raw_elapsed_ms = milliseconds_between(start_time, elapsed_end) if start_time else None
+            control_summary = timing_control_summary(participant_controls, elapsed_end)
+            if latest_manual_result or raw_finish_time:
+                status = "finished"
+            elif control_summary["state"] == "dnf":
+                status = "dnf"
+            elif control_summary["state"] == "pause":
+                status = "paused"
+            else:
+                status = self.result_status(latest_checkpoint, None, is_finalized)
+            raw_elapsed_ms = (
+                controlled_milliseconds_between(
+                    raw_start_time,
+                    raw_finish_time or generated_at,
+                    control_summary,
+                )
+                if raw_start_time
+                else None
+            )
+            base_elapsed_ms = (
+                latest_manual_result["elapsed_ms"]
+                if latest_manual_result
+                else raw_elapsed_ms
+            )
             participant_adjustments = adjustments_by_participant.get(participant["id"], [])
             adjustment_ms = sum(row["adjustment_ms"] for row in participant_adjustments)
             elapsed_ms = (
-                max(0, raw_elapsed_ms + adjustment_ms)
-                if end_time and raw_elapsed_ms is not None
-                else raw_elapsed_ms
+                max(0, base_elapsed_ms + adjustment_ms)
+                if status == "finished" and base_elapsed_ms is not None
+                else base_elapsed_ms
             )
+            current = self.current_label(
+                checkpoint_times,
+                latest_checkpoint,
+                profile_mode,
+                checkpoint_sequence,
+            )
+            if status == "paused":
+                current = "Paused"
+            elif status == "dnf" and control_summary["state"] == "dnf":
+                current = "DNF"
+            elif latest_manual_result:
+                current = "Finished"
 
             results.append(
                 {
@@ -2063,22 +2655,34 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "division": participant["division"],
                     "checkInStatus": participant["check_in_status"],
                     "status": status,
-                    "current": self.current_label(
-                        checkpoint_times,
-                        latest_checkpoint,
-                        profile_mode,
-                        checkpoint_sequence,
-                    ),
+                    "current": current,
                     "progressIndex": progress_index,
                     "latestCheckpoint": latest_checkpoint,
                     "startTime": start_time,
                     "finishTime": end_time,
+                    "rawStartTime": raw_start_time,
+                    "rawFinishTime": raw_finish_time,
                     "elapsedMs": elapsed_ms,
                     "rawElapsedMs": raw_elapsed_ms,
+                    "baseElapsedMs": base_elapsed_ms,
+                    "timerRunning": status == "racing" and not is_finalized,
                     "adjustmentMs": adjustment_ms,
                     "adjustments": [
                         result_adjustment_response(row)
                         for row in participant_adjustments
+                    ],
+                    "manualResult": (
+                        manual_result_response(latest_manual_result)
+                        if latest_manual_result
+                        else None
+                    ),
+                    "manualResults": [
+                        manual_result_response(row)
+                        for row in participant_manual_results
+                    ],
+                    "timingControlState": control_summary["state"],
+                    "timingControls": [
+                        timing_control_response(row) for row in participant_controls
                     ],
                     "checkpointTimes": checkpoint_times,
                     "stationSplits": self.station_splits(
@@ -2086,11 +2690,19 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         station_count,
                         profile_mode,
                         checkpoint_sequence,
+                        control_summary,
+                        elapsed_end,
+                        latest_checkpoint,
+                        status,
                     ),
                     "segmentSplits": self.segment_splits(
                         checkpoint_times,
                         station_count,
                         profile_mode,
+                        control_summary,
+                        elapsed_end,
+                        latest_checkpoint,
+                        status,
                     ),
                 }
             )
@@ -2193,8 +2805,13 @@ class TimingHandler(SimpleHTTPRequestHandler):
         station_count: int,
         profile_mode: str,
         checkpoint_sequence: list[str],
+        control_summary: dict | None = None,
+        elapsed_end: str | None = None,
+        latest_checkpoint: str | None = None,
+        status: str = "racing",
     ) -> dict[str, int | None]:
         splits = {}
+        control_summary = control_summary or {"intervals": []}
         if profile_mode == "station_checkpoints":
             if "STATION_1_START" not in checkpoint_sequence:
                 for station_number in range(1, station_count + 1):
@@ -2208,18 +2825,29 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         if station_number == station_count
                         else f"STATION_{station_number + 1}_START"
                     )
-                    splits[f"station{station_number}Ms"] = milliseconds_between(
-                        checkpoints.get(start_checkpoint),
-                        checkpoints.get(end_checkpoint),
+                    split_start = checkpoints.get(start_checkpoint)
+                    split_end = checkpoints.get(end_checkpoint)
+                    if (
+                        split_start
+                        and not split_end
+                        and latest_checkpoint == start_checkpoint
+                        and status in {"racing", "paused", "dnf"}
+                    ):
+                        split_end = elapsed_end
+                    splits[f"station{station_number}Ms"] = controlled_milliseconds_between(
+                        split_start,
+                        split_end,
+                        control_summary,
                     )
                 return splits
 
             previous = checkpoints.get("START")
             for station_number in range(1, station_count + 1):
                 current = checkpoints.get(f"STATION_{station_number}_START")
-                splits[f"station{station_number}Ms"] = milliseconds_between(
+                splits[f"station{station_number}Ms"] = controlled_milliseconds_between(
                     previous,
                     current,
+                    control_summary,
                 )
                 previous = current
             return splits
@@ -2229,7 +2857,18 @@ class TimingHandler(SimpleHTTPRequestHandler):
             exit_ = checkpoints.get(f"STATION_{station_number}_EXIT")
             if station_number == station_count and not exit_:
                 exit_ = checkpoints.get("END")
-            splits[f"station{station_number}Ms"] = milliseconds_between(enter, exit_)
+            if (
+                enter
+                and not exit_
+                and latest_checkpoint == f"STATION_{station_number}_ENTER"
+                and status in {"racing", "paused", "dnf"}
+            ):
+                exit_ = elapsed_end
+            splits[f"station{station_number}Ms"] = controlled_milliseconds_between(
+                enter,
+                exit_,
+                control_summary,
+            )
         return splits
 
     def segment_splits(
@@ -2237,10 +2876,15 @@ class TimingHandler(SimpleHTTPRequestHandler):
         checkpoints: dict[str, str],
         station_count: int,
         profile_mode: str,
+        control_summary: dict | None = None,
+        elapsed_end: str | None = None,
+        latest_checkpoint: str | None = None,
+        status: str = "racing",
     ) -> list[dict]:
         if profile_mode == "station_checkpoints":
             return []
         segments = []
+        control_summary = control_summary or {"intervals": []}
         for station_number in range(1, station_count + 1):
             enter_checkpoint = f"STATION_{station_number}_ENTER"
             exit_checkpoint = (
@@ -2257,9 +2901,15 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 {
                     "type": "run",
                     "number": station_number,
-                    "elapsedMs": milliseconds_between(
+                    "elapsedMs": controlled_milliseconds_between(
                         checkpoints.get(run_start_checkpoint),
-                        checkpoints.get(enter_checkpoint),
+                        checkpoints.get(enter_checkpoint) or (
+                            elapsed_end
+                            if latest_checkpoint == run_start_checkpoint
+                            and status in {"racing", "paused", "dnf"}
+                            else None
+                        ),
+                        control_summary,
                     ),
                 }
             )
@@ -2267,9 +2917,15 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 {
                     "type": "station",
                     "number": station_number,
-                    "elapsedMs": milliseconds_between(
+                    "elapsedMs": controlled_milliseconds_between(
                         checkpoints.get(enter_checkpoint),
-                        checkpoints.get(exit_checkpoint),
+                        checkpoints.get(exit_checkpoint) or (
+                            elapsed_end
+                            if latest_checkpoint == enter_checkpoint
+                            and status in {"racing", "paused", "dnf"}
+                            else None
+                        ),
+                        control_summary,
                     ),
                 }
             )
@@ -2279,6 +2935,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         status_order = {
             "finished": 0,
             "racing": 1,
+            "paused": 1,
             "dnf": 1,
             "not_started": 2,
             "dns": 2,
@@ -2455,6 +3112,44 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 "SELECT * FROM participants WHERE race_id = ? AND card_code = ?",
                 (normalized["race_id"], normalized["card_code"]),
             ).fetchone()
+
+            if participant:
+                manual_result = db.execute(
+                    "SELECT 1 FROM manual_results WHERE race_id = ? AND participant_id = ? LIMIT 1",
+                    (normalized["race_id"], participant["id"]),
+                ).fetchone()
+                control_rows = db.execute(
+                    "SELECT * FROM participant_timing_controls "
+                    "WHERE race_id = ? AND participant_id = ? ORDER BY created_at, id",
+                    (normalized["race_id"], participant["id"]),
+                ).fetchall()
+                control_state = timing_control_summary(
+                    control_rows,
+                    normalized["received_at"],
+                )["state"]
+                blocked_status = (
+                    "already_finished"
+                    if manual_result
+                    else "participant_paused"
+                    if control_state == "pause"
+                    else "participant_dnf"
+                    if control_state == "dnf"
+                    else None
+                )
+                if blocked_status:
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "status": blocked_status,
+                            "cardCode": normalized["card_code"],
+                            "athleteName": participant["athlete_name"],
+                            "stationId": normalized["station_id"],
+                            "receivedAt": normalized["received_at"],
+                            "storage": {"localSaved": False, "supabaseSaved": False},
+                            "cloudError": None,
+                        }
+                    )
+                    return
 
             transition = {}
             previous = self.find_previous_scan(db, normalized)

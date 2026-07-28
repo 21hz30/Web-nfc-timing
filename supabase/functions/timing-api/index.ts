@@ -309,6 +309,26 @@ async function raceAdjustments(raceId: string): Promise<DatabaseRow[]> {
   });
 }
 
+async function raceManualResults(raceId: string): Promise<DatabaseRow[]> {
+  return await databaseRequest("manual_results", {
+    query: {
+      select: "*",
+      race_id: `eq.${raceId}`,
+      order: "created_at.asc,id.asc",
+    },
+  });
+}
+
+async function raceTimingControls(raceId: string): Promise<DatabaseRow[]> {
+  return await databaseRequest("participant_timing_controls", {
+    query: {
+      select: "*",
+      race_id: `eq.${raceId}`,
+      order: "created_at.asc,id.asc",
+    },
+  });
+}
+
 function resultAdjustmentResponse(row: DatabaseRow): JsonObject {
   return {
     id: row.id,
@@ -318,6 +338,89 @@ function resultAdjustmentResponse(row: DatabaseRow): JsonObject {
     reason: row.reason,
     createdAt: row.created_at,
   };
+}
+
+function manualResultResponse(row: DatabaseRow): JsonObject {
+  return {
+    id: row.id,
+    raceId: row.race_id,
+    participantId: row.participant_id,
+    entryMode: row.entry_mode,
+    startTime: row.start_time,
+    finishTime: row.finish_time,
+    elapsedMs: Number(row.elapsed_ms),
+    reason: row.reason,
+    createdAt: row.created_at,
+  };
+}
+
+function timingControlResponse(row: DatabaseRow): JsonObject {
+  return {
+    id: row.id,
+    raceId: row.race_id,
+    participantId: row.participant_id,
+    action: row.action,
+    reason: row.reason,
+    createdAt: row.created_at,
+  };
+}
+
+type TimingControlSummary = {
+  state: "active" | "pause" | "dnf";
+  intervals: Array<[number, number]>;
+  latest: DatabaseRow | null;
+};
+
+function summarizeTimingControls(
+  rows: DatabaseRow[],
+  horizon: string,
+): TimingControlSummary {
+  const horizonMs = Date.parse(horizon);
+  if (!Number.isFinite(horizonMs)) {
+    return { state: "active", intervals: [], latest: null };
+  }
+  let inactiveAt: number | null = null;
+  let state: TimingControlSummary["state"] = "active";
+  let latest: DatabaseRow | null = null;
+  const intervals: Array<[number, number]> = [];
+  const ordered = [...rows].sort((left, right) => {
+    const timeDifference = Date.parse(String(left.created_at)) - Date.parse(String(right.created_at));
+    return timeDifference || Number(left.id || 0) - Number(right.id || 0);
+  });
+  for (const row of ordered) {
+    const actionMs = Date.parse(String(row.created_at || ""));
+    if (!Number.isFinite(actionMs) || actionMs > horizonMs) continue;
+    latest = row;
+    if (row.action === "pause" || row.action === "dnf") {
+      if (inactiveAt === null) inactiveAt = actionMs;
+      state = row.action;
+    } else if (row.action === "resume" || row.action === "restore") {
+      if (inactiveAt !== null) {
+        intervals.push([inactiveAt, actionMs]);
+        inactiveAt = null;
+      }
+      state = "active";
+    }
+  }
+  if (inactiveAt !== null) intervals.push([inactiveAt, horizonMs]);
+  return { state, intervals, latest };
+}
+
+function controlledMillisecondsBetween(
+  start: string | null,
+  end: string | null,
+  controlSummary: TimingControlSummary,
+): number | null {
+  const baseMs = millisecondsBetween(start, end);
+  const startMs = Date.parse(start || "");
+  const endMs = Date.parse(end || "");
+  if (baseMs === null || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return baseMs;
+  const excludedMs = controlSummary.intervals.reduce((total, interval) => {
+    const overlapStart = Math.max(startMs, interval[0]);
+    const overlapEnd = Math.min(endMs, interval[1]);
+    return total + Math.max(0, overlapEnd - overlapStart);
+  }, 0);
+  return Math.max(0, baseMs - excludedMs);
 }
 
 function mergeParticipantDetails(
@@ -355,6 +458,10 @@ function millisecondsBetween(start: string | null, end: string | null): number |
 function buildSegmentSplits(
   checkpointTimes: Record<string, string>,
   stationCount: number,
+  controlSummary: TimingControlSummary,
+  elapsedEnd: string,
+  latestCheckpoint: string | null,
+  status: string,
 ): DatabaseRow[] {
   const segments: DatabaseRow[] = [];
   for (let station = 1; station <= stationCount; station += 1) {
@@ -364,17 +471,25 @@ function buildSegmentSplits(
     segments.push({
       type: "run",
       number: station,
-      elapsedMs: millisecondsBetween(
+      elapsedMs: controlledMillisecondsBetween(
         checkpointTimes[runStartCheckpoint] || null,
-        checkpointTimes[enterCheckpoint] || null,
+        checkpointTimes[enterCheckpoint]
+          || (latestCheckpoint === runStartCheckpoint && ["racing", "paused", "dnf"].includes(status)
+            ? elapsedEnd
+            : null),
+        controlSummary,
       ),
     });
     segments.push({
       type: "station",
       number: station,
-      elapsedMs: millisecondsBetween(
+      elapsedMs: controlledMillisecondsBetween(
         checkpointTimes[enterCheckpoint] || null,
-        checkpointTimes[exitCheckpoint] || null,
+        checkpointTimes[exitCheckpoint]
+          || (latestCheckpoint === enterCheckpoint && ["racing", "paused", "dnf"].includes(status)
+            ? elapsedEnd
+            : null),
+        controlSummary,
       ),
     });
   }
@@ -386,6 +501,8 @@ function buildLeaderboard(
   events: DatabaseRow[],
   profile: DatabaseRow,
   adjustments: DatabaseRow[] = [],
+  manualResults: DatabaseRow[] = [],
+  timingControls: DatabaseRow[] = [],
   frozenAt?: string,
 ): JsonObject[] {
   const checkpoints: string[] = profile.checkpoints;
@@ -402,6 +519,22 @@ function buildLeaderboard(
     adjustmentsByParticipant.set(key, [
       ...(adjustmentsByParticipant.get(key) || []),
       adjustment,
+    ]);
+  }
+  const manualResultsByParticipant = new Map<string, DatabaseRow[]>();
+  for (const manualResult of manualResults) {
+    const key = String(manualResult.participant_id);
+    manualResultsByParticipant.set(key, [
+      ...(manualResultsByParticipant.get(key) || []),
+      manualResult,
+    ]);
+  }
+  const timingControlsByParticipant = new Map<string, DatabaseRow[]>();
+  for (const control of timingControls) {
+    const key = String(control.participant_id);
+    timingControlsByParticipant.set(key, [
+      ...(timingControlsByParticipant.get(key) || []),
+      control,
     ]);
   }
 
@@ -424,13 +557,24 @@ function buildLeaderboard(
       }
     }
 
-    const startTime = checkpointTimes.START || null;
-    const finishTime = checkpointTimes.END || null;
-    const status = finishTime
+    const rawStartTime = checkpointTimes.START || null;
+    const rawFinishTime = checkpointTimes.END || null;
+    const participantManualResults = manualResultsByParticipant.get(String(participant.id)) || [];
+    const latestManualResult = participantManualResults.at(-1) || null;
+    const startTime = latestManualResult?.start_time || rawStartTime;
+    const finishTime = latestManualResult?.finish_time || rawFinishTime;
+    const elapsedEnd = finishTime || generatedAt;
+    const participantTimingControls = timingControlsByParticipant.get(String(participant.id)) || [];
+    const controlSummary = summarizeTimingControls(participantTimingControls, elapsedEnd);
+    const status = latestManualResult || rawFinishTime
       ? "finished"
-      : profile.status === "finalized"
-        ? latestCheckpoint ? "dnf" : "dns"
-        : latestCheckpoint ? "racing" : "not_started";
+      : controlSummary.state === "dnf"
+        ? "dnf"
+        : controlSummary.state === "pause"
+          ? "paused"
+          : profile.status === "finalized"
+            ? latestCheckpoint ? "dnf" : "dns"
+            : latestCheckpoint ? "racing" : "not_started";
     let current = "Waiting";
     if (latestCheckpoint === "END") current = "Finished";
     else if (latestCheckpoint === "START") {
@@ -446,11 +590,21 @@ function buildLeaderboard(
         }
       }
     }
+    if (status === "paused") current = "Paused";
+    else if (status === "dnf" && controlSummary.state === "dnf") current = "DNF";
+    else if (latestManualResult) current = "Finished";
 
     const stationSplits: Record<string, number | null> = {};
     const segmentSplits = profile.mode === "station_checkpoints"
       ? []
-      : buildSegmentSplits(checkpointTimes, Number(profile.station_count));
+      : buildSegmentSplits(
+        checkpointTimes,
+        Number(profile.station_count),
+        controlSummary,
+        elapsedEnd,
+        latestCheckpoint,
+        status,
+      );
     if (profile.mode === "station_checkpoints") {
       const stationCount = Number(profile.station_count);
       if (usesStationBoundaries) {
@@ -459,25 +613,46 @@ function buildLeaderboard(
           const endCheckpoint = station === stationCount
             ? "END"
             : `STATION_${station + 1}_START`;
-          stationSplits[`station${station}Ms`] = millisecondsBetween(
-            checkpointTimes[startCheckpoint] || null,
-            checkpointTimes[endCheckpoint] || null,
+          const splitStart = checkpointTimes[startCheckpoint] || null;
+          const splitEnd = checkpointTimes[endCheckpoint]
+            || (splitStart && latestCheckpoint === startCheckpoint
+              && ["racing", "paused", "dnf"].includes(status)
+              ? elapsedEnd
+              : null);
+          stationSplits[`station${station}Ms`] = controlledMillisecondsBetween(
+            splitStart,
+            splitEnd,
+            controlSummary,
           );
         }
       } else {
-        let previous = startTime;
+        let previous = rawStartTime;
         for (let station = 1; station <= stationCount; station += 1) {
           const current = checkpointTimes[`STATION_${station}_START`] || null;
-          stationSplits[`station${station}Ms`] = millisecondsBetween(previous, current);
+          stationSplits[`station${station}Ms`] = controlledMillisecondsBetween(
+            previous,
+            current,
+            controlSummary,
+          );
           previous = current;
         }
       }
     } else {
       for (let station = 1; station <= Number(profile.station_count); station += 1) {
         const enter = checkpointTimes[`STATION_${station}_ENTER`] || null;
-        const exit = checkpointTimes[`STATION_${station}_EXIT`]
-          || (station === Number(profile.station_count) ? finishTime : null);
-        stationSplits[`station${station}Ms`] = millisecondsBetween(enter, exit);
+        const exitCheckpoint = station === Number(profile.station_count)
+          ? "END"
+          : `STATION_${station}_EXIT`;
+        const exit = checkpointTimes[exitCheckpoint]
+          || (enter && latestCheckpoint === `STATION_${station}_ENTER`
+            && ["racing", "paused", "dnf"].includes(status)
+            ? elapsedEnd
+            : null);
+        stationSplits[`station${station}Ms`] = controlledMillisecondsBetween(
+          enter,
+          exit,
+          controlSummary,
+        );
       }
     }
 
@@ -486,12 +661,13 @@ function buildLeaderboard(
       (total, adjustment) => total + Number(adjustment.adjustment_ms || 0),
       0,
     );
-    const rawElapsedMs = startTime
-      ? millisecondsBetween(startTime, finishTime || generatedAt)
+    const rawElapsedMs = rawStartTime
+      ? controlledMillisecondsBetween(rawStartTime, rawFinishTime || generatedAt, controlSummary)
       : null;
-    const elapsedMs = finishTime && rawElapsedMs !== null
-      ? Math.max(0, rawElapsedMs + adjustmentMs)
-      : rawElapsedMs;
+    const baseElapsedMs = latestManualResult ? Number(latestManualResult.elapsed_ms) : rawElapsedMs;
+    const elapsedMs = status === "finished" && baseElapsedMs !== null
+      ? Math.max(0, baseElapsedMs + adjustmentMs)
+      : baseElapsedMs;
 
     return {
       participantId: participant.id,
@@ -517,10 +693,18 @@ function buildLeaderboard(
       latestCheckpoint,
       startTime,
       finishTime,
+      rawStartTime,
+      rawFinishTime,
       elapsedMs,
       rawElapsedMs,
+      baseElapsedMs,
+      timerRunning: status === "racing" && profile.status !== "finalized",
       adjustmentMs,
       adjustments: participantAdjustments.map(resultAdjustmentResponse),
+      manualResult: latestManualResult ? manualResultResponse(latestManualResult) : null,
+      manualResults: participantManualResults.map(manualResultResponse),
+      timingControlState: controlSummary.state,
+      timingControls: participantTimingControls.map(timingControlResponse),
       checkpointTimes,
       stationSplits,
       segmentSplits,
@@ -530,6 +714,7 @@ function buildLeaderboard(
   const statusOrder: Record<string, number> = {
     finished: 0,
     racing: 1,
+    paused: 1,
     dnf: 1,
     not_started: 2,
     dns: 2,
@@ -608,6 +793,26 @@ async function handleGet(route: string, url: URL): Promise<Response> {
     });
   }
 
+  if (route === "/manual-results") {
+    const raceId = requiredRaceId(url.searchParams.get("raceId"));
+    const manualResults = await raceManualResults(raceId);
+    return jsonResponse({
+      ok: true,
+      raceId,
+      manualResults: manualResults.map(manualResultResponse),
+    });
+  }
+
+  if (route === "/participant-timing-controls") {
+    const raceId = requiredRaceId(url.searchParams.get("raceId"));
+    const controls = await raceTimingControls(raceId);
+    return jsonResponse({
+      ok: true,
+      raceId,
+      controls: controls.map(timingControlResponse),
+    });
+  }
+
   if (route === "/device-bindings") {
     const raceId = requiredRaceId(url.searchParams.get("raceId"));
     const bindings = await databaseRequest("device_bindings", {
@@ -639,10 +844,12 @@ async function handleGet(route: string, url: URL): Promise<Response> {
   if (route === "/leaderboard") {
     const raceId = requiredRaceId(url.searchParams.get("raceId") || "hyrox-sim-001");
     const profile = (await findRaceProfile(raceId)) || defaultRaceProfile(raceId);
-    const [participants, events, adjustments] = await Promise.all([
+    const [participants, events, adjustments, manualResults, timingControls] = await Promise.all([
       raceParticipants(raceId),
       raceEvents(raceId, { acceptedOnly: true }),
       raceAdjustments(raceId),
+      raceManualResults(raceId),
+      raceTimingControls(raceId),
     ]);
     return jsonResponse({
       ok: true,
@@ -655,6 +862,8 @@ async function handleGet(route: string, url: URL): Promise<Response> {
         events,
         profile,
         adjustments,
+        manualResults,
+        timingControls,
         profile.finalized_at || undefined,
       ),
     });
@@ -707,12 +916,24 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       query: { race_id: `eq.${raceId}` },
       prefer: "return=representation",
     });
+    const deletedManualResults = await databaseRequest("manual_results", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
+    const deletedTimingControls = await databaseRequest("participant_timing_controls", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
     return jsonResponse({
       ok: true,
       raceId,
       deleted: {
         timingEvents: deletedEvents.length,
         resultAdjustments: deletedAdjustments.length,
+        manualResults: deletedManualResults.length,
+        timingControls: deletedTimingControls.length,
       },
       participantsPreserved: true,
       deviceBindingsPreserved: true,
@@ -754,6 +975,16 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       query: { race_id: `eq.${raceId}` },
       prefer: "return=representation",
     });
+    const deletedManualResults = await databaseRequest("manual_results", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
+    const deletedTimingControls = await databaseRequest("participant_timing_controls", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
     const deletedParticipants = await databaseRequest("participants", {
       method: "DELETE",
       query: { race_id: `eq.${raceId}` },
@@ -766,6 +997,8 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         timingEvents: deletedEvents.length,
         participants: deletedParticipants.length,
         resultAdjustments: deletedAdjustments.length,
+        manualResults: deletedManualResults.length,
+        timingControls: deletedTimingControls.length,
       },
       raceProfilePreserved: true,
     });
@@ -805,6 +1038,8 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     });
     let deletedEvents: DatabaseRow[] = [];
     let deletedAdjustments: DatabaseRow[] = [];
+    let deletedManualResults: DatabaseRow[] = [];
+    let deletedTimingControls: DatabaseRow[] = [];
     if (matchedParticipants.length) {
       const participantIds = matchedParticipants.map((row: DatabaseRow) => row.id).join(",");
       deletedEvents = await databaseRequest("timing_events", {
@@ -816,6 +1051,22 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         prefer: "return=representation",
       });
       deletedAdjustments = await databaseRequest("result_adjustments", {
+        method: "DELETE",
+        query: {
+          race_id: `eq.${raceId}`,
+          participant_id: `in.(${participantIds})`,
+        },
+        prefer: "return=representation",
+      });
+      deletedManualResults = await databaseRequest("manual_results", {
+        method: "DELETE",
+        query: {
+          race_id: `eq.${raceId}`,
+          participant_id: `in.(${participantIds})`,
+        },
+        prefer: "return=representation",
+      });
+      deletedTimingControls = await databaseRequest("participant_timing_controls", {
         method: "DELETE",
         query: {
           race_id: `eq.${raceId}`,
@@ -837,6 +1088,8 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         timingEvents: deletedEvents.length,
         participants: deletedParticipants.length,
         resultAdjustments: deletedAdjustments.length,
+        manualResults: deletedManualResults.length,
+        timingControls: deletedTimingControls.length,
       },
       raceProfilePreserved: true,
     });
@@ -993,7 +1246,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       },
     });
     if (!participants[0]) throw new Error("Participant was not found in this race");
-    const [checkpointEvents, existingAdjustments] = await Promise.all([
+    const [checkpointEvents, existingAdjustments, manualResults, timingControls] = await Promise.all([
       databaseRequest("timing_events", {
         query: {
           select: "station_id,event_time",
@@ -1011,15 +1264,39 @@ async function handlePost(route: string, request: Request): Promise<Response> {
           participant_id: `eq.${participantId}`,
         },
       }),
+      databaseRequest("manual_results", {
+        query: {
+          select: "*",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participantId}`,
+          order: "created_at.desc,id.desc",
+          limit: "1",
+        },
+      }),
+      databaseRequest("participant_timing_controls", {
+        query: {
+          select: "*",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participantId}`,
+          order: "created_at.asc,id.asc",
+        },
+      }),
     ]);
     const checkpointTimes: Record<string, string> = {};
     for (const event of checkpointEvents) {
       if (!checkpointTimes[event.station_id]) checkpointTimes[event.station_id] = event.event_time;
     }
-    const rawElapsedMs = millisecondsBetween(
-      checkpointTimes.START || null,
-      checkpointTimes.END || null,
+    const controlSummary = summarizeTimingControls(
+      timingControls,
+      checkpointTimes.END || new Date().toISOString(),
     );
+    const rawElapsedMs = manualResults[0]
+      ? Number(manualResults[0].elapsed_ms)
+      : controlledMillisecondsBetween(
+        checkpointTimes.START || null,
+        checkpointTimes.END || null,
+        controlSummary,
+      );
     if (rawElapsedMs === null) {
       throw new Error("Only finished participants can receive a result adjustment");
     }
@@ -1047,6 +1324,183 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       adjustment: resultAdjustmentResponse(rows[0]),
       totalAdjustmentMs: existingTotalMs + adjustmentMs,
       finalElapsedMs: rawElapsedMs + existingTotalMs + adjustmentMs,
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
+    }, 201);
+  }
+
+  if (route === "/manual-results") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Manual result entry is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const entryMode = String(payload.entryMode || "").trim();
+    const reason = String(payload.reason || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      throw new Error("participantId is required");
+    }
+    if (!new Set(["start_finish", "elapsed"]).has(entryMode)) {
+      throw new Error("entryMode must be start_finish or elapsed");
+    }
+    if (reason.length < 2 || reason.length > 500) {
+      throw new Error("reason must be between 2 and 500 characters");
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    const participants = await databaseRequest("participants", {
+      query: {
+        select: "id",
+        race_id: `eq.${raceId}`,
+        id: `eq.${participantId}`,
+        limit: "1",
+      },
+    });
+    if (!participants[0]) throw new Error("Participant was not found in this race");
+
+    let startTime: string | null = null;
+    let finishTime: string | null = null;
+    let elapsedMs: number;
+    if (entryMode === "start_finish") {
+      startTime = String(payload.startTime || "").trim();
+      finishTime = String(payload.finishTime || "").trim();
+      const startMs = Date.parse(startTime);
+      const finishMs = Date.parse(finishTime);
+      if (!Number.isFinite(startMs) || !Number.isFinite(finishMs)) {
+        throw new Error("startTime and finishTime must be ISO-8601");
+      }
+      if (finishMs < startMs) throw new Error("finishTime must not be earlier than startTime");
+      elapsedMs = finishMs - startMs;
+    } else {
+      const elapsedSeconds = Number(payload.elapsedSeconds);
+      if (!Number.isInteger(elapsedSeconds) || elapsedSeconds <= 0) {
+        throw new Error("elapsedSeconds must be a positive integer");
+      }
+      elapsedMs = elapsedSeconds * 1000;
+    }
+    if (elapsedMs > 86400000) throw new Error("Manual result cannot exceed 24 hours");
+    const rows = await databaseRequest("manual_results", {
+      method: "POST",
+      body: {
+        race_id: raceId,
+        participant_id: participantId,
+        entry_mode: entryMode,
+        start_time: startTime,
+        finish_time: finishTime,
+        elapsed_ms: elapsedMs,
+        reason,
+        created_at: new Date().toISOString(),
+      },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      manualResult: manualResultResponse(rows[0]),
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
+    }, 201);
+  }
+
+  if (route === "/participant-timing-controls") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Participant timing control is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const action = String(payload.action || "").trim().toLowerCase();
+    const reason = String(payload.reason || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      throw new Error("participantId is required");
+    }
+    if (!new Set(["pause", "resume", "dnf", "restore"]).has(action)) {
+      throw new Error("action must be pause, resume, dnf, or restore");
+    }
+    if (reason.length < 2 || reason.length > 500) {
+      throw new Error("reason must be between 2 and 500 characters");
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      throw new Error("Reopen this race before changing participant timing");
+    }
+    const [participants, finishEvents, manualResults, controls, startEvents] = await Promise.all([
+      databaseRequest("participants", {
+        query: { select: "id", race_id: `eq.${raceId}`, id: `eq.${participantId}`, limit: "1" },
+      }),
+      databaseRequest("timing_events", {
+        query: {
+          select: "id", race_id: `eq.${raceId}`, participant_id: `eq.${participantId}`,
+          status: "eq.accepted", station_id: "eq.END", limit: "1",
+        },
+      }),
+      databaseRequest("manual_results", {
+        query: { select: "id", race_id: `eq.${raceId}`, participant_id: `eq.${participantId}`, limit: "1" },
+      }),
+      databaseRequest("participant_timing_controls", {
+        query: {
+          select: "*", race_id: `eq.${raceId}`, participant_id: `eq.${participantId}`,
+          order: "created_at.asc,id.asc",
+        },
+      }),
+      databaseRequest("timing_events", {
+        query: {
+          select: "id", race_id: `eq.${raceId}`, participant_id: `eq.${participantId}`,
+          status: "eq.accepted", station_id: "eq.START", limit: "1",
+        },
+      }),
+    ]);
+    if (!participants[0]) throw new Error("Participant was not found in this race");
+    if (finishEvents[0] || manualResults[0]) {
+      throw new Error("A finished participant cannot be paused or marked DNF");
+    }
+    const currentState = summarizeTimingControls(controls, new Date().toISOString()).state;
+    if (action === "pause") {
+      if (!startEvents[0]) throw new Error("Only a started participant can be paused");
+      if (currentState !== "active") throw new Error("Participant timing is not currently running");
+    } else if (action === "resume" && currentState !== "pause") {
+      throw new Error("Participant timing is not paused");
+    } else if (action === "dnf" && currentState === "dnf") {
+      throw new Error("Participant is already marked DNF");
+    } else if (action === "restore" && currentState !== "dnf") {
+      throw new Error("Only a DNF participant can be restored");
+    }
+    const rows = await databaseRequest("participant_timing_controls", {
+      method: "POST",
+      body: {
+        race_id: raceId,
+        participant_id: participantId,
+        action,
+        reason,
+        created_at: new Date().toISOString(),
+      },
+      prefer: "return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      control: timingControlResponse(rows[0]),
+      state: ["resume", "restore"].includes(action) ? "active" : action,
       storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
       cloudError: null,
     }, 201);
@@ -1372,6 +1826,57 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         { ok: false, status: "race_finalized", error: "This race has ended" },
         409,
       );
+    }
+    const cardCode = String(payload.cardCode || "").trim().toUpperCase();
+    if (cardCode) {
+      const participants = await databaseRequest("participants", {
+        query: {
+          select: "id,athlete_name",
+          race_id: `eq.${raceId}`,
+          card_code: `eq.${cardCode}`,
+          limit: "1",
+        },
+      });
+      if (participants[0]) {
+        const [manualResults, controls] = await Promise.all([
+          databaseRequest("manual_results", {
+            query: {
+              select: "id",
+              race_id: `eq.${raceId}`,
+              participant_id: `eq.${participants[0].id}`,
+              limit: "1",
+            },
+          }),
+          databaseRequest("participant_timing_controls", {
+            query: {
+              select: "*",
+              race_id: `eq.${raceId}`,
+              participant_id: `eq.${participants[0].id}`,
+              order: "created_at.asc,id.asc",
+            },
+          }),
+        ]);
+        const controlState = summarizeTimingControls(controls, new Date().toISOString()).state;
+        const blockedStatus = manualResults[0]
+          ? "already_finished"
+          : controlState === "pause"
+            ? "participant_paused"
+            : controlState === "dnf"
+              ? "participant_dnf"
+              : null;
+        if (blockedStatus) {
+          return jsonResponse({
+            ok: true,
+            status: blockedStatus,
+            cardCode,
+            athleteName: participants[0].athlete_name,
+            stationId: String(payload.stationId || ""),
+            receivedAt: new Date().toISOString(),
+            storage: { localSaved: false, supabaseSaved: false, primary: "supabase" },
+            cloudError: null,
+          });
+        }
+      }
     }
     const result = await databaseRequest("rpc/process_timing_event_v3", {
       method: "POST",

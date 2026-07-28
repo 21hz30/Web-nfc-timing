@@ -21,7 +21,7 @@ https://timing.hybridtraining.cn/
 Android Chrome can load the Web NFC page from this domain. The current deployment
 serves the static frontend from Vercel and rewrites `/api/*` to the Supabase
 `timing-api` Edge Function. The live API uses Supabase as its primary store and the
-`process_timing_event_v2` PostgreSQL function serializes timing writes per athlete.
+`process_timing_event_v3` PostgreSQL function serializes timing writes per athlete.
 
 The timing phone page no longer exposes an editable API URL. All scanner and admin
 requests use the fixed `/api/*` routes, so operators only need to select the race and
@@ -54,11 +54,11 @@ http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
 ```
 
-The admin page loads all race profiles from the API, keeps the two official races at
+The admin page loads all race profiles from the API, keeps the featured live races at
 the top, and shows participant, check-in, finish, event, and error totals for the
 selected race. Its data-board button carries the selected `raceId` into the live
-leaderboard. The leaderboard selector contains two browser-only mock races and the
-two official database-backed races. Empty races show explicit empty states.
+leaderboard. The leaderboard selector contains two browser-only mock races and all
+database-backed race profiles. Empty races show explicit empty states.
 
 API endpoint:
 
@@ -137,7 +137,7 @@ npx supabase secrets set LEADERBOARD_CLEAR_CODE=<new-8+-character-code>
 ## Race Profiles
 
 Race behavior is selected by `raceId`; no code change is needed between race days.
-The timing page lists the two official races first in its Race ID dropdown and keeps
+The timing page lists the featured live races first in its Race ID dropdown and keeps
 older development profiles in a separate group. The admin page can create or update
 a profile through the Race Profile section.
 
@@ -170,8 +170,11 @@ Leaderboard race choices:
 ```text
 src-hyrox                   browser-only mock data
 hoka-race-demo              browser-only Hoka team demo
-fitmonster-hyrox-single     official Supabase data
-hoka-race                   official Supabase data
+fitmonster-hyrox-single     read-only FitMonster template
+hoka-race                   read-only HOKA template
+hoka-race-sh                HOKA Shanghai live data
+hoka-race-hz                HOKA Hangzhou live data
+hoka-race-final             HOKA Final live data
 ```
 
 Mock races cannot be cleared because they never write to the database. An official
@@ -179,8 +182,9 @@ race requires the administrator clear code and two confirmation clicks before
 `POST /api/reset-race` deletes its participants and timing events. The selected
 Race ID is sent by the page automatically; the user does not need to type it.
 `POST /api/reset-timing` uses the same two-step administrator confirmation but only
-deletes timing events and result adjustments. Participants, team details, Card Codes,
-device bindings, and the race profile remain available for another test run.
+deletes timing events, result adjustments, manual results, and participant timing
+controls. Participants, team details, Card Codes, device bindings, and the race profile
+remain available for another test run.
 
 For every real event, create a dated race session from the FitMonster or Hoka template
 in `admin.html` before registering participants. Session IDs use the event's local
@@ -196,6 +200,18 @@ Finished results can be adjusted from the participant table in `admin.html`. Eac
 penalty or time credit requires the administrator code and a written reason. The
 system keeps the raw NFC elapsed time unchanged, stores every signed adjustment as
 an audit record, and ranks finished participants by the adjusted final time.
+
+For exceptional cases, `admin.html` can also record a complete final result using
+either start and finish timestamps or an exact total elapsed time. These entries are
+append-only audit records in `manual_results`; the latest record becomes the base
+final time, result adjustments are then applied on top, and raw NFC events are never
+rewritten.
+
+The participant timing control action supports `pause`, `resume`, `dnf`, and
+`restore`. Every action requires the administrator code and a reason and is appended
+to `participant_timing_controls`. Pause/DNF intervals freeze both the total clock and
+the active station clock, are excluded from elapsed time, and block NFC progression
+until the participant is resumed or restored.
 
 At the end of a real event, use **End race** on the leaderboard instead of clearing
 the race. The action requires the same administrator code as race clearing, stores a
@@ -232,7 +248,19 @@ Official live profiles:
 ```text
 fitmonster-hyrox-single three_reader_auto    individual 8 HYROX stations
 hoka-race                station_checkpoints team       5 boundary-timed stations
+hoka-race-sh             station_checkpoints team       5 boundary-timed stations (Shanghai)
+hoka-race-hz             station_checkpoints team       5 boundary-timed stations (Hangzhou)
+hoka-race-final          station_checkpoints team       5 boundary-timed stations (Final)
 ```
+
+The three HOKA series profiles use the same six checkpoints and leaderboard theme.
+Hangzhou and Final were created as empty profiles; no Shanghai participants, device
+bindings, timing events, adjustments, or control records were copied.
+
+On screens up to 820px wide, station-checkpoint leaderboards switch from the desktop
+table to mobile cards. Each card shows team members, status, current checkpoint,
+live total time, Station 1-5 completion/current states, and result/control notes
+without document-level horizontal scrolling.
 
 FitMonster phone URLs:
 

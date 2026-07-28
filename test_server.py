@@ -222,7 +222,13 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(
             result["deleted"],
-            {"timingEvents": 1, "participants": 1, "resultAdjustments": 0},
+            {
+                "timingEvents": 1,
+                "participants": 1,
+                "resultAdjustments": 0,
+                "manualResults": 0,
+                "timingControls": 0,
+            },
         )
         self.assertTrue(result["raceProfilePreserved"])
         self.assertEqual(
@@ -296,7 +302,12 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(
             result["deleted"],
-            {"timingEvents": 1, "resultAdjustments": 1},
+            {
+                "timingEvents": 1,
+                "resultAdjustments": 1,
+                "manualResults": 0,
+                "timingControls": 0,
+            },
         )
         self.assertTrue(result["participantsPreserved"])
         self.assertTrue(result["deviceBindingsPreserved"])
@@ -780,6 +791,135 @@ class TimingApiTests(unittest.TestCase):
         self.assertEqual(refreshed["adjustmentMs"], 50000)
         self.assertEqual(refreshed["elapsedMs"], 210000)
 
+    def test_manual_results_override_final_time_without_changing_raw_events(self):
+        participant_id = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"][0]["id"]
+        total_result = self.request_json(
+            "/api/manual-results",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "entryMode": "elapsed",
+                "elapsedSeconds": 600,
+                "reason": "Backup timer result",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(total_result["manualResult"]["elapsedMs"], 600000)
+
+        result = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(result["status"], "finished")
+        self.assertIsNone(result["rawElapsedMs"])
+        self.assertEqual(result["elapsedMs"], 600000)
+        self.assertEqual(result["manualResult"]["entryMode"], "elapsed")
+
+        start = datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc)
+        finish = start + timedelta(minutes=12, seconds=5)
+        self.request_json(
+            "/api/manual-results",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "entryMode": "start_finish",
+                "startTime": start.isoformat().replace("+00:00", "Z"),
+                "finishTime": finish.isoformat().replace("+00:00", "Z"),
+                "reason": "Corrected start and finish log",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        result = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(result["elapsedMs"], 725000)
+        self.assertEqual(result["startTime"], start.isoformat().replace("+00:00", "Z"))
+        self.assertEqual(len(result["manualResults"]), 2)
+
+    def test_pause_resume_and_dnf_freeze_timing_and_block_taps(self):
+        participant_id = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"][0]["id"]
+        start_payload = self.timing_payload(0, "RUN_IN")
+        start_payload["eventTime"] = (
+            datetime.now(timezone.utc) - timedelta(minutes=1)
+        ).isoformat().replace("+00:00", "Z")
+        self.assertEqual(
+            self.request_json("/api/timing-events", start_payload)["status"],
+            "accepted",
+        )
+
+        self.request_json(
+            "/api/participant-timing-controls",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "action": "pause",
+                "reason": "Timing review",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        paused = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(paused["status"], "paused")
+        self.assertFalse(paused["timerRunning"])
+
+        blocked_payload = self.timing_payload(20, "RUN_OUT")
+        blocked_payload["eventId"] = "paused-tap"
+        blocked_payload["eventTime"] = datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
+        self.assertEqual(
+            self.request_json("/api/timing-events", blocked_payload)["status"],
+            "participant_paused",
+        )
+
+        self.request_json(
+            "/api/participant-timing-controls",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "action": "resume",
+                "reason": "Review complete",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        resumed_payload = dict(blocked_payload)
+        resumed_payload["eventId"] = "resumed-tap"
+        self.assertEqual(
+            self.request_json("/api/timing-events", resumed_payload)["status"],
+            "accepted",
+        )
+
+        self.request_json(
+            "/api/participant-timing-controls",
+            {
+                "raceId": "auto-test",
+                "participantId": participant_id,
+                "action": "dnf",
+                "reason": "Athlete withdrew",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        dnf = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(dnf["status"], "dnf")
+        self.assertEqual(dnf["current"], "DNF")
+        self.assertFalse(dnf["timerRunning"])
+
+        dnf_payload = self.timing_payload(30, "RUN_IN")
+        dnf_payload["eventId"] = "dnf-tap"
+        dnf_payload["eventTime"] = datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
+        self.assertEqual(
+            self.request_json("/api/timing-events", dnf_payload)["status"],
+            "participant_dnf",
+        )
+
     def test_delete_participant_requires_code_and_only_deletes_selected_card(self):
         event = self.request_json(
             "/api/timing-events",
@@ -831,7 +971,13 @@ class TimingApiTests(unittest.TestCase):
         )
         self.assertEqual(
             result["deleted"],
-            {"timingEvents": 1, "participants": 1, "resultAdjustments": 0},
+            {
+                "timingEvents": 1,
+                "participants": 1,
+                "resultAdjustments": 0,
+                "manualResults": 0,
+                "timingControls": 0,
+            },
         )
         participants = self.request_json(
             "/api/participants?raceId=auto-test"
@@ -950,7 +1096,13 @@ class TimingApiTests(unittest.TestCase):
         )["deleted"]
         self.assertEqual(
             deleted,
-            {"timingEvents": 2, "participants": 1, "resultAdjustments": 0},
+            {
+                "timingEvents": 2,
+                "participants": 1,
+                "resultAdjustments": 0,
+                "manualResults": 0,
+                "timingControls": 0,
+            },
         )
 
     def test_device_binding_requires_explicit_confirmation_and_reserves_assignment(self):

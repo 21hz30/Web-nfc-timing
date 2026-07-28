@@ -471,6 +471,132 @@
       display: none;
     }
 
+    .hoka-mobile-grid {
+      display: none;
+    }
+
+    .hoka-mobile-card {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+      padding: 15px;
+      border: 1px solid #d7e5ee;
+      border-left: 4px solid transparent;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #08253d;
+      box-shadow: 0 8px 22px rgba(0, 74, 124, 0.14);
+    }
+
+    .hoka-mobile-card.leader {
+      border-left-color: #009dff;
+    }
+
+    .hoka-mobile-head,
+    .hoka-mobile-time-row,
+    .hoka-mobile-progress-row {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .hoka-mobile-rank {
+      color: #008de6;
+      font-size: 15px;
+      font-weight: 950;
+    }
+
+    .hoka-mobile-name {
+      overflow-wrap: anywhere;
+      font-size: 21px;
+      font-weight: 950;
+      line-height: 1.12;
+    }
+
+    .hoka-mobile-members {
+      margin-top: 5px;
+      color: #617588;
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.4;
+    }
+
+    .hoka-mobile-time-row span,
+    .hoka-mobile-progress-row span {
+      color: #617588;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .hoka-mobile-time {
+      color: #08253d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 30px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 950;
+      line-height: 1;
+    }
+
+    .hoka-mobile-stations {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 5px;
+    }
+
+    .hoka-mobile-station {
+      display: grid;
+      min-width: 0;
+      min-height: 62px;
+      place-items: center;
+      gap: 5px;
+      padding: 7px 2px;
+      border: 1px solid #cfe0ea;
+      border-radius: 6px;
+      background: #f5f9fc;
+      text-align: center;
+    }
+
+    .hoka-mobile-station strong {
+      color: #617588;
+      font-size: 9px;
+      line-height: 1.1;
+    }
+
+    .hoka-mobile-station span {
+      color: #29465d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 950;
+    }
+
+    .hoka-mobile-station.complete {
+      border-color: #78c89e;
+      background: #e8f8ef;
+    }
+
+    .hoka-mobile-station.complete strong,
+    .hoka-mobile-station.complete span {
+      color: #087443;
+    }
+
+    .hoka-mobile-station.current {
+      border: 2px solid #009dff;
+      background: #eaf7ff;
+    }
+
+    .hoka-mobile-note {
+      display: grid;
+      gap: 4px;
+      padding-top: 10px;
+      border-top: 1px solid #d7e5ee;
+      color: #617588;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
     .fit-card {
       display: grid;
       min-width: 0;
@@ -1185,6 +1311,12 @@
       color: #fbbf24;
     }
 
+    .status.paused {
+      border-color: #d6a229;
+      background: rgba(214, 162, 41, 0.14);
+      color: #b77900;
+    }
+
     .status.dns {
       border-color: var(--line-strong);
       background: var(--table-head);
@@ -1464,6 +1596,15 @@
       }
 
       .fitmonster-grid { grid-template-columns: 1fr; }
+
+      .scoreboard-layout.station-mode .table-wrap {
+        display: none;
+      }
+
+      .scoreboard-layout.station-mode .hoka-mobile-grid {
+        display: grid;
+        gap: 10px;
+      }
     }
 
     @media (max-width: 480px) {
@@ -1578,6 +1719,7 @@
             </tbody>
           </table>
         </div>
+        <div id="hokaMobileGrid" class="hoka-mobile-grid" aria-live="polite"></div>
         <div id="fitMonsterGrid" class="fitmonster-grid" hidden></div>
       </div>
 
@@ -1727,6 +1869,7 @@
   <script src="./timing-api.js"></script>
   <script>
     const leaderboardBody = document.querySelector("#leaderboardBody");
+    const hokaMobileGrid = document.querySelector("#hokaMobileGrid");
     const brandLogo = document.querySelector("#brandLogo");
     const fitMonsterGrid = document.querySelector("#fitMonsterGrid");
     const leaderboardTableWrap = document.querySelector(".table-wrap");
@@ -1889,7 +2032,7 @@
         finalizeSuccess: "本场比赛已结束，最终画面已保存。",
         resetTiming: "计时归零",
         resetTimingTitle: "计时归零",
-        resetTimingDescription: "这会将 {race} 的所有计时和成绩调整归零，参赛者、团队名称、Card Code 和设备绑定都会保留。",
+        resetTimingDescription: "这会将 {race} 的所有计时、成绩调整、手动成绩和暂停/退赛状态归零，参赛者、团队名称、Card Code 和设备绑定都会保留。",
         finalResetTimingDescription: "确认将 {race} 的计时归零吗？所有参赛单位会恢复为未开始状态。",
         finalConfirmResetTiming: "最终确认归零",
         resettingTiming: "正在归零...",
@@ -1937,13 +2080,16 @@
         statusText: {
           finished: "已完赛",
           racing: "比赛中",
+          paused: "已暂停",
           not_started: "未开始",
           dnf: "DNF 未完赛",
           dns: "DNS 未出发"
         },
         currentText: {
           Waiting: "等待",
-          Finished: "已完赛"
+          Finished: "已完赛",
+          Paused: "已暂停",
+          DNF: "DNF 退赛"
         },
         videoSlot: "广告位",
         commercialSlot: "商业展示区",
@@ -1989,7 +2135,7 @@
         finalizeSuccess: "Race ended and the final leaderboard was saved.",
         resetTiming: "Reset timing",
         resetTimingTitle: "Reset timing",
-        resetTimingDescription: "This resets all timing and result adjustments for {race}, while preserving entries, team names, Card Codes, and device bindings.",
+        resetTimingDescription: "This resets timing, adjustments, manual results, and pause/DNF states for {race}, while preserving entries, team names, Card Codes, and device bindings.",
         finalResetTimingDescription: "Reset timing for {race}? Every entry will return to Not Started.",
         finalConfirmResetTiming: "Final reset",
         resettingTiming: "Resetting timing...",
@@ -2037,13 +2183,16 @@
         statusText: {
           finished: "Finished",
           racing: "Racing",
+          paused: "Paused",
           not_started: "Not Started",
           dnf: "DNF",
           dns: "DNS"
         },
         currentText: {
           Waiting: "Waiting",
-          Finished: "Finished"
+          Finished: "Finished",
+          Paused: "Paused",
+          DNF: "DNF"
         },
         videoSlot: "Ad slot",
         commercialSlot: "Commercial space",
@@ -2552,8 +2701,29 @@
     }
 
     function adjustmentNoteCell(row) {
-      const details = resultAdjustmentDetailLines(row.adjustments);
+      const details = resultNoteLines(row);
       return `<td class="adjustment-note">${details || "-"}</td>`;
+    }
+
+    function resultNoteLines(row) {
+      const lines = [resultAdjustmentDetailLines(row.adjustments)];
+      if (row.manualResult) {
+        const label = language === "zh" ? "手动成绩" : "Manual result";
+        lines.push(
+          `<span class="reason"><strong>${label} ${formatDuration(row.manualResult.elapsedMs)}</strong> · ${escapeHtml(row.manualResult.reason || "-")}</span>`
+        );
+      }
+      const controls = Array.isArray(row.timingControls) ? row.timingControls : [];
+      const latestControl = controls.at(-1);
+      if (latestControl) {
+        const actionLabels = language === "zh"
+          ? { pause: "暂停", resume: "恢复", dnf: "退赛", restore: "撤销退赛" }
+          : { pause: "Paused", resume: "Resumed", dnf: "DNF", restore: "Restored" };
+        lines.push(
+          `<span class="reason"><strong>${escapeHtml(actionLabels[latestControl.action] || latestControl.action)}</strong> · ${escapeHtml(latestControl.reason || "-")}</span>`
+        );
+      }
+      return lines.filter(Boolean).join("");
     }
 
     function translateStatus(status) {
@@ -2612,8 +2782,10 @@
       };
     }
 
-    function liveDurationAttributes(startMs) {
-      return Number.isFinite(startMs) ? ` data-live-start-ms="${startMs}"` : "";
+    function liveDurationAttributes(baseMs, isRunning) {
+      return isRunning && Number.isFinite(Number(baseMs))
+        ? ` data-live-base-ms="${Number(baseMs)}" data-live-anchor-ms="${leaderboardNowMs}"`
+        : "";
     }
 
     function stationSplitCells(row, stationCount, usesStationBoundaries) {
@@ -2621,41 +2793,28 @@
       for (let stationNumber = 1; stationNumber <= stationCount; stationNumber += 1) {
         const storedElapsed = row.stationSplits?.[`station${stationNumber}Ms`];
         const isCurrentStation = usesStationBoundaries
-          && ["racing", "dnf"].includes(row.status)
+          && ["racing", "paused", "dnf"].includes(row.status)
           && row.current === `Station ${stationNumber}`;
-        const startCheckpoint = stationNumber === 1
-          ? "START"
-          : `STATION_${stationNumber}_START`;
-        const startMs = isCurrentStation
-          ? Date.parse(row.checkpointTimes?.[startCheckpoint] || "")
-          : NaN;
         const elapsed = storedElapsed !== null && storedElapsed !== undefined
           ? storedElapsed
-          : Number.isFinite(startMs)
-            ? Math.max(0, leaderboardNowMs - startMs)
-            : null;
-        html += `<td class="split mono"${liveDurationAttributes(startMs)}>${formatDuration(elapsed)}</td>`;
+          : null;
+        html += `<td class="split mono"${liveDurationAttributes(elapsed, isCurrentStation && row.timerRunning)}>${formatDuration(elapsed)}</td>`;
       }
       return html;
     }
 
     function elapsedCell(row) {
-      const startMs = row.status === "racing"
-        ? Date.parse(row.startTime || row.checkpointTimes?.START || "")
-        : NaN;
-      const elapsed = Number.isFinite(startMs)
-        ? Math.max(0, leaderboardNowMs - startMs)
-        : row.elapsedMs;
-      return `<td class="elapsed mono"${liveDurationAttributes(startMs)}><strong>${formatDuration(elapsed)}</strong></td>`;
+      return `<td class="elapsed mono"><strong${liveDurationAttributes(row.elapsedMs, row.timerRunning)}>${formatDuration(row.elapsedMs)}</strong></td>`;
     }
 
     function updateLiveDurations() {
       if (activeRaceFinalized) return;
       const nowMs = Date.now();
-      document.querySelectorAll("[data-live-start-ms]").forEach((cell) => {
-        const startMs = Number(cell.dataset.liveStartMs);
-        if (Number.isFinite(startMs)) {
-          cell.textContent = formatDuration(Math.max(0, nowMs - startMs));
+      document.querySelectorAll("[data-live-base-ms]").forEach((cell) => {
+        const baseMs = Number(cell.dataset.liveBaseMs);
+        const anchorMs = Number(cell.dataset.liveAnchorMs);
+        if (Number.isFinite(baseMs) && Number.isFinite(anchorMs)) {
+          cell.textContent = formatDuration(Math.max(0, baseMs + nowMs - anchorMs));
         }
       });
     }
@@ -2689,12 +2848,9 @@
     function activeSegmentElapsed(row, type, number, nowMs) {
       const currentLabel = `${type === "run" ? "Run" : "Station"} ${number}`;
       if (row.current !== currentLabel) return null;
-
-      const checkpoint = type === "run"
-        ? (number === 1 ? "START" : `STATION_${number - 1}_EXIT`)
-        : `STATION_${number}_ENTER`;
-      const startMs = Date.parse(row.checkpointTimes?.[checkpoint] || "");
-      return Number.isFinite(startMs) ? Math.max(0, nowMs - startMs) : 0;
+      const segment = (Array.isArray(row.segmentSplits) ? row.segmentSplits : [])
+        .find((item) => item.type === type && Number(item.number) === number);
+      return segment?.elapsedMs ?? 0;
     }
 
     function fitMonsterCard(row, changed, nowMs) {
@@ -2723,8 +2879,10 @@
         const stationNumber = index + 1;
         const runSegment = runSegments.find((item) => Number(item.number) === stationNumber);
         const stationSegment = stationSegments.find((item) => Number(item.number) === stationNumber);
-        const runComplete = runSegment?.elapsedMs !== null && runSegment?.elapsedMs !== undefined;
-        const stationComplete = stationSegment?.elapsedMs !== null && stationSegment?.elapsedMs !== undefined;
+        const runComplete = runSegment?.elapsedMs !== null && runSegment?.elapsedMs !== undefined
+          && currentRun !== stationNumber;
+        const stationComplete = stationSegment?.elapsedMs !== null && stationSegment?.elapsedMs !== undefined
+          && currentStation !== stationNumber;
         const runElapsed = runComplete
           ? runSegment.elapsedMs
           : activeSegmentElapsed(row, "run", stationNumber, nowMs);
@@ -2739,11 +2897,11 @@
           <div class="fit-segment-pair">
             <div class="${runClasses}">
               <strong>R${stationNumber}</strong>
-              <span>${compactStationDuration(runElapsed)}</span>
+              <span${liveDurationAttributes(runElapsed, currentRun === stationNumber && row.timerRunning)}>${compactStationDuration(runElapsed)}</span>
             </div>
             <div class="${stationClasses}">
               <strong title="S${stationNumber} · ${escapeHtml(stationNames[index])}">${escapeHtml(stationNames[index])}</strong>
-              <span>${compactStationDuration(stationElapsed)}</span>
+              <span${liveDurationAttributes(stationElapsed, currentStation === stationNumber && row.timerRunning)}>${compactStationDuration(stationElapsed)}</span>
             </div>
           </div>
         `;
@@ -2770,7 +2928,7 @@
             ${currentLabel}
             <div class="fit-card-time">
               <span>${escapeHtml(t("elapsed"))}</span>
-              <strong>${formatDuration(row.elapsedMs)}</strong>
+              <strong${liveDurationAttributes(row.elapsedMs, row.timerRunning)}>${formatDuration(row.elapsedMs)}</strong>
               ${resultAdjustmentMarkup(row, "fit-card-adjustment")}
             </div>
           </div>
@@ -2778,6 +2936,65 @@
             <div class="fit-card-progress" aria-label="${progress}%"><span style="width:${progress}%"></span></div>
             <div class="fit-segment-pairs">${segmentPairs}</div>
           </div>
+        </article>
+      `;
+    }
+
+    function hokaMobileCard(row, changed) {
+      const entryType = row.entryType || "team";
+      const memberNames = Array.isArray(row.memberNames) && row.memberNames.length
+        ? row.memberNames
+        : [row.athleteName];
+      const members = entryType === "individual"
+        ? ""
+        : `<div class="hoka-mobile-members">${escapeHtml(memberNames.join(" / "))}</div>`;
+      const stationCells = Array.from({ length: 5 }, (_, index) => {
+        const stationNumber = index + 1;
+        const endCheckpoint = stationNumber === 5
+          ? "END"
+          : `STATION_${stationNumber + 1}_START`;
+        const isComplete = Boolean(row.checkpointTimes?.[endCheckpoint]);
+        const isCurrent = row.current === `Station ${stationNumber}`
+          && ["racing", "paused", "dnf"].includes(row.status);
+        const elapsed = row.stationSplits?.[`station${stationNumber}Ms`];
+        const classes = [
+          "hoka-mobile-station",
+          isComplete ? "complete" : "",
+          isCurrent ? "current" : ""
+        ].filter(Boolean).join(" ");
+        return `
+          <div class="${classes}">
+            <strong>Station ${stationNumber}</strong>
+            <span${liveDurationAttributes(elapsed, isCurrent && row.timerRunning)}>${formatDuration(elapsed)}</span>
+          </div>
+        `;
+      }).join("");
+      const notes = resultNoteLines(row);
+      const cardClasses = [
+        "hoka-mobile-card",
+        row.rank === 1 ? "leader" : "",
+        changed.has(String(row.participantId)) ? "flash" : ""
+      ].filter(Boolean).join(" ");
+      return `
+        <article class="${cardClasses}">
+          <div class="hoka-mobile-head">
+            <span class="hoka-mobile-rank">#${escapeHtml(row.rank)}</span>
+            <span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span>
+          </div>
+          <div>
+            <div class="hoka-mobile-name">${escapeHtml(row.athleteName)}</div>
+            ${members}
+          </div>
+          <div class="hoka-mobile-time-row">
+            <span>${escapeHtml(t("elapsed"))}</span>
+            <strong class="hoka-mobile-time"${liveDurationAttributes(row.elapsedMs, row.timerRunning)}>${formatDuration(row.elapsedMs)}</strong>
+          </div>
+          <div class="hoka-mobile-progress-row">
+            <span>${escapeHtml(t("current"))}</span>
+            <strong>${escapeHtml(translateCurrent(row.current))}</strong>
+          </div>
+          <div class="hoka-mobile-stations">${stationCells}</div>
+          ${notes ? `<div class="hoka-mobile-note">${notes}</div>` : ""}
         </article>
       `;
     }
@@ -2798,7 +3015,10 @@
         splits: row.stationSplits,
         segments: row.segmentSplits,
         adjustmentMs: row.adjustmentMs,
-        adjustments: row.adjustments
+        adjustments: row.adjustments,
+        manualResult: row.manualResult,
+        timingControlState: row.timingControlState,
+        timingControls: row.timingControls
       });
     }
 
@@ -3177,6 +3397,7 @@
       updatedAt.textContent = `${t("error")}: ${error.message}`;
       leaderboardTableWrap.hidden = columns.usesDetailedSegments;
       fitMonsterGrid.hidden = !columns.usesDetailedSegments;
+      hokaMobileGrid.innerHTML = "";
       fitMonsterGrid.innerHTML = columns.usesDetailedSegments
         ? `<div class="empty">${escapeHtml(error.message)}</div>`
         : "";
@@ -3194,11 +3415,12 @@
       const rows = payload.leaderboard || [];
       const columns = configureSplitColumns(payload.race);
       const isFitMonster = columns.usesDetailedSegments;
+      const usesStationTiming = payload.race?.mode === "station_checkpoints";
       leaderboardTableWrap.hidden = isFitMonster;
       fitMonsterGrid.hidden = !isFitMonster;
       const changed = changedRows(rows);
       totalCount.textContent = rows.length;
-      const incompleteStatuses = activeRaceFinalized ? ["dnf", "dns"] : ["racing"];
+      const incompleteStatuses = activeRaceFinalized ? ["dnf", "dns"] : ["racing", "paused"];
       racingCount.textContent = rows.filter((row) => incompleteStatuses.includes(row.status)).length;
       racingMetricLabel.textContent = activeRaceFinalized ? t("incomplete") : t("racing");
       finishedCount.textContent = rows.filter((row) => row.status === "finished").length;
@@ -3210,6 +3432,9 @@
           fitMonsterGrid.innerHTML = `<div class="empty">${t("noParticipants")}</div>`;
         } else {
           leaderboardBody.innerHTML = `<tr><td class="empty" colspan="${5 + columns.visibleDetailColumns}">${t("noParticipants")}</td></tr>`;
+          hokaMobileGrid.innerHTML = usesStationTiming
+            ? `<div class="empty">${t("noParticipants")}</div>`
+            : "";
         }
         return;
       }
@@ -3220,6 +3445,10 @@
         fitMonsterGrid.innerHTML = rows.map((row) => fitMonsterCard(row, changed, nowMs)).join("");
         return;
       }
+
+      hokaMobileGrid.innerHTML = usesStationTiming
+        ? rows.map((row) => hokaMobileCard(row, changed)).join("")
+        : "";
 
       leaderboardBody.innerHTML = rows.map((row) => {
         const rowClasses = [

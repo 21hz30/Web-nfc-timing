@@ -1369,7 +1369,7 @@
 
     function responseTone(status) {
       if (status === "accepted") return "success";
-      if (["duplicate_tap", "duplicate_event_id", "already_finished", "local_only"].includes(status)) return "warning";
+      if (["duplicate_tap", "duplicate_event_id", "already_finished", "local_only", "participant_paused"].includes(status)) return "warning";
       return "error";
     }
 
@@ -1381,6 +1381,8 @@
         duplicate_tap: "重复刷卡",
         invalid_progress: "进度异常",
         local_only: "仅本机",
+        participant_dnf: "选手已退赛",
+        participant_paused: "计时已暂停",
         unbound_card: "卡片未绑定",
         upload_failed: "上传失败",
         wrong_checkpoint: "刷卡位置错误",
@@ -1400,6 +1402,8 @@
       if (status === "already_finished") return "该选手已经完赛";
       if (status === "invalid_progress") return "计时进度异常，请联系工作人员";
       if (status === "local_only") return "服务器未连接，本次记录只保存在本机";
+      if (status === "participant_paused") return "该选手计时已暂停，请联系工作人员恢复计时";
+      if (status === "participant_dnf") return "该选手已经退赛，请联系工作人员确认";
       return "刷卡失败，请联系工作人员";
     }
 
@@ -1437,6 +1441,10 @@
         feedback.detail = "请联系计时工作人员检查记录";
       } else if (status === "local_only") {
         feedback.detail = "服务器未连接，这条记录不会进入实时排名";
+      } else if (status === "participant_paused") {
+        feedback.detail = "该选手计时已暂停，请先在后台恢复计时";
+      } else if (status === "participant_dnf") {
+        feedback.detail = "该选手已标记退赛，本次刷卡未记录";
       }
 
       elements.lastResult.textContent = `${athlete} · ${feedback.detail}`;
