@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SRC Simulation Race Live Timing</title>
+  <title>SRC Hyrox Simulation Live Timing</title>
   <link rel="icon" type="image/png" sizes="192x192" href="./assets/src-logo.png">
   <link rel="apple-touch-icon" href="./assets/src-logo.png">
   <style>
@@ -1634,7 +1634,7 @@
       <img id="brandLogo" class="brand-logo" src="./assets/src-logo.png" alt="SRC logo">
       <div class="brand-copy">
         <div class="brand-eyebrow" data-i18n="brandEyebrow">Brand demo</div>
-        <h1 data-i18n="title">SRC Simulation Race</h1>
+        <h1 data-i18n="title">SRC Hyrox Simulation</h1>
         <div class="sub" data-i18n="subtitle">实时排名、进度和每站用时。</div>
       </div>
     </div>
@@ -1663,10 +1663,10 @@
         <span class="race-select-row">
           <select id="raceId" autocomplete="off">
             <optgroup label="模拟比赛">
-              <option value="src-hyrox">SRC 排行榜演示</option>
+              <option value="src-hyrox">SRC Hyrox Simulation · Preview</option>
             </optgroup>
             <optgroup label="正式比赛">
-              <option value="fitmonster-hyrox-single" selected>FitMonster Hyrox Single Simulation Race</option>
+              <option value="fitmonster-hyrox-single" selected>SRC Hyrox Simulation</option>
               <option value="hoka-race">Hoka Race</option>
             </optgroup>
           </select>
@@ -1971,8 +1971,8 @@
       {
         raceId: "src-hyrox",
         kind: "mock",
-        zh: "SRC 排行榜演示",
-        en: "SRC Leaderboard Demo"
+        zh: "SRC Hyrox Simulation · 预览",
+        en: "SRC Hyrox Simulation · Preview"
       },
       {
         raceId: "hoka-race-demo",
@@ -1984,8 +1984,8 @@
         raceId: "fitmonster-hyrox-single",
         kind: "live",
         isTemplate: true,
-        zh: "FitMonster Hyrox 单人模拟赛",
-        en: "FitMonster Hyrox Single Simulation Race"
+        zh: "SRC Hyrox Simulation",
+        en: "SRC Hyrox Simulation"
       },
       {
         raceId: "hoka-race",
@@ -2008,7 +2008,7 @@
     const i18n = {
       zh: {
         brandEyebrow: "品牌演示",
-        title: "SRC 模拟赛",
+        title: "SRC Hyrox Simulation",
         subtitle: "SRC 品牌模拟赛实时排名、进度和每站用时。",
         live: "LIVE",
         raceId: "选择比赛",
@@ -2111,7 +2111,7 @@
       },
       en: {
         brandEyebrow: "Brand demo",
-        title: "SRC Simulation Race",
+        title: "SRC Hyrox Simulation",
         subtitle: "Live ranking, progress, and station splits for the SRC brand race.",
         live: "LIVE",
         raceId: "Select race",
@@ -2466,7 +2466,7 @@
       brandEyebrow.textContent = t("brandEyebrow");
       title.textContent = t("title");
       subtitle.textContent = t("subtitle");
-      document.title = "SRC Simulation Race Live Timing";
+      document.title = "SRC Hyrox Simulation Live Timing";
     }
 
     function escapeHtml(value) {

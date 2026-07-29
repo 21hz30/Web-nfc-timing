@@ -527,11 +527,25 @@ def default_race_profile(race_id: str) -> dict:
 
 def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
     for race_id, name, mode, station_count, checkpoints, entry_type in (
-        ("hyrox-sim-001", "HYROX Simulation", "two_reader_auto", 8, None, "individual"),
-        ("nfc-test-001", "NFC Test", "two_reader_auto", 8, None, "individual"),
+        (
+            "hyrox-sim-001",
+            "SRC Hyrox Simulation · 001",
+            "two_reader_auto",
+            8,
+            None,
+            "individual",
+        ),
+        (
+            "nfc-test-001",
+            "Peoplearth Simulation · 001",
+            "two_reader_auto",
+            8,
+            None,
+            "individual",
+        ),
         (
             "supabase-e2e-20260716",
-            "Supabase E2E Test",
+            "Peoplearth Simulation · 002",
             "two_reader_auto",
             8,
             None,
@@ -539,7 +553,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
         ),
         (
             "fitmonster-hyrox-single",
-            "FitMonster Hyrox Single Simulation Race",
+            "SRC Hyrox Simulation",
             "three_reader_auto",
             8,
             None,
