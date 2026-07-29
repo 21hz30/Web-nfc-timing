@@ -2001,11 +2001,6 @@
     };
     const hokaDemoAnchorMs = Date.now();
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
-    const hokaSeriesThemeRaceIds = new Set([
-      "hoka-race-sh",
-      "hoka-race-hz",
-      "hoka-race-final"
-    ]);
     const initialRaceId = forceDemoData
       ? "src-hyrox"
       : requestedRaceId || "fitmonster-hyrox-single";
@@ -2345,7 +2340,7 @@
     }
 
     function usesHokaSeriesTheme(raceId) {
-      return hokaSeriesThemeRaceIds.has(String(raceId || ""));
+      return isHokaRaceId(raceId);
     }
 
     function isOfficialRaceId(raceId) {
