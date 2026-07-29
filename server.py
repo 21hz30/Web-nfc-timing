@@ -40,6 +40,7 @@ PARTICIPANT_COLUMNS = (
     "gender",
     "division",
     "check_in_status",
+    "start_order",
     "created_at",
     "updated_at",
 )
@@ -69,6 +70,7 @@ RACE_PROFILE_COLUMNS = (
     "name",
     "mode",
     "station_count",
+    "start_group_size",
     "checkpoints",
     "entry_type",
     "status",
@@ -103,6 +105,16 @@ PARTICIPANT_TIMING_CONTROL_COLUMNS = (
     "action",
     "reason",
     "created_at",
+)
+START_CHECKIN_COLUMNS = (
+    "id",
+    "race_id",
+    "participant_id",
+    "device_id",
+    "status",
+    "confirmed_at",
+    "started_at",
+    "updated_at",
 )
 RACE_ADMIN_ACTION_COLUMNS = (
     "id",
@@ -195,6 +207,7 @@ def init_db() -> None:
               entry_type TEXT NOT NULL DEFAULT 'individual',
               member_names TEXT NOT NULL DEFAULT '[]',
               division TEXT,
+              start_order INTEGER NOT NULL DEFAULT 1 CHECK (start_order > 0),
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               UNIQUE (race_id, card_code)
@@ -228,6 +241,7 @@ def init_db() -> None:
               name TEXT NOT NULL,
               mode TEXT NOT NULL,
               station_count INTEGER NOT NULL,
+              start_group_size INTEGER NOT NULL DEFAULT 1 CHECK (start_group_size BETWEEN 1 AND 50),
               checkpoints_json TEXT NOT NULL,
               entry_type TEXT NOT NULL DEFAULT 'individual',
               created_at TEXT NOT NULL,
@@ -278,6 +292,19 @@ def init_db() -> None:
               FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS start_checkins (
+              id TEXT PRIMARY KEY,
+              race_id TEXT NOT NULL,
+              participant_id INTEGER NOT NULL,
+              device_id TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready', 'started')),
+              confirmed_at TEXT NOT NULL,
+              started_at TEXT,
+              updated_at TEXT NOT NULL,
+              UNIQUE (race_id, participant_id),
+              FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS race_admin_actions (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               race_id TEXT NOT NULL,
@@ -303,6 +330,9 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_participant_timing_controls_race_participant
               ON participant_timing_controls (race_id, participant_id, created_at, id);
+
+            CREATE INDEX IF NOT EXISTS idx_start_checkins_ready_queue
+              ON start_checkins (race_id, status, confirmed_at DESC, participant_id);
 
             CREATE INDEX IF NOT EXISTS idx_race_admin_actions_race_created
               ON race_admin_actions (race_id, created_at DESC, id DESC);
@@ -345,10 +375,30 @@ def ensure_participant_columns(db: sqlite3.Connection) -> None:
             "ALTER TABLE participants "
             "ADD COLUMN check_in_status TEXT NOT NULL DEFAULT 'not_checked_in'"
         ),
+        "start_order": (
+            "ALTER TABLE participants "
+            "ADD COLUMN start_order INTEGER NOT NULL DEFAULT 1"
+        ),
     }
+    added_start_order = "start_order" not in existing_columns
     for column_name, statement in migrations.items():
         if column_name not in existing_columns:
             db.execute(statement)
+    if added_start_order:
+        race_rows = db.execute(
+            "SELECT DISTINCT race_id FROM participants ORDER BY race_id"
+        ).fetchall()
+        for race_row in race_rows:
+            participant_rows = db.execute(
+                "SELECT id FROM participants WHERE race_id = ? "
+                "ORDER BY bib_number IS NULL, bib_number, created_at, id",
+                (race_row["race_id"],),
+            ).fetchall()
+            for start_order, participant_row in enumerate(participant_rows, start=1):
+                db.execute(
+                    "UPDATE participants SET start_order = ? WHERE id = ?",
+                    (start_order, participant_row["id"]),
+                )
     rows = db.execute(
         "SELECT id, athlete_name, member_names FROM participants"
     ).fetchall()
@@ -384,6 +434,11 @@ def ensure_race_profile_columns(db: sqlite3.Connection) -> None:
             "ALTER TABLE race_profiles "
             "ADD COLUMN is_template INTEGER NOT NULL DEFAULT 0"
         )
+    if "start_group_size" not in existing_columns:
+        db.execute(
+            "ALTER TABLE race_profiles "
+            "ADD COLUMN start_group_size INTEGER NOT NULL DEFAULT 1"
+        )
 
 
 def ensure_timing_event_columns(db: sqlite3.Connection) -> None:
@@ -411,6 +466,7 @@ def make_race_profile(
     name: str,
     mode: str,
     station_count: int,
+    start_group_size: int = 1,
     created_at: str | None = None,
     updated_at: str | None = None,
     checkpoints: list[str] | None = None,
@@ -425,6 +481,8 @@ def make_race_profile(
         )
     if not 1 <= station_count <= 20:
         raise ValueError("stationCount must be between 1 and 20")
+    if not 1 <= start_group_size <= 50:
+        raise ValueError("startGroupSize must be between 1 and 50")
     if entry_type not in ENTRY_TYPES:
         raise ValueError("entryType must be individual, doubles, or team")
     profile_checkpoints = list(checkpoints) if checkpoints is not None else build_checkpoints(
@@ -444,6 +502,7 @@ def make_race_profile(
         "name": name or race_id,
         "mode": mode,
         "station_count": station_count,
+        "start_group_size": start_group_size,
         "checkpoints": profile_checkpoints,
         "entry_type": entry_type,
         "status": status,
@@ -574,6 +633,7 @@ def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
         "name": source["name"],
         "mode": source["mode"],
         "station_count": int(source["station_count"]),
+        "start_group_size": int(source.get("start_group_size") or 1),
         "checkpoints": checkpoints,
         "entry_type": source.get("entry_type") or "individual",
         "status": source.get("status") or "active",
@@ -597,6 +657,7 @@ def race_profile_response(profile: dict) -> dict:
         "name": profile["name"],
         "mode": profile["mode"],
         "stationCount": profile["station_count"],
+        "startGroupSize": profile.get("start_group_size") or 1,
         "checkpoints": profile["checkpoints"],
         "checkpointLayout": checkpoint_layout,
         "entryType": profile.get("entry_type") or "individual",
@@ -622,14 +683,15 @@ def save_race_profile(profile: dict) -> dict:
         db.execute(
             """
             INSERT INTO race_profiles (
-              race_id, name, mode, station_count, checkpoints_json,
+              race_id, name, mode, station_count, start_group_size, checkpoints_json,
               entry_type, status, finalized_at, is_template, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (race_id) DO UPDATE SET
               name = excluded.name,
               mode = excluded.mode,
               station_count = excluded.station_count,
+              start_group_size = excluded.start_group_size,
               checkpoints_json = excluded.checkpoints_json,
               entry_type = excluded.entry_type,
               status = excluded.status,
@@ -642,6 +704,7 @@ def save_race_profile(profile: dict) -> dict:
                 profile["name"],
                 profile["mode"],
                 profile["station_count"],
+                profile.get("start_group_size") or 1,
                 json.dumps(profile["checkpoints"]),
                 profile.get("entry_type") or "individual",
                 profile.get("status") or "active",
@@ -673,6 +736,12 @@ def normalize_race_profile_payload(payload: dict) -> dict:
     except (TypeError, ValueError):
         raise ValueError("stationCount must be an integer")
     existing = get_race_profile(race_id)
+    try:
+        start_group_size = int(
+            payload.get("startGroupSize", existing.get("start_group_size") or 1)
+        )
+    except (TypeError, ValueError):
+        raise ValueError("startGroupSize must be an integer")
     entry_type = str(
         payload.get("entryType") or existing.get("entry_type") or "individual"
     ).strip().lower()
@@ -694,6 +763,7 @@ def normalize_race_profile_payload(payload: dict) -> dict:
         name,
         mode,
         station_count,
+        start_group_size=start_group_size,
         created_at=existing["created_at"],
         updated_at=utc_now(),
         checkpoints=checkpoints,
@@ -769,7 +839,20 @@ def participant_response(row: sqlite3.Row | dict) -> dict:
     source["entry_type"] = entry_type
     source["member_names"] = member_names
     source["member_count"] = len(member_names)
+    source["start_order"] = max(1, int(source.get("start_order") or 1))
     return source
+
+
+def optional_start_order(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        start_order = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("startOrder must be a positive integer") from error
+    if not 1 <= start_order <= 100000:
+        raise ValueError("startOrder must be between 1 and 100000")
+    return start_order
 
 
 def result_adjustment_response(row: sqlite3.Row | dict) -> dict:
@@ -927,13 +1010,20 @@ def supabase_upsert(table: str, records: list[dict]) -> None:
         "result_adjustments",
         "manual_results",
         "participant_timing_controls",
+        "start_checkins",
         "race_admin_actions",
     }:
         raise ValueError(f"Unsupported Supabase table: {table}")
     if not supabase_configured():
         raise RuntimeError("Supabase sync is not configured")
 
-    conflict_key = "race_id" if table == "race_profiles" else "id"
+    conflict_key = (
+        "race_id"
+        if table == "race_profiles"
+        else "race_id,participant_id"
+        if table == "start_checkins"
+        else "id"
+    )
     query = urlencode({"on_conflict": conflict_key})
     request = Request(
         f"{SUPABASE_URL}/rest/v1/{table}?{query}",
@@ -973,6 +1063,8 @@ def sync_supabase_record(table: str, row: sqlite3.Row | dict) -> dict:
         columns = MANUAL_RESULT_COLUMNS
     elif table == "participant_timing_controls":
         columns = PARTICIPANT_TIMING_CONTROL_COLUMNS
+    elif table == "start_checkins":
+        columns = START_CHECKIN_COLUMNS
     elif table == "race_admin_actions":
         columns = RACE_ADMIN_ACTION_COLUMNS
     else:
@@ -1017,6 +1109,9 @@ def sync_all_to_supabase() -> dict:
         timing_control_rows = db.execute(
             "SELECT * FROM participant_timing_controls ORDER BY id"
         ).fetchall()
+        start_checkin_rows = db.execute(
+            "SELECT * FROM start_checkins ORDER BY confirmed_at, participant_id"
+        ).fetchall()
         admin_action_rows = db.execute(
             "SELECT * FROM race_admin_actions ORDER BY id"
         ).fetchall()
@@ -1039,6 +1134,9 @@ def sync_all_to_supabase() -> dict:
         supabase_row(row, PARTICIPANT_TIMING_CONTROL_COLUMNS)
         for row in timing_control_rows
     ]
+    start_checkins = [
+        supabase_row(row, START_CHECKIN_COLUMNS) for row in start_checkin_rows
+    ]
     admin_actions = [
         supabase_row(row, RACE_ADMIN_ACTION_COLUMNS) for row in admin_action_rows
     ]
@@ -1048,6 +1146,7 @@ def sync_all_to_supabase() -> dict:
     supabase_upsert("result_adjustments", adjustments)
     supabase_upsert("manual_results", manual_results)
     supabase_upsert("participant_timing_controls", timing_controls)
+    supabase_upsert("start_checkins", start_checkins)
     supabase_upsert("race_admin_actions", admin_actions)
     completed_at = utc_now()
     LAST_SUPABASE_SYNC.update(
@@ -1061,6 +1160,7 @@ def sync_all_to_supabase() -> dict:
         "resultAdjustments": len(adjustments),
         "manualResults": len(manual_results),
         "timingControls": len(timing_controls),
+        "startCheckins": len(start_checkins),
         "raceAdminActions": len(admin_actions),
         "syncedAt": completed_at,
     }
@@ -1251,6 +1351,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_get_participant_timing_controls(parsed.query)
             return
 
+        if parsed.path == "/api/start-queue":
+            self.handle_get_start_queue(parsed.query)
+            return
+
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -1305,6 +1409,18 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/reopen-race":
             self.handle_post_reopen_race()
+            return
+
+        if parsed.path == "/api/start-checkins":
+            self.handle_post_start_checkin()
+            return
+
+        if parsed.path == "/api/start-checkins/cancel":
+            self.handle_post_cancel_start_checkin()
+            return
+
+        if parsed.path == "/api/start-race":
+            self.handle_post_start_race()
             return
 
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -1371,6 +1487,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "SELECT COUNT(*) FROM participant_timing_controls WHERE race_id = ?",
                     (race_id,),
                 ).fetchone()[0]
+                start_checkin_count = db.execute(
+                    "SELECT COUNT(*) FROM start_checkins WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
                 db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM result_adjustments WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM manual_results WHERE race_id = ?", (race_id,))
@@ -1378,6 +1498,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "DELETE FROM participant_timing_controls WHERE race_id = ?",
                     (race_id,),
                 )
+                db.execute("DELETE FROM start_checkins WHERE race_id = ?", (race_id,))
 
             self.send_json(
                 {
@@ -1388,6 +1509,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "resultAdjustments": adjustment_count,
                         "manualResults": manual_result_count,
                         "timingControls": timing_control_count,
+                        "startCheckins": start_checkin_count,
                     },
                     "participantsPreserved": True,
                     "deviceBindingsPreserved": True,
@@ -1453,6 +1575,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "SELECT COUNT(*) FROM participant_timing_controls WHERE race_id = ?",
                     (race_id,),
                 ).fetchone()[0]
+                start_checkin_count = db.execute(
+                    "SELECT COUNT(*) FROM start_checkins WHERE race_id = ?",
+                    (race_id,),
+                ).fetchone()[0]
                 db.execute("DELETE FROM timing_events WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM result_adjustments WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM manual_results WHERE race_id = ?", (race_id,))
@@ -1460,6 +1586,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "DELETE FROM participant_timing_controls WHERE race_id = ?",
                     (race_id,),
                 )
+                db.execute("DELETE FROM start_checkins WHERE race_id = ?", (race_id,))
                 db.execute("DELETE FROM participants WHERE race_id = ?", (race_id,))
 
             self.send_json(
@@ -1472,6 +1599,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "resultAdjustments": adjustment_count,
                         "manualResults": manual_result_count,
                         "timingControls": timing_control_count,
+                        "startCheckins": start_checkin_count,
                     },
                     "raceProfilePreserved": True,
                 }
@@ -1601,6 +1729,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
             entry = normalize_participant_entry(payload)
             entry_type = entry["entry_type"]
             check_in_status = str(payload.get("checkInStatus") or "checked_in").strip()
+            requested_start_order = optional_start_order(payload.get("startOrder"))
 
             if len(configured_code) < 8:
                 self.send_json(
@@ -1672,6 +1801,13 @@ class TimingHandler(SimpleHTTPRequestHandler):
                             HTTPStatus.NOT_FOUND,
                         )
                         return
+                    start_order = requested_start_order or int(existing["start_order"] or 1)
+                    if db.execute(
+                        "SELECT 1 FROM participants WHERE race_id = ? AND start_order = ? "
+                        "AND id <> ? LIMIT 1",
+                        (race_id, start_order, participant_id),
+                    ).fetchone():
+                        raise ValueError("startOrder is already assigned in this race")
                     db.execute(
                         """
                         UPDATE participants
@@ -1684,6 +1820,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                             gender = ?,
                             division = ?,
                             check_in_status = ?,
+                            start_order = ?,
                             updated_at = ?
                         WHERE race_id = ? AND id = ?
                         """,
@@ -1697,6 +1834,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                             gender,
                             division,
                             check_in_status,
+                            start_order,
                             now,
                             race_id,
                             participant_id,
@@ -1897,7 +2035,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 SELECT *
                 FROM participants
                 WHERE race_id = ?
-                ORDER BY bib_number IS NULL, bib_number, athlete_name
+                ORDER BY start_order, athlete_name, id
                 """,
                 (race_id,),
             ).fetchall()
@@ -1908,6 +2046,463 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 "participants": [participant_response(row) for row in rows],
             }
         )
+
+    def handle_get_start_queue(self, query: str) -> None:
+        race_id = parse_qs(query).get("raceId", [""])[0].strip()
+        if not race_id:
+            self.send_json(
+                {"ok": False, "error": "raceId is required"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        with connect_db() as db:
+            rows = db.execute(
+                """
+                SELECT
+                  participants.*,
+                  start_checkins.device_id AS confirmed_device_id,
+                  start_checkins.status AS start_checkin_status,
+                  start_checkins.confirmed_at,
+                  start_checkins.started_at AS checkin_started_at,
+                  (
+                    SELECT MIN(event_time)
+                    FROM timing_events
+                    WHERE timing_events.race_id = participants.race_id
+                      AND timing_events.participant_id = participants.id
+                      AND timing_events.station_id = 'START'
+                      AND timing_events.status = 'accepted'
+                  ) AS event_started_at
+                FROM participants
+                LEFT JOIN start_checkins
+                  ON start_checkins.race_id = participants.race_id
+                  AND start_checkins.participant_id = participants.id
+                WHERE participants.race_id = ?
+                ORDER BY participants.athlete_name, participants.id
+                """,
+                (race_id,),
+            ).fetchall()
+
+        profile = get_race_profile(race_id)
+        start_group_size = int(profile.get("start_group_size") or 1)
+        entries = []
+        for row in rows:
+            participant = participant_response(row)
+            started_at = row["event_started_at"] or row["checkin_started_at"]
+            status = (
+                "started"
+                if row["event_started_at"]
+                else "ready"
+                if row["start_checkin_status"] == "ready"
+                else "not_ready"
+            )
+            entries.append(
+                {
+                    "participantId": participant["id"],
+                    "athleteName": participant["athlete_name"],
+                    "entryType": participant["entry_type"],
+                    "memberNames": participant["member_names"],
+                    "cardCode": participant["card_code"],
+                    "startOrder": participant["start_order"],
+                    "startWave": ((participant["start_order"] - 1) // start_group_size) + 1,
+                    "checkInStatus": participant.get("check_in_status")
+                    or "not_checked_in",
+                    "status": status,
+                    "confirmedAt": row["confirmed_at"],
+                    "confirmedDeviceId": row["confirmed_device_id"],
+                    "startedAt": started_at,
+                }
+            )
+
+        status_order = {"ready": 0, "not_ready": 1, "started": 2}
+        entries.sort(
+            key=lambda entry: (
+                status_order[entry["status"]],
+                entry["startOrder"],
+                entry["athleteName"],
+            )
+        )
+        self.send_json(
+            {
+                "ok": True,
+                "raceId": race_id,
+                "race": race_profile_response(profile),
+                "generatedAt": utc_now(),
+                "entries": entries,
+                "summary": {
+                    "registered": len(entries),
+                    "ready": sum(entry["status"] == "ready" for entry in entries),
+                    "started": sum(entry["status"] == "started" for entry in entries),
+                    "waiting": sum(entry["status"] == "not_ready" for entry in entries),
+                    "startGroupSize": start_group_size,
+                },
+            }
+        )
+
+    def handle_post_start_checkin(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            card_code = normalize_card_code(payload.get("cardCode"))
+            device_id = str(payload.get("deviceId") or "").strip()
+            if not race_id:
+                raise ValueError("raceId is required")
+            if not card_code or len(card_code) > 100:
+                raise ValueError("cardCode is required")
+            if not device_id or len(device_id) > 100:
+                raise ValueError("deviceId must be between 1 and 100 characters")
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            now = utc_now()
+            with connect_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                participant = db.execute(
+                    "SELECT * FROM participants WHERE race_id = ? AND card_code = ?",
+                    (race_id, card_code),
+                ).fetchone()
+                if not participant:
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "status": "unbound_card",
+                            "raceId": race_id,
+                            "cardCode": card_code,
+                            "receivedAt": now,
+                        }
+                    )
+                    return
+
+                start_event = db.execute(
+                    "SELECT event_time FROM timing_events "
+                    "WHERE race_id = ? AND participant_id = ? "
+                    "AND station_id = 'START' AND status = 'accepted' LIMIT 1",
+                    (race_id, participant["id"]),
+                ).fetchone()
+                manual_result = db.execute(
+                    "SELECT created_at FROM manual_results "
+                    "WHERE race_id = ? AND participant_id = ? LIMIT 1",
+                    (race_id, participant["id"]),
+                ).fetchone()
+                if start_event or manual_result:
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "status": "already_started",
+                            "raceId": race_id,
+                            "cardCode": card_code,
+                            "participantId": participant["id"],
+                            "athleteName": participant["athlete_name"],
+                            "startedAt": (
+                                start_event["event_time"]
+                                if start_event
+                                else manual_result["created_at"]
+                            ),
+                            "receivedAt": now,
+                        }
+                    )
+                    return
+
+                existing = db.execute(
+                    "SELECT id FROM start_checkins WHERE race_id = ? AND participant_id = ?",
+                    (race_id, participant["id"]),
+                ).fetchone()
+                checkin_id = existing["id"] if existing else str(uuid.uuid4())
+                db.execute(
+                    """
+                    INSERT INTO start_checkins (
+                      id, race_id, participant_id, device_id, status,
+                      confirmed_at, started_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, 'ready', ?, NULL, ?)
+                    ON CONFLICT (race_id, participant_id) DO UPDATE SET
+                      device_id = excluded.device_id,
+                      status = 'ready',
+                      confirmed_at = excluded.confirmed_at,
+                      started_at = NULL,
+                      updated_at = excluded.updated_at
+                    """,
+                    (checkin_id, race_id, participant["id"], device_id, now, now),
+                )
+                checkin = db.execute(
+                    "SELECT * FROM start_checkins WHERE race_id = ? AND participant_id = ?",
+                    (race_id, participant["id"]),
+                ).fetchone()
+
+            cloud = sync_supabase_record("start_checkins", checkin)
+            participant_payload = participant_response(participant)
+            self.send_json(
+                {
+                    "ok": True,
+                    "status": "start_ready",
+                    "raceId": race_id,
+                    "cardCode": card_code,
+                    "participantId": participant["id"],
+                    "athleteName": participant["athlete_name"],
+                    "entryType": participant_payload["entry_type"],
+                    "memberNames": participant_payload["member_names"],
+                    "confirmedAt": checkin["confirmed_at"],
+                    "receivedAt": now,
+                    "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
+                    "cloudError": cloud["error"],
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_cancel_start_checkin(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            try:
+                participant_id = int(payload.get("participantId"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("participantId is required") from error
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Judge authorization is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not race_id or participant_id <= 0:
+                raise ValueError("raceId and participantId are required")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            with connect_db() as db:
+                started = db.execute(
+                    "SELECT 1 FROM timing_events WHERE race_id = ? AND participant_id = ? "
+                    "AND station_id = 'START' AND status = 'accepted' LIMIT 1",
+                    (race_id, participant_id),
+                ).fetchone()
+                if started:
+                    self.send_json(
+                        {"ok": False, "status": "already_started", "error": "This participant has already started"},
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                cursor = db.execute(
+                    "DELETE FROM start_checkins WHERE race_id = ? AND participant_id = ? AND status = 'ready'",
+                    (race_id, participant_id),
+                )
+                removed = cursor.rowcount > 0
+            self.send_json(
+                {"ok": True, "raceId": race_id, "participantId": participant_id, "removed": removed}
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_start_race(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            device_id = str(payload.get("deviceId") or "judge-console").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            requested_ids = payload.get("participantIds")
+            if not isinstance(requested_ids, list) or not 1 <= len(requested_ids) <= 50:
+                raise ValueError("Select between 1 and 50 participants")
+            participant_ids = []
+            for value in requested_ids:
+                if isinstance(value, bool):
+                    raise ValueError("participantIds must contain positive integers")
+                try:
+                    participant_id = int(value)
+                except (TypeError, ValueError) as error:
+                    raise ValueError("participantIds must contain positive integers") from error
+                if participant_id <= 0:
+                    raise ValueError("participantIds must contain positive integers")
+                if participant_id not in participant_ids:
+                    participant_ids.append(participant_id)
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Judge authorization is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not race_id:
+                raise ValueError("raceId is required")
+            if not device_id or len(device_id) > 100:
+                raise ValueError("deviceId must be between 1 and 100 characters")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            started_at = utc_now()
+            batch_id = str(uuid.uuid4())
+            placeholders = ",".join("?" for _ in participant_ids)
+            with connect_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                participants = db.execute(
+                    f"SELECT * FROM participants WHERE race_id = ? AND id IN ({placeholders}) ORDER BY start_order, id",
+                    (race_id, *participant_ids),
+                ).fetchall()
+                if len(participants) != len(participant_ids):
+                    raise ValueError("One or more selected participants do not belong to this race")
+                start_group_size = int(profile.get("start_group_size") or 1)
+                if len(participants) > start_group_size:
+                    raise ValueError(
+                        f"This race allows at most {start_group_size} participants per start"
+                    )
+                start_waves = {
+                    ((int(participant["start_order"] or 1) - 1) // start_group_size) + 1
+                    for participant in participants
+                }
+                if len(start_waves) != 1:
+                    raise ValueError("Selected participants must belong to the same start wave")
+                started_count = db.execute(
+                    f"SELECT COUNT(*) FROM timing_events WHERE race_id = ? "
+                    f"AND participant_id IN ({placeholders}) AND station_id = 'START' AND status = 'accepted'",
+                    (race_id, *participant_ids),
+                ).fetchone()[0]
+                manual_count = db.execute(
+                    f"SELECT COUNT(*) FROM manual_results WHERE race_id = ? AND participant_id IN ({placeholders})",
+                    (race_id, *participant_ids),
+                ).fetchone()[0]
+                if started_count or manual_count:
+                    self.send_json(
+                        {"ok": False, "status": "already_started", "error": "One or more selected participants have already started"},
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                ready_count = db.execute(
+                    f"SELECT COUNT(*) FROM start_checkins WHERE race_id = ? "
+                    f"AND participant_id IN ({placeholders}) AND status = 'ready'",
+                    (race_id, *participant_ids),
+                ).fetchone()[0]
+                if ready_count != len(participant_ids):
+                    self.send_json(
+                        {"ok": False, "status": "start_checkin_required", "error": "Every selected participant must pass the start check-in first"},
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+
+                for participant in participants:
+                    event_id = f"judge:{batch_id}:{participant['id']}"
+                    db.execute(
+                        """
+                        INSERT INTO timing_events (
+                          event_id, race_id, device_id, station_id, station_label,
+                          station_number, checkpoint_type, card_code, serial_number,
+                          event_time, received_at, source, timing_mode, gate_role,
+                          duplicate_window_seconds, status, participant_id, raw_json
+                        )
+                        VALUES (?, ?, ?, 'START', 'Race Start', NULL, 'start', ?, NULL,
+                                ?, ?, 'judge-batch-start', ?, NULL, 10, 'accepted', ?, ?)
+                        """,
+                        (
+                            event_id,
+                            race_id,
+                            device_id,
+                            participant["card_code"],
+                            started_at,
+                            started_at,
+                            "manual" if profile["mode"] == "station_checkpoints" else "auto",
+                            participant["id"],
+                            json.dumps(
+                                {
+                                    "batchId": batch_id,
+                                    "raceId": race_id,
+                                    "participantId": participant["id"],
+                                    "eventTime": started_at,
+                                    "deviceId": device_id,
+                                    "source": "judge-batch-start",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    )
+                db.execute(
+                    f"UPDATE start_checkins SET status = 'started', started_at = ?, updated_at = ? "
+                    f"WHERE race_id = ? AND participant_id IN ({placeholders})",
+                    (started_at, started_at, race_id, *participant_ids),
+                )
+                event_rows = db.execute(
+                    "SELECT * FROM timing_events WHERE event_id LIKE ? ORDER BY participant_id",
+                    (f"judge:{batch_id}:%",),
+                ).fetchall()
+                checkin_rows = db.execute(
+                    f"SELECT * FROM start_checkins WHERE race_id = ? AND participant_id IN ({placeholders})",
+                    (race_id, *participant_ids),
+                ).fetchall()
+
+            cloud_results = [
+                sync_supabase_record("timing_events", row) for row in event_rows
+            ] + [
+                sync_supabase_record("start_checkins", row) for row in checkin_rows
+            ]
+            participant_payloads = [participant_response(row) for row in participants]
+            self.send_json(
+                {
+                    "ok": True,
+                    "raceId": race_id,
+                    "batchId": batch_id,
+                    "startedAt": started_at,
+                    "startWave": next(iter(start_waves)),
+                    "startedCount": len(participants),
+                    "participants": [
+                        {
+                            "participantId": participant["id"],
+                            "athleteName": participant["athlete_name"],
+                            "entryType": participant["entry_type"],
+                            "memberNames": participant["member_names"],
+                            "startedAt": started_at,
+                        }
+                        for participant in participant_payloads
+                    ],
+                    "storage": {
+                        "localSaved": True,
+                        "supabaseSaved": bool(cloud_results)
+                        and all(result["saved"] for result in cloud_results),
+                    },
+                    "cloudError": next(
+                        (result["error"] for result in cloud_results if result["error"]),
+                        None,
+                    ),
+                },
+                HTTPStatus.CREATED,
+            )
+        except (json.JSONDecodeError, sqlite3.IntegrityError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
     def handle_get_result_adjustments(self, query: str) -> None:
         race_id = parse_qs(query).get("raceId", [""])[0].strip()
@@ -2975,6 +3570,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 else None
             )
             check_in_status = str(payload.get("checkInStatus") or "checked_in").strip()
+            requested_start_order = optional_start_order(payload.get("startOrder"))
             if not race_id or not card_code or not athlete_name:
                 raise ValueError("raceId, cardCode and athleteName are required")
             if check_in_status not in {"not_checked_in", "checked_in"}:
@@ -2996,6 +3592,18 @@ class TimingHandler(SimpleHTTPRequestHandler):
             now = utc_now()
             try:
                 with connect_db() as db:
+                    start_order = requested_start_order
+                    if start_order is None:
+                        start_order = db.execute(
+                            "SELECT COALESCE(MAX(start_order), 0) + 1 "
+                            "FROM participants WHERE race_id = ?",
+                            (race_id,),
+                        ).fetchone()[0]
+                    elif db.execute(
+                        "SELECT 1 FROM participants WHERE race_id = ? AND start_order = ? LIMIT 1",
+                        (race_id, start_order),
+                    ).fetchone():
+                        raise ValueError("startOrder is already assigned in this race")
                     db.execute(
                         """
                         INSERT INTO participants (
@@ -3009,10 +3617,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                           gender,
                           division,
                           check_in_status,
+                          start_order,
                           created_at,
                           updated_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             race_id,
@@ -3025,6 +3634,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                             gender,
                             division,
                             check_in_status,
+                            start_order,
                             now,
                             now,
                         ),

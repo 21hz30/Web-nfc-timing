@@ -24,7 +24,7 @@
     }
 
     main {
-      width: min(900px, 100%);
+      width: min(1040px, 100%);
       margin: 0 auto;
       padding: 24px;
     }
@@ -43,7 +43,7 @@
 
     .links {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 14px;
       margin-top: 22px;
     }
@@ -79,20 +79,24 @@
 <body>
   <main>
     <h1>SRC 赛事计时</h1>
-    <p>选择比赛工作页面。</p>
+    <p>按现场角色进入对应工作页面。</p>
 
     <div class="links">
       <a href="./admin.html">
-        <strong>前台登记</strong>
-        <span>登记个人、双人或团队，绑定 NFC 卡并查看比赛数据。</span>
+        <strong>比赛与绑定</strong>
+        <span>创建比赛、设置站点和出发批次，绑定选手 NFC 卡。</span>
+      </a>
+      <a href="./judge.html">
+        <strong>裁判台</strong>
+        <span>确认待发批次、统一发枪、调整成绩和处理退赛。</span>
       </a>
       <a href="./web-nfc-timing-test.html">
-        <strong>站点计时</strong>
-        <span>为每台安卓手机选择比赛和固定计时位置。</span>
+        <strong>手机 NFC</strong>
+        <span>将手机绑定到比赛站点，完成起点核验或沿途打卡。</span>
       </a>
       <a href="./leaderboard.html">
-        <strong>实时排名大屏</strong>
-        <span>查看实时排名、比赛进度、总用时和每站用时。</span>
+        <strong>数据大屏</strong>
+        <span>在大屏或手机查看实时排名，并按赛事品牌显示。</span>
       </a>
     </div>
   </main>

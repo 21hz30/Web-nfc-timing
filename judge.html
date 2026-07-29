@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111820">
+  <title>SRC 裁判台</title>
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/src-logo.png">
+  <link rel="apple-touch-icon" href="./assets/src-logo.png">
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #15202b;
+      background: #edf1f4;
+      --brand: #111820;
+      --brand-ink: #ffffff;
+      --accent: #087f5b;
+      --accent-ink: #ffffff;
+      --surface: #ffffff;
+      --line: #d6dde5;
+      --muted: #687686;
+      --success: #087f5b;
+      --success-soft: #e1f4eb;
+      --warning: #9b5a00;
+      --warning-soft: #fff1d6;
+      --error: #b42318;
+      --error-soft: #ffe9e6;
+      --info: #146da0;
+      --info-soft: #e4f2fa;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; background: #edf1f4; }
+    body.hoka { --brand: #009dff; --accent: #d8f000; --accent-ink: #122438; background: #009dff; }
+    body.modal-open { overflow: hidden; }
+    button, input, select, textarea { font: inherit; letter-spacing: 0; }
+
+    .app { width: min(1240px, 100%); min-height: 100vh; margin: 0 auto; background: #edf1f4; }
+    body.hoka .app { background: #009dff; }
+
+    header {
+      display: flex;
+      min-height: 82px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: calc(14px + env(safe-area-inset-top)) 18px 14px;
+      background: var(--brand);
+      color: var(--brand-ink);
+    }
+    .brand { display: flex; min-width: 0; align-items: center; gap: 13px; }
+    .brand img { width: 62px; max-height: 48px; object-fit: contain; }
+    h1 { margin: 0; font-size: 23px; line-height: 1.12; letter-spacing: 0; }
+    .race-name { margin-top: 4px; color: rgb(255 255 255 / 76%); font-size: 12px; font-weight: 750; }
+    .header-status { display: flex; align-items: center; gap: 8px; color: rgb(255 255 255 / 82%); font-size: 12px; font-weight: 800; }
+    .header-status::before { width: 9px; height: 9px; border-radius: 50%; background: #8a98a5; content: ""; }
+    .header-status[data-tone="live"]::before { background: var(--accent); box-shadow: 0 0 0 4px rgb(216 240 0 / 15%); }
+    .header-status[data-tone="error"]::before { background: #ff6b61; }
+
+    main { padding: 12px 14px 90px; }
+    .race-bar {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto auto auto;
+      gap: 9px;
+      align-items: end;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+    }
+    label { display: grid; gap: 6px; color: #364352; font-size: 12px; font-weight: 850; }
+    select, input, textarea {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid #bec9d4;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #ffffff;
+      color: #15202b;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    .utility-button, .utility-link {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #c8d1db;
+      border-radius: 6px;
+      padding: 8px 11px;
+      background: #eef2f5;
+      color: #263544;
+      font-size: 13px;
+      font-weight: 850;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .queue {
+      margin-top: 11px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .queue-tabs {
+      display: flex;
+      overflow-x: auto;
+      border-bottom: 1px solid var(--line);
+      scrollbar-width: none;
+    }
+    .queue-tabs::-webkit-scrollbar { display: none; }
+    .tab-button {
+      display: inline-flex;
+      min-width: 116px;
+      min-height: 48px;
+      flex: 1 0 auto;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: #f7f9fa;
+      color: #536170;
+      font-size: 13px;
+      font-weight: 850;
+      cursor: pointer;
+    }
+    .tab-button:last-child { border-right: 0; }
+    .tab-button strong { min-width: 24px; color: #24313d; font-size: 15px; }
+    .tab-button[aria-pressed="true"] { background: #243442; color: #ffffff; }
+    .tab-button[aria-pressed="true"] strong { color: #ffffff; }
+
+    .queue-toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .batch-copy { color: var(--muted); font-size: 12px; font-weight: 750; text-align: right; }
+    .batch-copy strong { color: #24313d; }
+
+    .column-head, .entry-row {
+      display: grid;
+      grid-template-columns: 42px 78px minmax(190px, 1fr) minmax(130px, .55fr) minmax(160px, .7fr) minmax(210px, auto);
+      gap: 10px;
+      align-items: center;
+    }
+    .column-head { min-height: 36px; padding: 7px 12px; background: #eef2f5; color: #647282; font-size: 11px; font-weight: 850; }
+    .entry-row { min-height: 76px; padding: 11px 12px; border-top: 1px solid #e3e8ed; }
+    .entry-row:first-child { border-top: 0; }
+    .entry-row.selected { background: #eefaf5; }
+    body.hoka .entry-row.selected { background: #f8ffe0; }
+    .entry-check { display: grid; width: 28px; height: 28px; place-items: center; }
+    .entry-check input { width: 21px; min-height: 21px; height: 21px; margin: 0; padding: 0; accent-color: var(--success); }
+    .start-position strong { display: block; font-size: 16px; }
+    .start-position span { color: var(--muted); font-size: 11px; font-weight: 750; }
+    .entry-name { margin: 0; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+    .member-names, .card-code, .state-detail { margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+    .card-code { margin-top: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .state { display: inline-flex; width: fit-content; min-height: 26px; align-items: center; border-radius: 999px; padding: 4px 8px; background: #e9eef2; color: #596776; font-size: 11px; font-weight: 900; }
+    .state.ready { background: var(--success-soft); color: #076343; }
+    .state.racing, .state.paused { background: var(--info-soft); color: #0a638f; }
+    .state.finished { background: #e8f4de; color: #426c18; }
+    .state.dnf { background: var(--error-soft); color: #9a2119; }
+    .row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .row-action { min-height: 34px; border: 1px solid #cbd4dc; border-radius: 5px; padding: 6px 9px; background: #ffffff; color: #344452; font-size: 11px; font-weight: 850; cursor: pointer; }
+    .row-action.primary { border-color: #9bc9b7; color: #076343; }
+    .row-action.danger { border-color: #e1b3af; color: var(--error); }
+    .row-action:disabled { cursor: default; opacity: .45; }
+    .empty-state { padding: 58px 20px; color: var(--muted); text-align: center; font-size: 14px; font-weight: 750; }
+    .message { margin-top: 9px; border-left: 4px solid #8493a1; padding: 9px 11px; background: rgb(255 255 255 / 95%); color: #41505e; font-size: 12px; font-weight: 750; }
+    .message[data-tone="success"] { border-color: var(--success); color: #075f3d; }
+    .message[data-tone="error"] { border-color: var(--error); color: #8f1c14; }
+
+    .start-dock { position: fixed; z-index: 20; right: 0; bottom: 0; left: 0; padding: 9px 14px calc(9px + env(safe-area-inset-bottom)); background: rgb(17 24 32 / 96%); color: #ffffff; }
+    .start-dock[hidden] { display: none; }
+    .dock-inner { display: flex; width: min(1212px, 100%); margin: 0 auto; align-items: center; justify-content: space-between; gap: 14px; }
+    .selection-count span { display: block; color: #b9c4cf; font-size: 11px; font-weight: 750; }
+    .selection-count strong { display: block; margin-top: 2px; font-size: 18px; }
+    .start-button { min-width: 220px; min-height: 50px; border: 0; border-radius: 6px; padding: 10px 18px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 950; cursor: pointer; }
+
+    .modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgb(10 17 24 / 70%); }
+    .modal-backdrop[hidden] { display: none; }
+    .modal { width: min(520px, 100%); max-height: calc(100dvh - 36px); overflow-y: auto; border-radius: 7px; padding: 20px; background: #ffffff; box-shadow: 0 24px 70px rgb(0 0 0 / 28%); }
+    .modal h2 { margin: 0; font-size: 20px; }
+    .modal > p { margin: 7px 0 16px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .modal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .modal-fields { display: grid; gap: 11px; }
+    .participant-summary { margin-bottom: 12px; border-left: 3px solid #738392; padding: 8px 10px; background: #f2f5f7; color: #354351; font-size: 12px; line-height: 1.45; }
+    .modal-error { min-height: 20px; margin-top: 9px; color: var(--error); font-size: 12px; font-weight: 800; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 12px; }
+    .modal-button { min-height: 42px; border: 0; border-radius: 6px; padding: 9px 14px; font-weight: 900; cursor: pointer; }
+    .modal-button.secondary { background: #e8edf1; color: #364554; }
+    .modal-button.primary { background: var(--accent); color: var(--accent-ink); }
+    .modal-button.danger { background: var(--error); color: #ffffff; }
+    .modal-button:disabled { cursor: wait; opacity: .5; }
+
+    @media (max-width: 900px) {
+      .race-bar { grid-template-columns: minmax(220px, 1fr) repeat(3, auto); }
+      .column-head, .entry-row { grid-template-columns: 36px 66px minmax(150px, 1fr) minmax(135px, .7fr) minmax(180px, auto); }
+      .column-head span:nth-child(4), .entry-row .card-cell { display: none; }
+    }
+    @media (max-width: 680px) {
+      header { min-height: 76px; padding-right: 12px; padding-left: 12px; }
+      .brand img { width: 52px; }
+      h1 { font-size: 20px; }
+      .header-status span { display: none; }
+      main { padding: 9px 9px 84px; }
+      .race-bar { grid-template-columns: 1fr repeat(3, auto); padding: 9px; }
+      .race-bar label { grid-column: 1 / -1; }
+      .utility-button, .utility-link { min-width: 0; padding: 7px 9px; font-size: 12px; }
+      .queue-toolbar { grid-template-columns: 1fr; }
+      .queue-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        overflow: visible;
+      }
+      .tab-button { min-width: 0; }
+      .batch-copy { text-align: left; }
+      .column-head { display: none; }
+      .entry-row { grid-template-columns: 36px 56px minmax(0, 1fr) auto; gap: 8px; min-height: 104px; padding: 11px 9px; }
+      .entry-row .status-cell { grid-column: 4; grid-row: 1 / span 2; justify-self: end; text-align: right; }
+      .entry-row .row-actions { grid-column: 2 / -1; justify-content: flex-start; }
+      .card-cell { display: none; }
+      .start-button { min-width: 170px; }
+    }
+    @media (max-width: 390px) {
+      .utility-button, .utility-link { padding-right: 7px; padding-left: 7px; }
+      .modal-grid { grid-template-columns: 1fr; }
+      .dock-inner { gap: 9px; }
+      .start-button { min-width: 154px; font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <img id="brandLogo" src="./assets/src-logo.png" alt="SRC logo">
+        <div><h1>裁判台</h1><div id="raceName" class="race-name">正在读取比赛</div></div>
+      </div>
+      <div id="connection" class="header-status" data-tone="idle"><span id="connectionText">连接中</span></div>
+    </header>
+
+    <main>
+      <section class="race-bar" aria-label="比赛选择">
+        <label>比赛<select id="raceId"><option value="">正在读取比赛...</option></select></label>
+        <button id="refreshButton" class="utility-button" type="button">刷新</button>
+        <a id="bindingLink" class="utility-link" href="./admin.html">选手绑定</a>
+        <a id="nfcLink" class="utility-link" href="./web-nfc-timing-test.html">手机 NFC</a>
+      </section>
+
+      <section class="queue" aria-label="比赛选手队列">
+        <div class="queue-tabs" aria-label="选手状态">
+          <button class="tab-button" type="button" data-filter="ready" aria-pressed="true">待发 <strong id="readyCount">0</strong></button>
+          <button class="tab-button" type="button" data-filter="racing" aria-pressed="false">进行中 <strong id="racingCount">0</strong></button>
+          <button class="tab-button" type="button" data-filter="finished" aria-pressed="false">已完赛 <strong id="finishedCount">0</strong></button>
+          <button class="tab-button" type="button" data-filter="not_ready" aria-pressed="false">未核验 <strong id="waitingCount">0</strong></button>
+          <button class="tab-button" type="button" data-filter="dnf" aria-pressed="false">退赛 <strong id="dnfCount">0</strong></button>
+        </div>
+        <div class="queue-toolbar">
+          <input id="judgeParticipantQuery" name="judge-participant-query" type="text" placeholder="搜索选手、团队或卡号" autocomplete="off" spellcheck="false" readonly>
+          <div class="batch-copy">每批 <strong id="groupSize">1</strong> 人 · 当前显示 <strong id="visibleCount">0</strong> 人</div>
+        </div>
+        <div class="column-head" aria-hidden="true">
+          <span>选择</span><span>出发</span><span>选手 / 团队</span><span>卡号</span><span>状态</span><span>操作</span>
+        </div>
+        <div id="entryList"><div class="empty-state">正在读取比赛队列...</div></div>
+      </section>
+      <div id="message" class="message" data-tone="info">等待比赛数据。</div>
+    </main>
+  </div>
+
+  <div id="startDock" class="start-dock" hidden>
+    <div class="dock-inner">
+      <div class="selection-count"><span id="selectionWave">本批已选择</span><strong id="selectedCount">0 名</strong></div>
+      <button id="startRaceButton" class="start-button" type="button">发枪并开始计时</button>
+    </div>
+  </div>
+
+  <div id="startBackdrop" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="startModalTitle">
+      <h2 id="startModalTitle">确认本批发枪</h2>
+      <p>确认后，所选选手会写入同一个服务器开始时间。</p>
+      <div id="startParticipants" class="participant-summary"></div>
+      <label>管理员密码<input id="startAdminCode" type="password" autocomplete="current-password"></label>
+      <div id="startError" class="modal-error"></div>
+      <div class="modal-actions">
+        <button class="modal-button secondary" type="button" data-close-modal>返回</button>
+        <button id="confirmStartButton" class="modal-button primary" type="button">确认发枪</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="operationBackdrop" class="modal-backdrop" hidden>
+    <form id="operationForm" class="modal" role="dialog" aria-modal="true" aria-labelledby="operationTitle">
+      <h2 id="operationTitle">选手操作</h2>
+      <p id="operationDescription"></p>
+      <div id="operationParticipant" class="participant-summary"></div>
+      <div id="adjustmentFields" class="modal-fields" hidden>
+        <label>调整方向<select id="adjustmentDirection"><option value="1">增加时间（罚时）</option><option value="-1">减少时间</option></select></label>
+        <div class="modal-grid">
+          <label>分钟<input id="adjustmentMinutes" type="number" min="0" max="1440" step="1" value="0"></label>
+          <label>秒<input id="adjustmentSeconds" type="number" min="0" max="59" step="1" value="0"></label>
+        </div>
+      </div>
+      <div id="manualFields" class="modal-grid" hidden>
+        <label>开始时间<input id="manualStartTime" type="datetime-local" step="1"></label>
+        <label>结束时间<input id="manualFinishTime" type="datetime-local" step="1"></label>
+      </div>
+      <label>备注<textarea id="operationReason" maxlength="500" required></textarea></label>
+      <label>管理员密码<input id="operationAdminCode" type="password" autocomplete="current-password" required></label>
+      <div id="operationError" class="modal-error"></div>
+      <div class="modal-actions">
+        <button class="modal-button secondary" type="button" data-close-modal>取消</button>
+        <button id="confirmOperationButton" class="modal-button primary" type="submit">确认</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="./timing-api.js"></script>
+  <script>
+    const elements = {
+      adjustmentDirection: document.querySelector("#adjustmentDirection"),
+      adjustmentFields: document.querySelector("#adjustmentFields"),
+      adjustmentMinutes: document.querySelector("#adjustmentMinutes"),
+      adjustmentSeconds: document.querySelector("#adjustmentSeconds"),
+      bindingLink: document.querySelector("#bindingLink"),
+      brandLogo: document.querySelector("#brandLogo"),
+      confirmOperationButton: document.querySelector("#confirmOperationButton"),
+      confirmStartButton: document.querySelector("#confirmStartButton"),
+      connection: document.querySelector("#connection"),
+      connectionText: document.querySelector("#connectionText"),
+      dnfCount: document.querySelector("#dnfCount"),
+      entryList: document.querySelector("#entryList"),
+      finishedCount: document.querySelector("#finishedCount"),
+      groupSize: document.querySelector("#groupSize"),
+      manualFields: document.querySelector("#manualFields"),
+      manualFinishTime: document.querySelector("#manualFinishTime"),
+      manualStartTime: document.querySelector("#manualStartTime"),
+      message: document.querySelector("#message"),
+      nfcLink: document.querySelector("#nfcLink"),
+      operationAdminCode: document.querySelector("#operationAdminCode"),
+      operationBackdrop: document.querySelector("#operationBackdrop"),
+      operationDescription: document.querySelector("#operationDescription"),
+      operationError: document.querySelector("#operationError"),
+      operationForm: document.querySelector("#operationForm"),
+      operationParticipant: document.querySelector("#operationParticipant"),
+      operationReason: document.querySelector("#operationReason"),
+      operationTitle: document.querySelector("#operationTitle"),
+      raceId: document.querySelector("#raceId"),
+      raceName: document.querySelector("#raceName"),
+      racingCount: document.querySelector("#racingCount"),
+      readyCount: document.querySelector("#readyCount"),
+      refreshButton: document.querySelector("#refreshButton"),
+      searchInput: document.querySelector("#judgeParticipantQuery"),
+      selectedCount: document.querySelector("#selectedCount"),
+      selectionWave: document.querySelector("#selectionWave"),
+      startAdminCode: document.querySelector("#startAdminCode"),
+      startBackdrop: document.querySelector("#startBackdrop"),
+      startDock: document.querySelector("#startDock"),
+      startError: document.querySelector("#startError"),
+      startModalTitle: document.querySelector("#startModalTitle"),
+      startParticipants: document.querySelector("#startParticipants"),
+      startRaceButton: document.querySelector("#startRaceButton"),
+      visibleCount: document.querySelector("#visibleCount"),
+      waitingCount: document.querySelector("#waitingCount")
+    };
+
+    const selectedIds = new Set();
+    const deviceId = `judge-${localStorage.getItem("src-judge-device-id") || crypto.randomUUID()}`;
+    localStorage.setItem("src-judge-device-id", deviceId.replace(/^judge-/, ""));
+    let entries = [];
+    let activeFilter = "ready";
+    let activeRace = null;
+    let operationMode = "";
+    let operationEntry = null;
+    let pollTimer = 0;
+    let refreshInFlight = false;
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+      }[character]));
+    }
+
+    function isHokaRace(raceId) {
+      return raceId === "hoka-race" || String(raceId || "").startsWith("hoka-race-");
+    }
+
+    function setMessage(message, tone = "info") {
+      elements.message.textContent = message;
+      elements.message.dataset.tone = tone;
+    }
+
+    function setConnection(text, tone) {
+      elements.connectionText.textContent = text;
+      elements.connection.dataset.tone = tone;
+    }
+
+    async function readJson(response) {
+      const text = await response.text();
+      let payload;
+      try { payload = text ? JSON.parse(text) : {}; }
+      catch { throw new Error(`服务器返回格式错误（HTTP ${response.status}）`); }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      return payload;
+    }
+
+    function formatClock(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "--:--:--" : date.toLocaleTimeString([], { hour12: false });
+    }
+
+    function formatDuration(milliseconds) {
+      if (milliseconds === null || milliseconds === undefined || !Number.isFinite(Number(milliseconds))) return "--:--:--";
+      const totalSeconds = Math.max(0, Math.floor(Number(milliseconds) / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function toDateTimeLocal(value) {
+      const date = value ? new Date(value) : new Date();
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 19);
+    }
+
+    function resolvedStatus(entry) {
+      if (entry.status === "ready") return "ready";
+      if (entry.status === "not_ready") return "not_ready";
+      return entry.result?.status || "racing";
+    }
+
+    function filterStatus(entry) {
+      const status = resolvedStatus(entry);
+      if (status === "paused") return "racing";
+      return status;
+    }
+
+    function statusLabel(entry) {
+      return {
+        ready: "待发",
+        not_ready: "未核验",
+        racing: "进行中",
+        paused: "已暂停",
+        finished: "已完赛",
+        dnf: "已退赛",
+        dns: "未出发"
+      }[resolvedStatus(entry)] || "进行中";
+    }
+
+    function statusDetail(entry) {
+      const status = resolvedStatus(entry);
+      if (status === "ready") return `核验 ${formatClock(entry.confirmedAt)}`;
+      if (status === "not_ready") return "等待起点刷卡";
+      if (entry.result?.elapsedMs !== null && entry.result?.elapsedMs !== undefined) {
+        return `${formatDuration(entry.result.elapsedMs)} · ${entry.result.latestCheckpoint || "START"}`;
+      }
+      return entry.startedAt ? `开始 ${formatClock(entry.startedAt)}` : "已开始";
+    }
+
+    function visibleEntries() {
+      const query = elements.searchInput.value.trim().toLowerCase();
+      return entries.filter((entry) => {
+        if (filterStatus(entry) !== activeFilter) return false;
+        if (!query) return true;
+        const haystack = [entry.athleteName, entry.cardCode, ...(entry.memberNames || [])].join(" ").toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    function selectedEntries() {
+      return entries.filter((entry) => selectedIds.has(entry.participantId));
+    }
+
+    function actionButton(label, action, entry, tone = "") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `row-action${tone ? ` ${tone}` : ""}`;
+      button.textContent = label;
+      button.addEventListener("click", () => openOperation(action, entry));
+      return button;
+    }
+
+    function createEntryRow(entry) {
+      const row = document.createElement("article");
+      row.className = `entry-row${selectedIds.has(entry.participantId) ? " selected" : ""}`;
+
+      const checkWrap = document.createElement("label");
+      checkWrap.className = "entry-check";
+      if (entry.status === "ready") {
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = selectedIds.has(entry.participantId);
+        checkbox.setAttribute("aria-label", `选择 ${entry.athleteName}`);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) {
+            const currentWave = selectedEntries()[0]?.startWave;
+            if (currentWave && currentWave !== entry.startWave) {
+              checkbox.checked = false;
+              setMessage("一次只能选择同一出发批次。", "error");
+              return;
+            }
+            if (selectedIds.size >= Number(activeRace?.startGroupSize || 1)) {
+              checkbox.checked = false;
+              setMessage(`本场每批最多 ${activeRace.startGroupSize} 人。`, "error");
+              return;
+            }
+            selectedIds.add(entry.participantId);
+          } else {
+            selectedIds.delete(entry.participantId);
+          }
+          renderEntries();
+          updateDock();
+        });
+        checkWrap.append(checkbox);
+      }
+
+      const position = document.createElement("div");
+      position.className = "start-position";
+      position.innerHTML = `<strong>#${escapeHtml(entry.startOrder || "-")}</strong><span>第 ${escapeHtml(entry.startWave || "-")} 批</span>`;
+
+      const main = document.createElement("div");
+      const name = document.createElement("h2");
+      name.className = "entry-name";
+      name.textContent = entry.athleteName;
+      main.append(name);
+      if (entry.entryType !== "individual" && entry.memberNames?.length) {
+        const members = document.createElement("div");
+        members.className = "member-names";
+        members.textContent = entry.memberNames.join(" / ");
+        main.append(members);
+      }
+
+      const card = document.createElement("div");
+      card.className = "card-code card-cell";
+      card.textContent = entry.cardCode;
+
+      const status = document.createElement("div");
+      status.className = "status-cell";
+      const pill = document.createElement("span");
+      pill.className = `state ${resolvedStatus(entry)}`;
+      pill.textContent = statusLabel(entry);
+      const detail = document.createElement("div");
+      detail.className = "state-detail";
+      detail.textContent = statusDetail(entry);
+      status.append(pill, detail);
+
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+      const currentStatus = resolvedStatus(entry);
+      if (currentStatus === "ready") {
+        actions.append(actionButton("取消核验", "cancel-checkin", entry));
+      } else if (["racing", "paused"].includes(currentStatus)) {
+        actions.append(actionButton("手动时间", "manual", entry));
+        actions.append(actionButton("确认退赛", "dnf", entry, "danger"));
+      } else if (currentStatus === "finished") {
+        actions.append(actionButton("加减时间", "adjustment", entry, "primary"));
+        actions.append(actionButton("手动时间", "manual", entry));
+      } else if (currentStatus === "dnf") {
+        actions.append(actionButton("撤销退赛", "restore", entry));
+      } else if (currentStatus === "not_ready") {
+        actions.append(actionButton("手动时间", "manual", entry));
+        actions.append(actionButton("确认退赛", "dnf", entry, "danger"));
+      }
+
+      row.append(checkWrap, position, main, card, status, actions);
+      return row;
+    }
+
+    function renderEntries() {
+      const visible = visibleEntries();
+      elements.visibleCount.textContent = String(visible.length);
+      elements.entryList.replaceChildren(...(visible.length
+        ? visible.map(createEntryRow)
+        : [Object.assign(document.createElement("div"), { className: "empty-state", textContent: "当前状态下没有选手" })]));
+    }
+
+    function updateCounts() {
+      const counts = { ready: 0, racing: 0, finished: 0, not_ready: 0, dnf: 0 };
+      entries.forEach((entry) => { if (filterStatus(entry) in counts) counts[filterStatus(entry)] += 1; });
+      elements.readyCount.textContent = counts.ready;
+      elements.racingCount.textContent = counts.racing;
+      elements.finishedCount.textContent = counts.finished;
+      elements.waitingCount.textContent = counts.not_ready;
+      elements.dnfCount.textContent = counts.dnf;
+    }
+
+    function updateDock() {
+      for (const participantId of [...selectedIds]) {
+        const entry = entries.find((item) => item.participantId === participantId);
+        if (!entry || entry.status !== "ready") selectedIds.delete(participantId);
+      }
+      const selected = selectedEntries();
+      elements.startDock.hidden = selected.length === 0;
+      elements.selectedCount.textContent = `${selected.length} 名`;
+      elements.selectionWave.textContent = selected.length ? `第 ${selected[0].startWave} 批已选择` : "本批已选择";
+    }
+
+    function updateBranding() {
+      const hoka = isHokaRace(elements.raceId.value);
+      document.body.classList.toggle("hoka", hoka);
+      elements.brandLogo.src = hoka ? "./assets/hoka-logo-white.png" : "./assets/src-logo.png";
+      elements.brandLogo.alt = hoka ? "HOKA logo" : "SRC logo";
+      document.querySelector('meta[name="theme-color"]').content = hoka ? "#009dff" : "#111820";
+      const raceId = encodeURIComponent(elements.raceId.value);
+      elements.bindingLink.href = `./admin.html?raceId=${raceId}`;
+      elements.nfcLink.href = `./web-nfc-timing-test.html?raceId=${raceId}&timingMode=manual&checkpoint=START`;
+    }
+
+    function updateUrl() {
+      const url = new URL(location.href);
+      if (elements.raceId.value) url.searchParams.set("raceId", elements.raceId.value);
+      history.replaceState({}, "", url);
+    }
+
+    async function loadRaces() {
+      const requested = new URLSearchParams(location.search).get("raceId") || "";
+      const payload = await readJson(await window.timingApiFetch("/api/races"));
+      const races = payload.races.filter((race) => race.raceId && !race.isTemplate && race.status !== "finalized");
+      elements.raceId.replaceChildren(...races.map((race) => new Option(race.name || race.raceId, race.raceId)));
+      elements.raceId.value = races.some((race) => race.raceId === requested) ? requested : races[0]?.raceId || "";
+      updateBranding();
+      updateUrl();
+    }
+
+    async function loadData({ silent = false } = {}) {
+      if (!elements.raceId.value || refreshInFlight) return;
+      refreshInFlight = true;
+      if (!silent) setConnection("更新中", "idle");
+      try {
+        const raceId = encodeURIComponent(elements.raceId.value);
+        const [queuePayload, leaderboardPayload] = await Promise.all([
+          readJson(await window.timingApiFetch(`/api/start-queue?raceId=${raceId}`)),
+          readJson(await window.timingApiFetch(`/api/leaderboard?raceId=${raceId}`))
+        ]);
+        const results = new Map((leaderboardPayload.leaderboard || []).map((result) => [Number(result.participantId), result]));
+        activeRace = queuePayload.race;
+        entries = (queuePayload.entries || []).map((entry) => ({ ...entry, result: results.get(Number(entry.participantId)) || null }));
+        elements.raceName.textContent = `${activeRace.name || elements.raceId.value} · ${entries.length} 人`;
+        elements.groupSize.textContent = activeRace.startGroupSize || 1;
+        updateCounts();
+        renderEntries();
+        updateDock();
+        setConnection(`已更新 ${formatClock(queuePayload.generatedAt)}`, "live");
+        if (!silent) setMessage(`队列已更新，${queuePayload.summary?.ready || 0} 人等待发枪。`, "success");
+      } catch (error) {
+        setConnection("连接失败", "error");
+        setMessage(`读取失败：${error.message}`, "error");
+      } finally {
+        refreshInFlight = false;
+      }
+    }
+
+    function openModal(backdrop) {
+      backdrop.hidden = false;
+      document.body.classList.add("modal-open");
+    }
+
+    function closeModals() {
+      elements.startBackdrop.hidden = true;
+      elements.operationBackdrop.hidden = true;
+      document.body.classList.remove("modal-open");
+      elements.startError.textContent = "";
+      elements.operationError.textContent = "";
+      elements.confirmStartButton.disabled = false;
+      elements.confirmOperationButton.disabled = false;
+      operationEntry = null;
+      operationMode = "";
+    }
+
+    function openStartModal() {
+      const selected = selectedEntries();
+      if (!selected.length) return;
+      elements.startModalTitle.textContent = `确认第 ${selected[0].startWave} 批发枪`;
+      elements.startParticipants.textContent = selected.map((entry) => `#${entry.startOrder} ${entry.athleteName}`).join(" / ");
+      elements.startAdminCode.value = "";
+      openModal(elements.startBackdrop);
+      elements.startAdminCode.focus();
+    }
+
+    function openOperation(mode, entry) {
+      operationMode = mode;
+      operationEntry = entry;
+      elements.operationForm.reset();
+      elements.adjustmentFields.hidden = mode !== "adjustment";
+      elements.manualFields.hidden = mode !== "manual";
+      elements.operationParticipant.textContent = `#${entry.startOrder} · ${entry.athleteName} · ${entry.cardCode}`;
+      const config = {
+        adjustment: ["加减最终时间", "对已完成成绩增加罚时或减少时间。", "保存调整", "primary", "例如：动作判罚或现场复核"],
+        manual: ["手动调整时间", "输入完整的开始时间和结束时间，原始刷卡记录不会被修改。", "保存手动时间", "primary", "例如：设备故障，依据备用计时记录"],
+        dnf: ["确认选手退赛", "确认后选手会立即标记为 DNF。", "确认退赛", "danger", "请填写退赛原因"],
+        restore: ["撤销退赛", "选手会恢复到退赛前的计时状态。", "确认恢复", "primary", "请填写恢复原因"],
+        "cancel-checkin": ["取消起点核验", "选手会回到未核验状态，不会删除报名或 NFC 绑定。", "确认取消", "danger", "请填写取消原因"]
+      }[mode];
+      elements.operationTitle.textContent = config[0];
+      elements.operationDescription.textContent = config[1];
+      elements.confirmOperationButton.textContent = config[2];
+      elements.confirmOperationButton.className = `modal-button ${config[3]}`;
+      elements.operationReason.placeholder = config[4];
+      if (mode === "manual") {
+        elements.manualStartTime.value = toDateTimeLocal(entry.result?.startTime || entry.startedAt);
+        elements.manualFinishTime.value = toDateTimeLocal(entry.result?.finishTime || new Date());
+      }
+      openModal(elements.operationBackdrop);
+      (mode === "adjustment" ? elements.adjustmentMinutes : mode === "manual" ? elements.manualStartTime : elements.operationReason).focus();
+    }
+
+    async function confirmStart() {
+      const selected = selectedEntries();
+      if (!selected.length) return;
+      elements.confirmStartButton.disabled = true;
+      elements.startError.textContent = "正在写入统一开始时间...";
+      try {
+        const payload = await readJson(await window.timingApiFetch("/api/start-race", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raceId: elements.raceId.value,
+            participantIds: selected.map((entry) => entry.participantId),
+            deviceId,
+            adminCode: elements.startAdminCode.value
+          })
+        }));
+        selectedIds.clear();
+        closeModals();
+        await loadData({ silent: true });
+        setMessage(`第 ${payload.startWave || selected[0].startWave} 批 ${payload.startedCount} 人已于 ${formatClock(payload.startedAt)} 开始。`, "success");
+      } catch (error) {
+        elements.startError.textContent = error.message;
+        elements.confirmStartButton.disabled = false;
+      }
+    }
+
+    async function submitOperation(event) {
+      event.preventDefault();
+      if (!operationEntry) return;
+      elements.confirmOperationButton.disabled = true;
+      elements.operationError.textContent = "正在保存...";
+      try {
+        const base = {
+          raceId: elements.raceId.value,
+          participantId: operationEntry.participantId,
+          reason: elements.operationReason.value.trim(),
+          adminCode: elements.operationAdminCode.value
+        };
+        if (!base.reason) throw new Error("请填写备注。 ");
+        if (operationMode === "adjustment") {
+          const seconds = (Number(elements.adjustmentMinutes.value) || 0) * 60 + (Number(elements.adjustmentSeconds.value) || 0);
+          if (seconds <= 0) throw new Error("调整时间必须大于 0 秒。 ");
+          await readJson(await window.timingApiFetch("/api/result-adjustments", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...base, adjustmentSeconds: seconds * Number(elements.adjustmentDirection.value) })
+          }));
+        } else if (operationMode === "manual") {
+          const start = new Date(elements.manualStartTime.value);
+          const finish = new Date(elements.manualFinishTime.value);
+          if (!Number.isFinite(start.getTime()) || !Number.isFinite(finish.getTime()) || finish < start) {
+            throw new Error("结束时间必须晚于或等于开始时间。 ");
+          }
+          await readJson(await window.timingApiFetch("/api/manual-results", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...base, entryMode: "start_finish", startTime: start.toISOString(), finishTime: finish.toISOString() })
+          }));
+        } else if (operationMode === "cancel-checkin") {
+          await readJson(await window.timingApiFetch("/api/start-checkins/cancel", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(base)
+          }));
+        } else {
+          await readJson(await window.timingApiFetch("/api/participant-timing-controls", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...base, action: operationMode })
+          }));
+        }
+        const name = operationEntry.athleteName;
+        closeModals();
+        await loadData({ silent: true });
+        setMessage(`${name} 的裁判操作已保存。`, "success");
+      } catch (error) {
+        elements.operationError.textContent = error.message;
+        elements.confirmOperationButton.disabled = false;
+      }
+    }
+
+    document.querySelectorAll(".tab-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.filter;
+        document.querySelectorAll(".tab-button").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+        selectedIds.clear();
+        renderEntries();
+        updateDock();
+      });
+    });
+    document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModals));
+    [elements.startBackdrop, elements.operationBackdrop].forEach((backdrop) => {
+      backdrop.addEventListener("click", (event) => { if (event.target === backdrop) closeModals(); });
+    });
+    elements.searchInput.addEventListener("input", renderEntries);
+    const unlockSearch = () => { elements.searchInput.readOnly = false; };
+    elements.searchInput.addEventListener("pointerdown", unlockSearch, { once: true });
+    elements.searchInput.addEventListener("keydown", unlockSearch, { once: true });
+    elements.refreshButton.addEventListener("click", () => loadData());
+    elements.startRaceButton.addEventListener("click", openStartModal);
+    elements.confirmStartButton.addEventListener("click", confirmStart);
+    elements.operationForm.addEventListener("submit", submitOperation);
+    elements.raceId.addEventListener("change", async () => {
+      selectedIds.clear();
+      activeFilter = "ready";
+      document.querySelectorAll(".tab-button").forEach((item) => item.setAttribute("aria-pressed", String(item.dataset.filter === "ready")));
+      updateBranding();
+      updateUrl();
+      await loadData();
+    });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeModals(); });
+
+    async function start() {
+      try {
+        elements.searchInput.value = "";
+        await loadRaces();
+        await loadData();
+        window.setTimeout(() => {
+          if (document.activeElement !== elements.searchInput && elements.searchInput.value) {
+            elements.searchInput.value = "";
+            renderEntries();
+          }
+        }, 800);
+        pollTimer = window.setInterval(() => {
+          if (elements.startBackdrop.hidden && elements.operationBackdrop.hidden && document.visibilityState === "visible") {
+            loadData({ silent: true });
+          }
+        }, 4000);
+      } catch (error) {
+        setConnection("连接失败", "error");
+        setMessage(`启动失败：${error.message}`, "error");
+      }
+    }
+
+    window.addEventListener("beforeunload", () => window.clearInterval(pollTimer));
+    start();
+  </script>
+</body>
+</html>

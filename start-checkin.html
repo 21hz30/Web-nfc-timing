@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111820">
+  <title>正在打开起点 NFC 核验</title>
+</head>
+<body>
+  <p>正在打开手机 NFC 起点核验...</p>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    params.set("timingMode", "manual");
+    params.set("mode", "manual");
+    params.set("checkpoint", "START");
+    window.location.replace(`./web-nfc-timing-test.html?${params.toString()}`);
+  </script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>SRC NFC Timing Gate</title>
+  <title>SRC 手机 NFC 打卡</title>
   <link rel="icon" type="image/png" sizes="192x192" href="./assets/src-logo.png">
   <link rel="apple-touch-icon" href="./assets/src-logo.png">
   <style>
@@ -599,7 +599,7 @@
       <div class="brand">
         <img id="brandLogo" src="./assets/src-logo.png" alt="SRC logo">
         <div class="brand-copy">
-          <h1>NFC 计时闸机</h1>
+          <h1>手机 NFC 打卡</h1>
           <div id="deviceMeta" class="device-meta">设备尚未配置</div>
         </div>
       </div>
@@ -786,6 +786,7 @@
     const templateRaceIds = new Set(["fitmonster-hyrox-single", "hoka-race"]);
     const duplicateWindowMs = 2500;
     const defaultApiUrl = "/api/timing-events";
+    const startCheckinApiUrl = "/api/start-checkins";
     const recentScans = new Map();
     let abortController = null;
     let audioContext = null;
@@ -890,7 +891,7 @@
       ensureRaceOption(preferredRaceId);
       elements.raceId.value = preferredRaceId;
       elements.deviceId.value = params.get("deviceId") || saved.deviceId || "timing-reader-01";
-      elements.timingMode.value = params.get("mode") || saved.timingMode || "auto";
+      elements.timingMode.value = params.get("timingMode") || params.get("mode") || saved.timingMode || "auto";
       elements.gateRole.value = params.get("role") || saved.gateRole || "RUN_IN";
       elements.stationId.value = params.get("checkpoint")
         || params.get("stationId")
@@ -1025,9 +1026,12 @@
         throw new Error(payload.error || ("HTTP " + response.status));
       }
       raceProfile = payload.race;
-      elements.timingMode.value = raceProfile.mode === "station_checkpoints"
+      const requestedMode = params.get("timingMode") || params.get("mode");
+      elements.timingMode.value = requestedMode === "manual"
         ? "manual"
-        : "auto";
+        : raceProfile.mode === "station_checkpoints"
+          ? "manual"
+          : "auto";
       const finishOption = elements.gateRole.querySelector('option[value="FINISH"]');
       const usesFinishReader = raceProfile.mode === "three_reader_auto";
       finishOption.hidden = !usesFinishReader;
@@ -1062,7 +1066,7 @@
       const deviceId = elements.deviceId.value.trim();
       const ownBinding = currentDeviceBinding();
       if (ownBinding) {
-        const assignment = raceProfile?.mode === "station_checkpoints"
+        const assignment = elements.timingMode.value === "manual"
           ? checkpointLabel(ownBinding.assignment)
           : shortRoleLabel(ownBinding.assignment);
         elements.deviceBindingStatus.textContent = `已绑定：${ownBinding.device_id} · ${assignment}`;
@@ -1104,7 +1108,7 @@
       if (!response.ok || !payload.ok) throw new Error(payload.error || ("HTTP " + response.status));
       await loadDeviceBindings();
       bindingConfirmed = true;
-      const assignmentLabel = raceProfile?.mode === "station_checkpoints"
+      const assignmentLabel = elements.timingMode.value === "manual"
         ? checkpointLabel(assignment)
         : shortRoleLabel(assignment);
       setStatus(`设备绑定成功：${deviceId} · ${assignmentLabel}`, "success");
@@ -1137,6 +1141,7 @@
 
     function renderConfiguration() {
       const isAuto = elements.timingMode.value === "auto";
+      const isStartCheckin = !isAuto && elements.stationId.value === "START";
       updateRaceLogo();
       elements.gateRoleField.classList.toggle("hidden", !isAuto);
       elements.stationField.classList.toggle("hidden", isAuto);
@@ -1144,6 +1149,7 @@
         ? roleLabel(elements.gateRole.value)
         : `手动 · ${checkpointLabel(elements.stationId.value)}`;
       elements.deviceMeta.textContent = `${elements.raceId.value.trim() || "No race"} · ${elements.deviceId.value.trim() || "No device"}`;
+      elements.startButton.textContent = isStartCheckin ? "开始起点核验" : "开始扫描 NFC";
       elements.testVoiceButton.disabled = !elements.voiceEnabled.checked;
       if (!document.body.classList.contains("scanning")) renderReadyState();
       saveSettings();
@@ -1151,11 +1157,14 @@
 
     function renderReadyState() {
       const isAuto = elements.timingMode.value === "auto";
+      const isStartCheckin = !isAuto && elements.stationId.value === "START";
       elements.scanner.dataset.tone = document.body.classList.contains("scanning") ? "ready" : "idle";
       elements.scanState.textContent = document.body.classList.contains("scanning") ? "正在扫描" : "未启动";
       if (!document.body.classList.contains("scanning")) {
-        elements.heroTitle.textContent = "点击开始扫描";
-        elements.heroDetail.textContent = "设备启动后等待选手贴卡";
+        elements.heroTitle.textContent = isStartCheckin ? "点击开始核验" : "点击开始扫描";
+        elements.heroDetail.textContent = isStartCheckin
+          ? "起点只做核验，等待裁判发枪后开始计时"
+          : "设备启动后等待选手贴卡";
         return;
       }
 
@@ -1168,6 +1177,9 @@
       } else if (isAuto) {
         elements.heroTitle.textContent = "开始跑步前请贴卡";
         elements.heroDetail.textContent = "打卡后开始 500m 跑步，听到提示音再离开";
+      } else if (isStartCheckin) {
+        elements.heroTitle.textContent = "请贴 NFC 卡核验";
+        elements.heroDetail.textContent = "核验通过后等待裁判发枪";
       } else {
         elements.heroTitle.textContent = "请贴 NFC 卡";
         elements.heroDetail.textContent = checkpointLabel(elements.stationId.value);
@@ -1236,10 +1248,17 @@
     }
 
     async function uploadEvent(payload) {
-      const response = await window.timingApiFetch(defaultApiUrl, {
+      const isStartCheckin = payload.timingMode === "manual" && payload.stationId === "START";
+      const response = await window.timingApiFetch(isStartCheckin ? startCheckinApiUrl : defaultApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(isStartCheckin
+          ? {
+              raceId: payload.raceId,
+              cardCode: payload.cardCode,
+              deviceId: payload.deviceId
+            }
+          : payload)
       });
       const responsePayload = await readApiResponse(response);
 
@@ -1368,14 +1387,16 @@
     }
 
     function responseTone(status) {
-      if (status === "accepted") return "success";
-      if (["duplicate_tap", "duplicate_event_id", "already_finished", "local_only", "participant_paused"].includes(status)) return "warning";
+      if (status === "accepted" || status === "start_ready") return "success";
+      if (["duplicate_tap", "duplicate_event_id", "already_finished", "already_started", "local_only", "participant_paused"].includes(status)) return "warning";
       return "error";
     }
 
     function responseLabel(status) {
       const labels = {
         accepted: "已记录",
+        start_ready: "核验成功",
+        already_started: "已经出发",
         already_finished: "已经完赛",
         duplicate_event_id: "重复事件",
         duplicate_tap: "重复刷卡",
@@ -1392,6 +1413,8 @@
     }
 
     function responseVoiceMessage(status, feedback) {
+      if (status === "start_ready") return "核验成功，请等待裁判发枪";
+      if (status === "already_started") return "该选手已经出发";
       if (status === "wrong_gate" || status === "wrong_checkpoint") {
         return `刷卡位置错误，${feedback.detail}`;
       }
@@ -1445,6 +1468,10 @@
         feedback.detail = "该选手计时已暂停，请先在后台恢复计时";
       } else if (status === "participant_dnf") {
         feedback.detail = "该选手已标记退赛，本次刷卡未记录";
+      } else if (status === "start_ready") {
+        feedback.detail = "等待裁判发枪";
+      } else if (status === "already_started") {
+        feedback.detail = "该选手已经出发，无需再次核验";
       }
 
       elements.lastResult.textContent = `${athlete} · ${feedback.detail}`;
@@ -1454,6 +1481,8 @@
       showFeedback(feedback);
       if (status === "accepted") {
         announceSuccess();
+      } else if (status === "start_ready") {
+        announceVoice(responseVoiceMessage(status, feedback));
       } else {
         announceVoice(responseVoiceMessage(status, feedback));
       }

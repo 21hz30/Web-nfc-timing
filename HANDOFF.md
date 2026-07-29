@@ -44,6 +44,10 @@ The current proof of concept supports:
   live total time, and result/control notes. Desktop keeps the comparison table.
 - Three matching HOKA series profiles: Shanghai (`hoka-race-sh`), Hangzhou
   (`hoka-race-hz`), and Final (`hoka-race-final`).
+- Separate race-day roles: race setup/binding, judge console, checkpoint phones,
+  and branded audience leaderboard.
+- Configurable participants per start wave and explicit per-participant start order.
+- A `START` phone records readiness only; the judge console creates the shared start time.
 
 The current implementation is suitable for controlled rehearsal testing. Strong device/admin
 authentication and offline device retry are still required before handling real participant
@@ -72,6 +76,8 @@ supabase/migrations/20260718020000_add_participant_entry_types.sql
 supabase/migrations/20260721090000_add_result_adjustments.sql
 supabase/migrations/20260722080000_add_race_reopen_and_templates.sql
 supabase/migrations/20260727090000_add_manual_results_and_timing_controls.sql
+supabase/migrations/20260729090000_add_start_checkins_and_batch_start.sql
+supabase/migrations/20260730090000_add_start_groups.sql
 ```
 
 It creates these RLS-protected tables:
@@ -215,6 +221,7 @@ Main pages:
 
 ```text
 http://localhost:8787/admin.html
+http://localhost:8787/judge.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
 ```
@@ -239,15 +246,12 @@ admin.html
 
 Purpose:
 
-- Register/check participant details.
-- Bind NFC card code to participant.
+- Create dated race sessions and configure station count and participants per start wave.
+- Register participant details, bind NFC card code, and assign start order.
 - Edit an existing participant's Card Code, entry/team name, and member names after
   administrator-code verification. The participant ID stays unchanged so timing history
   remains attached, and duplicate Card Codes are rejected.
 - Delete one Card Code binding and its selected-race timing events with the administrator code.
-- Enter a special final result by start/finish timestamps or exact total elapsed time.
-- Pause/resume an active participant or mark/restore DNF with a required reason and
-  administrator-code verification.
 - The leaderboard has separate `Reset timing` and `Clear race data` actions. Reset timing
   requires the same administrator code and two confirmations, deletes timing events,
   adjustments, manual results, and timing controls, and preserves participants, team details,
@@ -266,10 +270,6 @@ Purpose:
 - `fitmonster-hyrox-single` and `hoka-race` are read-only templates. All operational
   API writes are rejected for those exact IDs, while existing QA data remains intact.
   The NFC page hides templates and finalized races, and lists active dated sessions.
-- Finished participants support audited result adjustments from `admin.html`. Add-time
-  penalties and subtract-time credits are appended to `result_adjustments`, require
-  the administrator code plus a reason, and never rewrite the raw NFC event timeline.
-  The leaderboard displays the original time, each adjustment, and the adjusted final time.
 - The leaderboard's `End race` action uses the same administrator code as clearing.
   It persists `race_profiles.status = finalized` plus `finalized_at`, freezes the
   scoreboard across reloads/devices, preserves all data, and blocks later timing taps.
@@ -292,7 +292,21 @@ Purpose:
   - member name list
   - phone, gender, and division for individuals only
   - check-in status
-- Show latest timing events.
+
+### Judge Console
+
+File:
+
+```text
+judge.html
+```
+
+Purpose:
+
+- Show the start queue by ready, racing, finished, unchecked, and withdrawn state.
+- Start checked-in participants from one wave with one shared server timestamp.
+- Add/subtract time, enter manual start/finish timestamps, and keep a required reason.
+- Confirm or restore DNF and cancel an incorrect start check-in with administrator verification.
 
 ### Station Timing
 
@@ -309,7 +323,8 @@ Purpose:
 - Use the fixed same-origin `/api/*` endpoint; the upload API URL is intentionally hidden.
 - Read NDEF text from tag.
 - Normalize card code to uppercase.
-- Upload timing event to `/api/timing-events`.
+- At `START`, upload readiness to `/api/start-checkins` without creating a start event.
+- At all later checkpoints, upload timing events to `/api/timing-events`.
 - Wait for server confirmation before showing green success feedback.
 - In automatic mode, let the backend assign the athlete's next checkpoint.
 - Uses generic station IDs:

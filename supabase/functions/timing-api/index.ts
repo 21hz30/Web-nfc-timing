@@ -221,6 +221,7 @@ function defaultRaceProfile(raceId: string): DatabaseRow {
     name: raceId,
     mode: "two_reader_auto",
     station_count: 8,
+    start_group_size: 1,
     checkpoints: buildCheckpoints("two_reader_auto", 8),
     entry_type: raceId === "hoka-race" ? "team" : "individual",
     status: "active",
@@ -237,6 +238,7 @@ function raceResponse(profile: DatabaseRow): JsonObject {
     name: profile.name,
     mode: profile.mode,
     stationCount: Number(profile.station_count),
+    startGroupSize: Number(profile.start_group_size || 1),
     checkpoints: profile.checkpoints,
     checkpointLayout: checkpointLayout(profile),
     entryType: profile.entry_type || "individual",
@@ -277,7 +279,7 @@ async function raceParticipants(raceId: string): Promise<DatabaseRow[]> {
     query: {
       select: "*",
       race_id: `eq.${raceId}`,
-      order: "bib_number.asc.nullslast,athlete_name.asc",
+      order: "start_order.asc,athlete_name.asc,id.asc",
     },
   });
 }
@@ -327,6 +329,85 @@ async function raceTimingControls(raceId: string): Promise<DatabaseRow[]> {
       order: "created_at.asc,id.asc",
     },
   });
+}
+
+async function raceStartCheckins(raceId: string): Promise<DatabaseRow[]> {
+  return await databaseRequest("start_checkins", {
+    query: {
+      select: "*",
+      race_id: `eq.${raceId}`,
+      order: "confirmed_at.desc,participant_id.asc",
+    },
+  });
+}
+
+async function raceStartEvents(raceId: string): Promise<DatabaseRow[]> {
+  return await databaseRequest("timing_events", {
+    query: {
+      select: "id,participant_id,event_time",
+      race_id: `eq.${raceId}`,
+      station_id: "eq.START",
+      status: "eq.accepted",
+      participant_id: "not.is.null",
+      order: "event_time.asc,id.asc",
+    },
+  });
+}
+
+function buildStartQueue(
+  participants: DatabaseRow[],
+  checkins: DatabaseRow[],
+  startEvents: DatabaseRow[],
+  startGroupSize: number,
+): JsonObject {
+  const checkinByParticipant = new Map(
+    checkins.map((checkin) => [Number(checkin.participant_id), checkin]),
+  );
+  const startByParticipant = new Map<number, DatabaseRow>();
+  startEvents.forEach((event) => {
+    const participantId = Number(event.participant_id);
+    if (!startByParticipant.has(participantId)) startByParticipant.set(participantId, event);
+  });
+
+  const entries = participants.map((participant) => {
+    const participantId = Number(participant.id);
+    const checkin = checkinByParticipant.get(participantId) || null;
+    const startEvent = startByParticipant.get(participantId) || null;
+    const status = startEvent ? "started" : checkin?.status === "ready" ? "ready" : "not_ready";
+    const startOrder = Number(participant.start_order || 1);
+    return {
+      participantId,
+      athleteName: participant.athlete_name,
+      entryType: participant.entry_type || "individual",
+      memberNames: Array.isArray(participant.member_names) ? participant.member_names : [],
+      cardCode: participant.card_code,
+      startOrder,
+      startWave: Math.floor((startOrder - 1) / startGroupSize) + 1,
+      checkInStatus: participant.check_in_status || "not_checked_in",
+      status,
+      confirmedAt: checkin?.confirmed_at || null,
+      confirmedDeviceId: checkin?.device_id || null,
+      startedAt: startEvent?.event_time || checkin?.started_at || null,
+    };
+  }).sort((left, right) => {
+    const statusOrder: Record<string, number> = { ready: 0, not_ready: 1, started: 2 };
+    const statusDifference = statusOrder[left.status] - statusOrder[right.status];
+    if (statusDifference) return statusDifference;
+    const startOrderDifference = Number(left.startOrder) - Number(right.startOrder);
+    if (startOrderDifference) return startOrderDifference;
+    return String(left.athleteName || "").localeCompare(String(right.athleteName || ""));
+  });
+
+  return {
+    entries,
+    summary: {
+      registered: entries.length,
+      ready: entries.filter((entry) => entry.status === "ready").length,
+      started: entries.filter((entry) => entry.status === "started").length,
+      waiting: entries.filter((entry) => entry.status === "not_ready").length,
+      startGroupSize,
+    },
+  };
 }
 
 function resultAdjustmentResponse(row: DatabaseRow): JsonObject {
@@ -813,6 +894,28 @@ async function handleGet(route: string, url: URL): Promise<Response> {
     });
   }
 
+  if (route === "/start-queue") {
+    const raceId = requiredRaceId(url.searchParams.get("raceId"));
+    const profile = await ensureRaceProfile(raceId);
+    const [participants, checkins, startEvents] = await Promise.all([
+      raceParticipants(raceId),
+      raceStartCheckins(raceId),
+      raceStartEvents(raceId),
+    ]);
+    return jsonResponse({
+      ok: true,
+      raceId,
+      race: raceResponse(profile),
+      generatedAt: new Date().toISOString(),
+      ...buildStartQueue(
+        participants,
+        checkins,
+        startEvents,
+        Number(profile.start_group_size || 1),
+      ),
+    });
+  }
+
   if (route === "/device-bindings") {
     const raceId = requiredRaceId(url.searchParams.get("raceId"));
     const bindings = await databaseRequest("device_bindings", {
@@ -875,6 +978,271 @@ async function handleGet(route: string, url: URL): Promise<Response> {
 async function handlePost(route: string, request: Request): Promise<Response> {
   const payload = await readJsonBody(request);
 
+  if (route === "/start-checkins") {
+    const raceId = requiredRaceId(payload.raceId);
+    const cardCode = String(payload.cardCode || "").trim().toUpperCase();
+    const deviceId = String(payload.deviceId || "").trim();
+    if (!cardCode || cardCode.length > 100) {
+      return jsonResponse({ ok: false, error: "cardCode is required" }, 400);
+    }
+    if (!deviceId || deviceId.length > 100) {
+      return jsonResponse({ ok: false, error: "deviceId must be between 1 and 100 characters" }, 400);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse(
+        { ok: false, status: "race_finalized", error: "This race has ended" },
+        409,
+      );
+    }
+
+    const participants = await databaseRequest("participants", {
+      query: {
+        select: "*",
+        race_id: `eq.${raceId}`,
+        card_code: `eq.${cardCode}`,
+        limit: "1",
+      },
+    });
+    const participant = participants[0];
+    if (!participant) {
+      return jsonResponse({
+        ok: true,
+        status: "unbound_card",
+        cardCode,
+        raceId,
+        receivedAt: new Date().toISOString(),
+      });
+    }
+
+    const [startEvents, manualResults] = await Promise.all([
+      databaseRequest("timing_events", {
+        query: {
+          select: "id,event_time",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participant.id}`,
+          station_id: "eq.START",
+          status: "eq.accepted",
+          limit: "1",
+        },
+      }),
+      databaseRequest("manual_results", {
+        query: {
+          select: "id,created_at",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participant.id}`,
+          limit: "1",
+        },
+      }),
+    ]);
+    if (startEvents[0] || manualResults[0]) {
+      return jsonResponse({
+        ok: true,
+        status: "already_started",
+        raceId,
+        cardCode,
+        participantId: participant.id,
+        athleteName: participant.athlete_name,
+        startedAt: startEvents[0]?.event_time || manualResults[0]?.created_at || null,
+        receivedAt: new Date().toISOString(),
+      });
+    }
+
+    const now = new Date().toISOString();
+    const existing = await databaseRequest("start_checkins", {
+      query: {
+        select: "id,confirmed_at",
+        race_id: `eq.${raceId}`,
+        participant_id: `eq.${participant.id}`,
+        limit: "1",
+      },
+    });
+    const rows = await databaseRequest("start_checkins", {
+      method: "POST",
+      query: { on_conflict: "race_id,participant_id" },
+      body: {
+        ...(existing[0]?.id ? { id: existing[0].id } : {}),
+        race_id: raceId,
+        participant_id: participant.id,
+        device_id: deviceId,
+        status: "ready",
+        confirmed_at: now,
+        started_at: null,
+        updated_at: now,
+      },
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+    return jsonResponse({
+      ok: true,
+      status: "start_ready",
+      raceId,
+      cardCode,
+      participantId: participant.id,
+      athleteName: participant.athlete_name,
+      entryType: participant.entry_type || "individual",
+      memberNames: Array.isArray(participant.member_names) ? participant.member_names : [],
+      confirmedAt: rows[0].confirmed_at,
+      receivedAt: now,
+      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      cloudError: null,
+    });
+  }
+
+  if (route === "/start-checkins/cancel") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Judge authorization is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const suppliedCode = String(payload.adminCode || "");
+    if (!Number.isSafeInteger(participantId) || participantId <= 0) {
+      return jsonResponse({ ok: false, error: "participantId is required" }, 400);
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template || profile.status === "finalized") {
+      return jsonResponse({ ok: false, error: "This race cannot be changed" }, 409);
+    }
+    const started = await databaseRequest("timing_events", {
+      query: {
+        select: "id",
+        race_id: `eq.${raceId}`,
+        participant_id: `eq.${participantId}`,
+        station_id: "eq.START",
+        status: "eq.accepted",
+        limit: "1",
+      },
+    });
+    if (started[0]) {
+      return jsonResponse({ ok: false, status: "already_started", error: "This participant has already started" }, 409);
+    }
+    const deleted = await databaseRequest("start_checkins", {
+      method: "DELETE",
+      query: {
+        race_id: `eq.${raceId}`,
+        participant_id: `eq.${participantId}`,
+        status: "eq.ready",
+      },
+      prefer: "return=representation",
+    });
+    return jsonResponse({ ok: true, raceId, participantId, removed: deleted.length > 0 });
+  }
+
+  if (route === "/start-race") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Judge authorization is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const suppliedCode = String(payload.adminCode || "");
+    const deviceId = String(payload.deviceId || "judge-console").trim();
+    const requestedIds = Array.isArray(payload.participantIds) ? payload.participantIds : [];
+    if (
+      !requestedIds.length
+      || requestedIds.length > 50
+      || !requestedIds.every((value) => Number.isSafeInteger(Number(value)) && Number(value) > 0)
+    ) {
+      return jsonResponse({ ok: false, error: "Select between 1 and 50 participants" }, 400);
+    }
+    const participantIds = [...new Set(requestedIds.map((value) => Number(value)))];
+    if (!deviceId || deviceId.length > 100) {
+      return jsonResponse({ ok: false, error: "deviceId must be between 1 and 100 characters" }, 400);
+    }
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse({ ok: false, status: "race_finalized", error: "This race has ended" }, 409);
+    }
+
+    const idFilter = `in.(${participantIds.join(",")})`;
+    const [participants, readyCheckins, startEvents, manualResults] = await Promise.all([
+      databaseRequest("participants", {
+        query: { select: "id,start_order", race_id: `eq.${raceId}`, id: idFilter },
+      }),
+      databaseRequest("start_checkins", {
+        query: {
+          select: "participant_id",
+          race_id: `eq.${raceId}`,
+          participant_id: idFilter,
+          status: "eq.ready",
+        },
+      }),
+      databaseRequest("timing_events", {
+        query: {
+          select: "participant_id",
+          race_id: `eq.${raceId}`,
+          participant_id: idFilter,
+          station_id: "eq.START",
+          status: "eq.accepted",
+        },
+      }),
+      databaseRequest("manual_results", {
+        query: {
+          select: "participant_id",
+          race_id: `eq.${raceId}`,
+          participant_id: idFilter,
+        },
+      }),
+    ]);
+    if (participants.length !== participantIds.length) {
+      return jsonResponse({ ok: false, error: "One or more selected participants do not belong to this race" }, 400);
+    }
+    const startGroupSize = Number(profile.start_group_size || 1);
+    if (participants.length > startGroupSize) {
+      return jsonResponse({
+        ok: false,
+        error: `This race allows at most ${startGroupSize} participants per start`,
+      }, 400);
+    }
+    const startWaves = new Set(
+      participants.map((participant) => (
+        Math.floor((Number(participant.start_order || 1) - 1) / startGroupSize) + 1
+      )),
+    );
+    if (startWaves.size !== 1) {
+      return jsonResponse({
+        ok: false,
+        error: "Selected participants must belong to the same start wave",
+      }, 400);
+    }
+    if (startEvents.length || manualResults.length) {
+      return jsonResponse({ ok: false, status: "already_started", error: "One or more selected participants have already started" }, 409);
+    }
+    if (readyCheckins.length !== participantIds.length) {
+      return jsonResponse({ ok: false, status: "start_checkin_required", error: "Every selected participant must pass the start check-in first" }, 409);
+    }
+
+    const result = await databaseRequest("rpc/start_race_batch", {
+      method: "POST",
+      body: {
+        p_race_id: raceId,
+        p_participant_ids: participantIds,
+        p_started_at: new Date().toISOString(),
+        p_device_id: deviceId,
+      },
+    });
+    return jsonResponse(result, 201);
+  }
+
   if (route === "/reset-timing") {
     const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
     if (configuredCode.length < 8) {
@@ -926,6 +1294,11 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       query: { race_id: `eq.${raceId}` },
       prefer: "return=representation",
     });
+    const deletedStartCheckins = await databaseRequest("start_checkins", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
     return jsonResponse({
       ok: true,
       raceId,
@@ -934,6 +1307,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         resultAdjustments: deletedAdjustments.length,
         manualResults: deletedManualResults.length,
         timingControls: deletedTimingControls.length,
+        startCheckins: deletedStartCheckins.length,
       },
       participantsPreserved: true,
       deviceBindingsPreserved: true,
@@ -985,6 +1359,11 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       query: { race_id: `eq.${raceId}` },
       prefer: "return=representation",
     });
+    const deletedStartCheckins = await databaseRequest("start_checkins", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
     const deletedParticipants = await databaseRequest("participants", {
       method: "DELETE",
       query: { race_id: `eq.${raceId}` },
@@ -999,6 +1378,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         resultAdjustments: deletedAdjustments.length,
         manualResults: deletedManualResults.length,
         timingControls: deletedTimingControls.length,
+        startCheckins: deletedStartCheckins.length,
       },
       raceProfilePreserved: true,
     });
@@ -1108,6 +1488,9 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     const suppliedCode = String(payload.adminCode || "");
     const entry = normalizeParticipantEntry(payload);
     const checkInStatus = String(payload.checkInStatus || "checked_in").trim();
+    const requestedStartOrder = payload.startOrder === undefined || payload.startOrder === ""
+      ? null
+      : Number(payload.startOrder);
     if (!Number.isInteger(participantId) || participantId <= 0) {
       throw new Error("participantId is required");
     }
@@ -1119,6 +1502,12 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     }
     if (!new Set(["not_checked_in", "checked_in"]).has(checkInStatus)) {
       throw new Error("checkInStatus must be not_checked_in or checked_in");
+    }
+    if (
+      requestedStartOrder !== null
+      && (!Number.isInteger(requestedStartOrder) || requestedStartOrder < 1 || requestedStartOrder > 100000)
+    ) {
+      throw new Error("startOrder must be between 1 and 100000");
     }
     if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
       return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
@@ -1141,7 +1530,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
 
     const existingRows = await databaseRequest("participants", {
       query: {
-        select: "id",
+        select: "id,start_order",
         race_id: `eq.${raceId}`,
         id: `eq.${participantId}`,
         limit: "1",
@@ -1149,6 +1538,19 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     });
     if (!existingRows[0]) {
       return jsonResponse({ ok: false, error: "Participant was not found in this race" }, 404);
+    }
+    const startOrder = requestedStartOrder ?? Number(existingRows[0].start_order || 1);
+    const conflictingOrders = await databaseRequest("participants", {
+      query: {
+        select: "id",
+        race_id: `eq.${raceId}`,
+        start_order: `eq.${startOrder}`,
+        id: `neq.${participantId}`,
+        limit: "1",
+      },
+    });
+    if (conflictingOrders[0]) {
+      return jsonResponse({ ok: false, error: "startOrder is already assigned in this race" }, 409);
     }
 
     let rows: DatabaseRow[];
@@ -1175,6 +1577,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
             ? String(payload.division || "").trim() || null
             : null,
           check_in_status: checkInStatus,
+          start_order: startOrder,
           updated_at: new Date().toISOString(),
         },
         prefer: "return=representation",
@@ -1630,6 +2033,12 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       throw new Error("stationCount must be between 1 and 20");
     }
     const existing = await findRaceProfile(raceId);
+    const startGroupSize = Number(
+      payload.startGroupSize ?? existing?.start_group_size ?? 1,
+    );
+    if (!Number.isInteger(startGroupSize) || startGroupSize < 1 || startGroupSize > 50) {
+      throw new Error("startGroupSize must be between 1 and 50");
+    }
     if (existing?.is_template) {
       return jsonResponse({
         ok: false,
@@ -1663,6 +2072,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       name: String(payload.name || raceId).trim() || raceId,
       mode,
       station_count: stationCount,
+      start_group_size: startGroupSize,
       checkpoints,
       entry_type: entryType,
       status: existing?.status || "active",
@@ -1711,6 +2121,29 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         409,
       );
     }
+    const requestedStartOrder = payload.startOrder === undefined || payload.startOrder === ""
+      ? null
+      : Number(payload.startOrder);
+    if (
+      requestedStartOrder !== null
+      && (!Number.isInteger(requestedStartOrder) || requestedStartOrder < 1 || requestedStartOrder > 100000)
+    ) {
+      throw new Error("startOrder must be between 1 and 100000");
+    }
+    const startOrderRows = await databaseRequest("participants", {
+      query: {
+        select: "id,start_order",
+        race_id: `eq.${raceId}`,
+        ...(requestedStartOrder === null
+          ? { order: "start_order.desc", limit: "1" }
+          : { start_order: `eq.${requestedStartOrder}`, limit: "1" }),
+      },
+    });
+    if (requestedStartOrder !== null && startOrderRows[0]) {
+      return jsonResponse({ ok: false, error: "startOrder is already assigned in this race" }, 409);
+    }
+    const startOrder = requestedStartOrder
+      ?? (Number(startOrderRows[0]?.start_order || 0) + 1);
     const now = new Date().toISOString();
     const participant = {
       race_id: raceId,
@@ -1729,6 +2162,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         ? String(payload.division || "").trim() || null
         : null,
       check_in_status: checkInStatus,
+      start_order: startOrder,
       created_at: now,
       updated_at: now,
     };

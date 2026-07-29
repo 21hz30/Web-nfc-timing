@@ -6,7 +6,7 @@
     },
     {
       "source": "/",
-      "destination": "/web-nfc-timing-test.html"
+      "destination": "/index.html"
     }
   ]
 }

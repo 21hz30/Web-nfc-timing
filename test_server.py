@@ -228,6 +228,7 @@ class TimingApiTests(unittest.TestCase):
                 "resultAdjustments": 0,
                 "manualResults": 0,
                 "timingControls": 0,
+                "startCheckins": 0,
             },
         )
         self.assertTrue(result["raceProfilePreserved"])
@@ -307,6 +308,7 @@ class TimingApiTests(unittest.TestCase):
                 "resultAdjustments": 1,
                 "manualResults": 0,
                 "timingControls": 0,
+                "startCheckins": 0,
             },
         )
         self.assertTrue(result["participantsPreserved"])
@@ -1476,6 +1478,139 @@ class RaceProfileTests(TimingApiTests):
                 "station5Ms": 50000,
             },
         )
+
+    def test_start_groups_persist_orders_and_expose_waves(self):
+        race = self.request_json(
+            "/api/race-config",
+            {
+                "raceId": "auto-test",
+                "name": "Grouped Start Test",
+                "mode": "station_checkpoints",
+                "stationCount": 3,
+                "startGroupSize": 2,
+                "checkpointLayout": "station_starts",
+                "entryType": "individual",
+            },
+        )["race"]
+        self.assertEqual(race["startGroupSize"], 2)
+
+        automatic = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "SIM-002",
+                "athleteName": "Second Athlete",
+                "entryType": "individual",
+            },
+        )["participant"]
+        manual = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "SIM-005",
+                "athleteName": "Fifth Athlete",
+                "entryType": "individual",
+                "startOrder": 5,
+            },
+        )["participant"]
+        self.assertEqual(automatic["start_order"], 2)
+        self.assertEqual(manual["start_order"], 5)
+
+        queue = self.request_json("/api/start-queue?raceId=auto-test")
+        entries = {entry["cardCode"]: entry for entry in queue["entries"]}
+        self.assertEqual(queue["summary"]["startGroupSize"], 2)
+        self.assertEqual(entries["SIM-001"]["startOrder"], 1)
+        self.assertEqual(entries["SIM-001"]["startWave"], 1)
+        self.assertEqual(entries["SIM-002"]["startWave"], 1)
+        self.assertEqual(entries["SIM-005"]["startWave"], 3)
+
+    def test_judge_start_requires_one_checked_in_wave_and_respects_group_size(self):
+        self.request_json(
+            "/api/race-config",
+            {
+                "raceId": "auto-test",
+                "name": "Judge Start Test",
+                "mode": "station_checkpoints",
+                "stationCount": 2,
+                "startGroupSize": 2,
+                "checkpointLayout": "station_starts",
+                "entryType": "individual",
+            },
+        )
+        second = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "SIM-002",
+                "athleteName": "Second Athlete",
+                "entryType": "individual",
+            },
+        )["participant"]
+        third = self.request_json(
+            "/api/participants",
+            {
+                "raceId": "auto-test",
+                "cardCode": "SIM-003",
+                "athleteName": "Third Athlete",
+                "entryType": "individual",
+            },
+        )["participant"]
+        participants = self.request_json(
+            "/api/participants?raceId=auto-test"
+        )["participants"]
+        first = next(row for row in participants if row["card_code"] == "SIM-001")
+
+        for card_code in ("SIM-001", "SIM-002", "SIM-003"):
+            checkin = self.request_json(
+                "/api/start-checkins",
+                {
+                    "raceId": "auto-test",
+                    "cardCode": card_code,
+                    "deviceId": "start-phone-01",
+                },
+            )
+            self.assertEqual(checkin["status"], "start_ready")
+
+        base_payload = {
+            "raceId": "auto-test",
+            "deviceId": "judge-console-test",
+            "adminCode": "test-clear-code-1234",
+        }
+        self.assert_post_error(
+            "/api/start-race",
+            {
+                **base_payload,
+                "participantIds": [first["id"], third["id"]],
+            },
+            HTTPStatus.BAD_REQUEST,
+        )
+        self.assert_post_error(
+            "/api/start-race",
+            {
+                **base_payload,
+                "participantIds": [first["id"], second["id"], third["id"]],
+            },
+            HTTPStatus.BAD_REQUEST,
+        )
+
+        started = self.request_json(
+            "/api/start-race",
+            {
+                **base_payload,
+                "participantIds": [first["id"], second["id"]],
+            },
+        )
+        self.assertEqual(started["startWave"], 1)
+        self.assertEqual(started["startedCount"], 2)
+        self.assertEqual(len(started["participants"]), 2)
+
+        queue = self.request_json("/api/start-queue?raceId=auto-test")
+        statuses = {
+            entry["cardCode"]: entry["status"] for entry in queue["entries"]
+        }
+        self.assertEqual(statuses["SIM-001"], "started")
+        self.assertEqual(statuses["SIM-002"], "started")
+        self.assertEqual(statuses["SIM-003"], "ready")
 
 
 if __name__ == "__main__":

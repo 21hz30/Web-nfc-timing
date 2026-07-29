@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SRC 前台登记</title>
+  <title>SRC 比赛与选手绑定</title>
   <link rel="icon" type="image/png" sizes="192x192" href="./assets/src-logo.png">
   <link rel="apple-touch-icon" href="./assets/src-logo.png">
   <style>
@@ -29,6 +29,8 @@
     }
 
     main {
+      display: flex;
+      flex-direction: column;
       width: min(1280px, 100%);
       margin: 0 auto;
       padding: 18px;
@@ -81,6 +83,12 @@
       border-radius: 8px;
       background: #ffffff;
     }
+
+    #raceOverview { order: 1; }
+    #raceSession { order: 2; }
+    #raceConfiguration { order: 3; }
+    #participantBinding { order: 4; }
+    #participantList { order: 5; }
 
     .grid {
       display: grid;
@@ -369,7 +377,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1080px;
+      min-width: 760px;
     }
 
     .table-scroll {
@@ -420,6 +428,11 @@
       color: #9b1c1c;
     }
 
+    .muted {
+      color: #6b7785;
+      font-size: 12px;
+    }
+
     @media (max-width: 920px) {
       .grid {
         grid-template-columns: 1fr;
@@ -457,17 +470,18 @@
 </head>
 <body>
   <header>
-    <h1>SRC 前台登记</h1>
-    <p>前台登记、选手资料核实、NFC 卡绑定、实时事件检查。</p>
+    <h1>比赛与选手绑定</h1>
+    <p>创建比赛、设置站点和出发批次，登记选手并绑定 NFC 卡。</p>
     <nav>
-      <a href="./admin.html" aria-current="page">前台登记</a>
-      <a href="./web-nfc-timing-test.html">站点计时页</a>
-      <a href="./leaderboard.html">实时排名大屏</a>
+      <a href="./admin.html" aria-current="page">比赛与绑定</a>
+      <a href="./judge.html">裁判台</a>
+      <a href="./web-nfc-timing-test.html">手机 NFC</a>
+      <a href="./leaderboard.html">数据大屏</a>
     </nav>
   </header>
 
   <main>
-    <section>
+    <section id="raceOverview">
       <div class="overview-header">
         <div>
           <h2>比赛数据概览</h2>
@@ -484,7 +498,7 @@
       </div>
     </section>
 
-    <section>
+    <section id="raceSession">
       <h2>创建新比赛场次</h2>
       <p>每次正式比赛先从模板创建一个带日期时间的场次。新场次使用独立 Race ID，历史选手和计时记录会继续保留。</p>
       <form id="raceSessionForm" class="grid">
@@ -510,7 +524,7 @@
       <div id="raceSessionStatus" class="status">新场次不会删除或覆盖历史数据。</div>
     </section>
 
-    <section>
+    <section id="participantBinding">
       <h2>参赛登记 / NFC 绑定</h2>
       <p>一张 NFC 卡对应一个参赛单位；个人资料或团队成员只存后台。</p>
       <form id="participantForm" class="grid">
@@ -576,6 +590,10 @@
             <option value="not_checked_in">Not Checked In</option>
           </select>
         </label>
+        <label>
+          出发顺序
+          <input id="startOrder" type="number" min="1" max="100000" step="1" placeholder="留空自动排到最后">
+        </label>
         <div class="actions">
           <button id="saveParticipantButton" type="submit">保存 / 绑定</button>
           <button id="cancelEditButton" class="secondary" type="button" hidden>取消编辑</button>
@@ -584,9 +602,9 @@
       <div id="formStatus" class="status">等待操作。</div>
     </section>
 
-    <section>
-      <h2>比赛模式 / Race Profile</h2>
-      <p>先保存比赛模式，扫描手机只需要切换 Race ID；每个 Race ID 可以独立保存。</p>
+    <section id="raceConfiguration">
+      <h2>比赛设置</h2>
+      <p>设置比赛站点、计时方式和每批同时出发人数。</p>
       <form id="raceConfigForm" class="grid">
         <label>
           Race ID
@@ -616,6 +634,10 @@
           站点数量
           <input id="raceStationCount" type="number" min="1" max="20" step="1" value="8">
         </label>
+        <label>
+          每批同时出发
+          <input id="raceStartGroupSize" type="number" min="1" max="50" step="1" value="1">
+        </label>
         <div class="actions">
           <button type="submit">保存比赛配置</button>
         </div>
@@ -623,48 +645,22 @@
       <div id="raceConfigStatus" class="status">读取比赛配置中。</div>
     </section>
 
-    <section>
+    <section id="participantList">
       <h2>选手与卡绑定</h2>
       <div class="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>Type</th>
-              <th>参赛名称</th>
-              <th>成员</th>
-              <th>Phone</th>
-              <th>Gender</th>
-              <th>Division</th>
-              <th>Card</th>
-              <th>Check-in</th>
-              <th>最终成绩</th>
-              <th>Updated</th>
+              <th>出发</th>
+              <th>参赛单位</th>
+              <th>类型 / 成员</th>
+              <th>NFC 卡</th>
+              <th>报到状态</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody id="participantsBody">
-            <tr class="empty-row"><td colspan="11">正在读取选手数据。</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <h2>最新刷卡事件</h2>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Received</th>
-              <th>Status</th>
-              <th>Card</th>
-              <th>参赛单位</th>
-              <th>Station</th>
-              <th>Device</th>
-            </tr>
-          </thead>
-          <tbody id="eventsBody">
-            <tr class="empty-row"><td colspan="6">正在读取计时记录。</td></tr>
+            <tr class="empty-row"><td colspan="6">正在读取选手数据。</td></tr>
           </tbody>
         </table>
       </div>
@@ -806,7 +802,6 @@
     const form = document.querySelector("#participantForm");
     const formStatus = document.querySelector("#formStatus");
     const participantsBody = document.querySelector("#participantsBody");
-    const eventsBody = document.querySelector("#eventsBody");
     const raceIdSelect = document.querySelector("#raceId");
     const raceConfigForm = document.querySelector("#raceConfigForm");
     const raceConfigStatus = document.querySelector("#raceConfigStatus");
@@ -831,6 +826,8 @@
     const athleteNameInput = document.querySelector("#athleteName");
     const individualFields = Array.from(document.querySelectorAll("[data-individual-field]"));
     const cardCodeInput = document.querySelector("#cardCode");
+    const startOrderInput = document.querySelector("#startOrder");
+    const raceStartGroupSizeInput = document.querySelector("#raceStartGroupSize");
     const saveParticipantButton = document.querySelector("#saveParticipantButton");
     const cancelEditButton = document.querySelector("#cancelEditButton");
     const adminCodeModal = document.querySelector("#adminCodeModal");
@@ -885,6 +882,7 @@
         raceId: "fitmonster-hyrox-single",
         name: "FitMonster Hyrox Single",
         stationCount: 8,
+        startGroupSize: 1,
         deviceCount: 3,
         entryType: "individual",
         mode: "three_reader_auto",
@@ -894,6 +892,7 @@
         raceId: "hoka-race",
         name: "Hoka Race",
         stationCount: 5,
+        startGroupSize: 1,
         deviceCount: 6,
         entryType: "team",
         mode: "station_checkpoints",
@@ -902,6 +901,7 @@
     ];
     let activeEntryType = "individual";
     let selectedRaceDefaultEntryType = "individual";
+    let selectedRaceStartGroupSize = 1;
     let visibleParticipants = [];
     let visibleResults = new Map();
     let editingParticipantId = null;
@@ -1099,6 +1099,7 @@
       cancelEditButton.hidden = true;
       applyEntryType(selectedRaceDefaultEntryType);
       document.querySelector("#checkInStatus").value = "checked_in";
+      startOrderInput.value = "";
       setStatus(message);
     }
 
@@ -1112,6 +1113,7 @@
       document.querySelector("#gender").value = participant.gender || "";
       document.querySelector("#division").value = participant.division || "";
       document.querySelector("#checkInStatus").value = participant.check_in_status || "checked_in";
+      startOrderInput.value = String(participant.start_order || "");
       const memberNames = Array.isArray(participant.member_names)
         ? participant.member_names
         : [participant.athlete_name];
@@ -1476,7 +1478,7 @@
       if (official) {
         return `${race.name || official.name} · 比赛模板（只读） · ${category} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
       }
-      return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站`;
+      return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站 · ${race.startGroupSize || 1} 人/批`;
     }
 
     function isDatedRaceSession(raceId) {
@@ -1559,14 +1561,16 @@
       document.querySelector("#raceConfigName").value = race.name || race.raceId;
       document.querySelector("#raceMode").value = race.mode;
       document.querySelector("#raceStationCount").value = race.stationCount;
+      raceStartGroupSizeInput.value = race.startGroupSize || 1;
       raceEntryTypeSelect.value = race.entryType || "individual";
       selectedRaceDefaultEntryType = race.entryType || "individual";
+      selectedRaceStartGroupSize = Number(race.startGroupSize) || 1;
       applyEntryType(selectedRaceDefaultEntryType);
       overviewRaceName.textContent = raceOptionLabel(race);
       updateRaceLinks(raceId);
       raceConfigStatus.textContent =
         race.name + " · " + race.mode + " · " + race.stationCount
-        + " stations · " + race.checkpoints.length + " checkpoints";
+        + " stations · " + race.startGroupSize + " 人/批";
       raceConfigStatus.classList.remove("error");
       applyTemplateReadOnlyState(race);
     }
@@ -1588,7 +1592,7 @@
       ).length;
       if (!participants.length) {
         participantsBody.innerHTML = `
-          <tr class="empty-row"><td colspan="11">当前比赛还没有参赛单位，请先在上方登记并绑定 NFC 卡。</td></tr>
+          <tr class="empty-row"><td colspan="6">当前比赛还没有参赛单位，请先在上方登记并绑定 NFC 卡。</td></tr>
         `;
         return;
       }
@@ -1597,43 +1601,19 @@
         const memberNames = Array.isArray(participant.member_names)
           ? participant.member_names
           : [participant.athlete_name];
-        const result = visibleResults.get(String(participant.id));
-        const adjustment = Number(result?.adjustmentMs) || 0;
-        const manualBadge = result?.manualResult
-          ? `<br><span class="control-state">手动成绩</span>`
-          : "";
-        const finalResult = result?.status === "finished"
-          ? `<strong>${formatDuration(result.elapsedMs)}</strong>${adjustment
-              ? `<br><span class="${adjustmentClass(adjustment)}">${formatAdjustment(adjustment)}</span>`
-              : ""}${manualBadge}`
-          : result?.status === "paused"
-            ? `<strong>${formatDuration(result.elapsedMs)}</strong><br><span class="control-state paused">已暂停</span>`
-            : result?.status === "dnf"
-              ? `<strong>DNF</strong>${result.elapsedMs !== null && result.elapsedMs !== undefined
-                  ? `<br>${formatDuration(result.elapsedMs)}`
-                  : ""}`
-              : result?.status === "racing"
-                ? `<strong>${formatDuration(result.elapsedMs)}</strong><br>计时中`
-                : resultStatusLabel(result?.status);
-        const controlActions = availableTimingActions(result);
+        const memberSummary = entryType === "individual"
+          ? escapeHtml(participant.athlete_name)
+          : escapeHtml(memberNames.join(" / "));
         return `
           <tr>
-            <td>${escapeHtml(entryTypeLabel(entryType))}</td>
-            <td>${escapeHtml(participant.athlete_name)}</td>
-            <td>${entryType === "individual" ? "-" : escapeHtml(memberNames.join(" / "))}</td>
-            <td class="mono">${escapeHtml(participant.phone || "-")}</td>
-            <td>${escapeHtml(participant.gender || "-")}</td>
-            <td>${escapeHtml(participant.division || "-")}</td>
+            <td class="mono">#${escapeHtml(participant.start_order || "-")}<br>第 ${Math.floor(((Number(participant.start_order) || 1) - 1) / selectedRaceStartGroupSize) + 1} 批</td>
+            <td><strong>${escapeHtml(participant.athlete_name)}</strong></td>
+            <td>${escapeHtml(entryTypeLabel(entryType))}${entryType === "individual" ? "" : `<br><span class="muted">${memberSummary}</span>`}</td>
             <td class="mono">${escapeHtml(participant.card_code)}</td>
             <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
-            <td class="mono">${finalResult}</td>
-            <td class="mono">${formatTime(participant.updated_at)}</td>
             <td>
               <div class="row-actions">
                 <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>编辑</button>
-                <button class="secondary compact" type="button" data-action="adjust" data-index="${visibleParticipants.indexOf(participant)}" ${result?.status === "finished" && !isTemplateRaceId(raceId) ? "" : "disabled"}>加减时间</button>
-                <button class="secondary compact" type="button" data-action="manual-result" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>手动成绩</button>
-                <button class="secondary compact" type="button" data-action="timing-control" data-index="${visibleParticipants.indexOf(participant)}" ${controlActions.length && !isTemplateRaceId(raceId) ? "" : "disabled"}>计时控制</button>
                 <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>删除绑定</button>
               </div>
             </td>
@@ -1648,22 +1628,6 @@
       const events = payload.events || [];
       metricEvents.textContent = events.length;
       metricErrors.textContent = events.filter((event) => event.status !== "accepted").length;
-      if (!events.length) {
-        eventsBody.innerHTML = `
-          <tr class="empty-row"><td colspan="6">当前比赛还没有刷卡记录，首个参赛单位打卡后会自动显示。</td></tr>
-        `;
-        return;
-      }
-      eventsBody.innerHTML = events.slice(0, 20).map((event) => `
-        <tr>
-          <td class="mono">${formatTime(event.received_at)}</td>
-          <td><span class="pill ${escapeHtml(event.status)}">${escapeHtml(event.status)}</span></td>
-          <td class="mono">${escapeHtml(event.card_code)}</td>
-          <td>${escapeHtml(event.athlete_name || "未绑定")}</td>
-          <td class="mono">${escapeHtml(event.station_id)}</td>
-          <td class="mono">${escapeHtml(event.device_id)}</td>
-        </tr>
-      `).join("");
     }
 
     async function loadLeaderboardSummary(raceId = selectedRaceId()) {
@@ -1700,7 +1664,8 @@
           phone: entryType === "individual" ? document.querySelector("#phone").value.trim() : "",
           gender: entryType === "individual" ? document.querySelector("#gender").value : "",
           division: entryType === "individual" ? document.querySelector("#division").value : "",
-          checkInStatus: document.querySelector("#checkInStatus").value
+          checkInStatus: document.querySelector("#checkInStatus").value,
+          startOrder: startOrderInput.value ? Number(startOrderInput.value) : null
         };
         const isEditing = Number.isInteger(editingParticipantId) && editingParticipantId > 0;
         let endpoint = "/api/participants";
@@ -1750,13 +1715,15 @@
             name: document.querySelector("#raceConfigName").value.trim(),
             mode: document.querySelector("#raceMode").value,
             entryType: raceEntryTypeSelect.value,
-            stationCount: Number(document.querySelector("#raceStationCount").value)
+            stationCount: Number(document.querySelector("#raceStationCount").value),
+            startGroupSize: Number(raceStartGroupSizeInput.value)
           })
         });
         await loadRaceOptions(payload.race.raceId);
         raceConfigStatus.textContent =
           "已保存：" + payload.race.name + " · " + payload.race.mode
-          + " · " + payload.race.stationCount + " stations";
+          + " · " + payload.race.stationCount + " stations · "
+          + payload.race.startGroupSize + " 人/批";
         raceConfigStatus.classList.remove("error");
         await Promise.all([loadRaceConfig(), refresh()]);
       } catch (error) {
@@ -1788,6 +1755,7 @@
             mode: template.mode,
             entryType: template.entryType,
             stationCount: template.stationCount,
+            startGroupSize: Number(template.startGroupSize) || 1,
             checkpointLayout: template.checkpointLayout
           })
         });

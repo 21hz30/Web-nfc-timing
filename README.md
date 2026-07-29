@@ -2,13 +2,14 @@
 
 This repo is a minimal timing prototype for a HYROX simulation race.
 
-It contains:
+The operator workflow is split into four pages:
 
-- `web-nfc-timing-test.html`: Android Chrome Web NFC timing gate with automatic race progression.
-- `server.py`: local Python API with SQLite storage and a Supabase cloud mirror.
-- `admin.html`: race admin page for athlete info, check-in, and NFC card binding.
-- `leaderboard.html`: live timing board with race selection, rank, station splits,
-  and protected per-race cleanup.
+- `admin.html`: create/configure a race, bind NFC cards, and assign start order.
+- `judge.html`: start checked-in waves, adjust times, enter manual times, and confirm withdrawals.
+- `web-nfc-timing-test.html`: bind an Android phone to a race checkpoint and scan NFC cards.
+- `leaderboard.html`: branded live results for venue screens and mobile browsers.
+
+`server.py` provides the local Python API with SQLite storage and a Supabase cloud mirror.
 
 ## Live Frontend
 
@@ -50,15 +51,15 @@ Useful pages:
 
 ```text
 http://localhost:8787/admin.html
+http://localhost:8787/judge.html
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
 ```
 
-The admin page loads all race profiles from the API, keeps the featured live races at
-the top, and shows participant, check-in, finish, event, and error totals for the
-selected race. Its data-board button carries the selected `raceId` into the live
-leaderboard. The leaderboard selector contains two browser-only mock races and all
-database-backed race profiles. Empty races show explicit empty states.
+The admin page owns race setup and NFC binding. The judge page owns race starts and
+audited timing decisions. The first phone checkpoint (`START`) only confirms that a
+participant is ready; the judge starts one configured wave with a shared server time.
+The leaderboard selector contains browser-only demos and database-backed race profiles.
 
 API endpoint:
 
@@ -196,12 +197,12 @@ adjustments, clearing, deletion, finalization, reopening, and profile edits agai
 them. Existing QA records are preserved but cannot be changed. Dated sessions are
 created with `is_template = false` and remain fully operational.
 
-Finished results can be adjusted from the participant table in `admin.html`. Each
+Finished results can be adjusted from `judge.html`. Each
 penalty or time credit requires the administrator code and a written reason. The
 system keeps the raw NFC elapsed time unchanged, stores every signed adjustment as
 an audit record, and ranks finished participants by the adjusted final time.
 
-For exceptional cases, `admin.html` can also record a complete final result using
+For exceptional cases, `judge.html` can also record a complete final result using
 either start and finish timestamps or an exact total elapsed time. These entries are
 append-only audit records in `manual_results`; the latest record becomes the base
 final time, result adjustments are then applied on top, and raw NFC events are never
