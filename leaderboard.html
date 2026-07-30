@@ -1662,12 +1662,11 @@
         <span data-i18n="raceId">选择比赛</span>
         <span class="race-select-row">
           <select id="raceId" autocomplete="off">
-            <optgroup label="模拟比赛">
+            <optgroup label="展示预览 / 测试 / 模板">
               <option value="src-hyrox">SRC Hyrox Simulation · Preview</option>
-            </optgroup>
-            <optgroup label="正式比赛">
-              <option value="fitmonster-hyrox-single" selected>SRC Hyrox Simulation</option>
-              <option value="hoka-race">Hoka Race</option>
+              <option value="hoka-race-demo">Hoka 团队赛演示</option>
+              <option value="fitmonster-hyrox-single" selected>SRC Hyrox Simulation · 模板（只读）</option>
+              <option value="hoka-race">Hoka 团队赛 · 模板（只读）</option>
             </optgroup>
           </select>
         </span>
@@ -1995,6 +1994,16 @@
         en: "Hoka Team Race"
       }
     ];
+    const testRaceIdPrefixes = [
+      "cloud-api-e2e-",
+      "cloud-auto-e2e-",
+      "hyrox-sim-",
+      "nfc-test-",
+      "result-adjustment-demo-",
+      "saturday-sim-",
+      "sunday-sim-",
+      "supabase-e2e-"
+    ];
     const fitMonsterStationNames = {
       zh: ["滑雪机", "推雪橇", "拉雪橇", "波比跳远", "划船机", "农夫行走", "沙袋弓步", "墙球"],
       en: ["SkiErg", "Sled Push", "Sled Pull", "Burpee Broad Jumps", "RowErg", "Farmers Carry", "Sandbag Lunges", "Wall Balls"]
@@ -2012,9 +2021,13 @@
         subtitle: "SRC 品牌模拟赛实时排名、进度和每站用时。",
         live: "LIVE",
         raceId: "选择比赛",
-        mockGroup: "模拟比赛",
-        liveGroup: "比赛模板（只读）",
-        historyGroup: "比赛场次 / 历史",
+        showcaseGroup: "展示预览 / 测试 / 模板",
+        activeGroup: "进行中的比赛",
+        finishedGroup: "已经结束的比赛",
+        noActiveRaces: "暂无进行中的比赛",
+        noFinishedRaces: "暂无已经结束的比赛",
+        testOption: "测试",
+        templateOption: "模板（只读）",
         finalizeRace: "结束本场比赛",
         finalizedRace: "本场已结束",
         reopenRace: "恢复本场比赛",
@@ -2115,9 +2128,13 @@
         subtitle: "Live ranking, progress, and station splits for the SRC brand race.",
         live: "LIVE",
         raceId: "Select race",
-        mockGroup: "Mock race",
-        liveGroup: "Race templates (read-only)",
-        historyGroup: "Race sessions / history",
+        showcaseGroup: "Preview / test / templates",
+        activeGroup: "Races in progress",
+        finishedGroup: "Finished races",
+        noActiveRaces: "No races in progress",
+        noFinishedRaces: "No finished races",
+        testOption: "Test",
+        templateOption: "Template (read-only)",
         finalizeRace: "End race",
         finalizedRace: "Race ended",
         reopenRace: "Reopen race",
@@ -2347,6 +2364,22 @@
       return raceId === "fitmonster-hyrox-single" || raceId === "hoka-race";
     }
 
+    function isTestRaceId(raceId) {
+      return testRaceIdPrefixes.some((prefix) => String(raceId || "").startsWith(prefix));
+    }
+
+    function raceGroupKind(race) {
+      if (race.kind === "mock" || race.isTemplate || race.isTest) return "showcase";
+      return race.status === "finalized" ? "finished" : "active";
+    }
+
+    function raceOptionText(race) {
+      const label = race[language];
+      if (race.isTemplate) return `${label} · ${t("templateOption")}`;
+      if (race.isTest) return `${label} · ${t("testOption")}`;
+      return label;
+    }
+
     function selectedRace() {
       return raceCatalog.find((race) => race.raceId === raceIdInput.value)
         || raceCatalog.find((race) => race.raceId === "fitmonster-hyrox-single");
@@ -2355,17 +2388,26 @@
     function buildRaceOptions() {
       const selectedId = raceIdInput.value || initialRaceId;
       const groups = [
-        { kind: "mock", label: t("mockGroup") },
-        { kind: "live", label: t("liveGroup") },
-        { kind: "session", label: t("historyGroup") }
+        { kind: "showcase", label: t("showcaseGroup") },
+        { kind: "active", label: t("activeGroup") },
+        { kind: "finished", label: t("finishedGroup") }
       ].map(({ kind, label }) => {
         const group = document.createElement("optgroup");
         group.label = label;
-        raceCatalog.filter((race) => race.kind === kind).forEach((race) => {
-          group.append(new Option(race[language], race.raceId));
+        const races = raceCatalog.filter((race) => raceGroupKind(race) === kind);
+        races.forEach((race) => {
+          group.append(new Option(raceOptionText(race), race.raceId));
         });
+        if (!races.length && kind !== "showcase") {
+          const emptyOption = new Option(
+            t(kind === "active" ? "noActiveRaces" : "noFinishedRaces"),
+            ""
+          );
+          emptyOption.disabled = true;
+          group.append(emptyOption);
+        }
         return group;
-      }).filter((group) => group.children.length > 0);
+      });
       raceIdInput.replaceChildren(...groups);
       raceIdInput.value = knownRaceIds.has(selectedId) ? selectedId : initialRaceId;
     }
@@ -2395,6 +2437,7 @@
           raceId: race.raceId,
           kind: isOfficialRaceId(race.raceId) ? "live" : "session",
           isTemplate: Boolean(race.isTemplate),
+          isTest: isTestRaceId(race.raceId),
           status: race.status || "active",
           zh: race.name || race.raceId,
           en: race.name || race.raceId
