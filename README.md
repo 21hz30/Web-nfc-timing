@@ -52,6 +52,7 @@ Useful pages:
 ```text
 http://localhost:8787/admin.html
 http://localhost:8787/judge.html
+http://localhost:8787/judge.html?demo=1
 http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
 ```

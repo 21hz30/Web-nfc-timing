@@ -52,6 +52,8 @@
     .brand img { width: 62px; max-height: 48px; object-fit: contain; }
     h1 { margin: 0; font-size: 23px; line-height: 1.12; letter-spacing: 0; }
     .race-name { margin-top: 4px; color: rgb(255 255 255 / 76%); font-size: 12px; font-weight: 750; }
+    .demo-badge { display: inline-flex; min-height: 24px; align-items: center; border: 1px solid rgb(255 255 255 / 38%); border-radius: 999px; padding: 3px 8px; color: #ffffff; font-size: 11px; font-weight: 900; }
+    .demo-badge[hidden] { display: none; }
     .header-status { display: flex; align-items: center; gap: 8px; color: rgb(255 255 255 / 82%); font-size: 12px; font-weight: 800; }
     .header-status::before { width: 9px; height: 9px; border-radius: 50%; background: #8a98a5; content: ""; }
     .header-status[data-tone="live"]::before { background: var(--accent); box-shadow: 0 0 0 4px rgb(216 240 0 / 15%); }
@@ -60,7 +62,7 @@
     main { padding: 12px 14px 90px; }
     .race-bar {
       display: grid;
-      grid-template-columns: minmax(240px, 1fr) auto auto auto;
+      grid-template-columns: minmax(240px, 1fr) repeat(4, auto);
       gap: 9px;
       align-items: end;
       padding: 12px;
@@ -94,6 +96,7 @@
       text-decoration: none;
       cursor: pointer;
     }
+    .utility-link[aria-disabled="true"] { pointer-events: none; opacity: .45; }
 
     .queue {
       margin-top: 11px;
@@ -188,6 +191,7 @@
     .modal > p { margin: 7px 0 16px; color: var(--muted); font-size: 13px; line-height: 1.5; }
     .modal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .modal-fields { display: grid; gap: 11px; }
+    .modal-grid[hidden], .modal-fields[hidden] { display: none; }
     .participant-summary { margin-bottom: 12px; border-left: 3px solid #738392; padding: 8px 10px; background: #f2f5f7; color: #354351; font-size: 12px; line-height: 1.45; }
     .modal-error { min-height: 20px; margin-top: 9px; color: var(--error); font-size: 12px; font-weight: 800; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 12px; }
@@ -198,7 +202,7 @@
     .modal-button:disabled { cursor: wait; opacity: .5; }
 
     @media (max-width: 900px) {
-      .race-bar { grid-template-columns: minmax(220px, 1fr) repeat(3, auto); }
+      .race-bar { grid-template-columns: minmax(220px, 1fr) repeat(4, auto); }
       .column-head, .entry-row { grid-template-columns: 36px 66px minmax(150px, 1fr) minmax(135px, .7fr) minmax(180px, auto); }
       .column-head span:nth-child(4), .entry-row .card-cell { display: none; }
     }
@@ -208,9 +212,9 @@
       h1 { font-size: 20px; }
       .header-status span { display: none; }
       main { padding: 9px 9px 84px; }
-      .race-bar { grid-template-columns: 1fr repeat(3, auto); padding: 9px; }
+      .race-bar { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 9px; }
       .race-bar label { grid-column: 1 / -1; }
-      .utility-button, .utility-link { min-width: 0; padding: 7px 9px; font-size: 12px; }
+      .utility-button, .utility-link { min-width: 0; padding: 7px 6px; font-size: 11px; }
       .queue-toolbar { grid-template-columns: 1fr; }
       .queue-tabs {
         display: grid;
@@ -240,6 +244,7 @@
       <div class="brand">
         <img id="brandLogo" src="./assets/src-logo.png" alt="SRC logo">
         <div><h1>裁判台</h1><div id="raceName" class="race-name">正在读取比赛</div></div>
+        <span id="demoBadge" class="demo-badge" hidden>体验模式</span>
       </div>
       <div id="connection" class="header-status" data-tone="idle"><span id="connectionText">连接中</span></div>
     </header>
@@ -250,6 +255,7 @@
         <button id="refreshButton" class="utility-button" type="button">刷新</button>
         <a id="bindingLink" class="utility-link" href="./admin.html">选手绑定</a>
         <a id="nfcLink" class="utility-link" href="./web-nfc-timing-test.html">手机 NFC</a>
+        <a id="demoLink" class="utility-link" href="./judge.html?demo=1">体验模式</a>
       </section>
 
       <section class="queue" aria-label="比赛选手队列">
@@ -283,9 +289,9 @@
   <div id="startBackdrop" class="modal-backdrop" hidden>
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="startModalTitle">
       <h2 id="startModalTitle">确认本批发枪</h2>
-      <p>确认后，所选选手会写入同一个服务器开始时间。</p>
+      <p id="startDescription">确认后，所选选手会写入同一个服务器开始时间。</p>
       <div id="startParticipants" class="participant-summary"></div>
-      <label>管理员密码<input id="startAdminCode" type="password" autocomplete="current-password"></label>
+      <label><span id="startAdminLabel">管理员密码</span><input id="startAdminCode" type="password" autocomplete="current-password"></label>
       <div id="startError" class="modal-error"></div>
       <div class="modal-actions">
         <button class="modal-button secondary" type="button" data-close-modal>返回</button>
@@ -311,7 +317,7 @@
         <label>结束时间<input id="manualFinishTime" type="datetime-local" step="1"></label>
       </div>
       <label>备注<textarea id="operationReason" maxlength="500" required></textarea></label>
-      <label>管理员密码<input id="operationAdminCode" type="password" autocomplete="current-password" required></label>
+      <label><span id="operationAdminLabel">管理员密码</span><input id="operationAdminCode" type="password" autocomplete="current-password" required></label>
       <div id="operationError" class="modal-error"></div>
       <div class="modal-actions">
         <button class="modal-button secondary" type="button" data-close-modal>取消</button>
@@ -333,6 +339,8 @@
       confirmStartButton: document.querySelector("#confirmStartButton"),
       connection: document.querySelector("#connection"),
       connectionText: document.querySelector("#connectionText"),
+      demoBadge: document.querySelector("#demoBadge"),
+      demoLink: document.querySelector("#demoLink"),
       dnfCount: document.querySelector("#dnfCount"),
       entryList: document.querySelector("#entryList"),
       finishedCount: document.querySelector("#finishedCount"),
@@ -343,6 +351,7 @@
       message: document.querySelector("#message"),
       nfcLink: document.querySelector("#nfcLink"),
       operationAdminCode: document.querySelector("#operationAdminCode"),
+      operationAdminLabel: document.querySelector("#operationAdminLabel"),
       operationBackdrop: document.querySelector("#operationBackdrop"),
       operationDescription: document.querySelector("#operationDescription"),
       operationError: document.querySelector("#operationError"),
@@ -359,7 +368,9 @@
       selectedCount: document.querySelector("#selectedCount"),
       selectionWave: document.querySelector("#selectionWave"),
       startAdminCode: document.querySelector("#startAdminCode"),
+      startAdminLabel: document.querySelector("#startAdminLabel"),
       startBackdrop: document.querySelector("#startBackdrop"),
+      startDescription: document.querySelector("#startDescription"),
       startDock: document.querySelector("#startDock"),
       startError: document.querySelector("#startError"),
       startModalTitle: document.querySelector("#startModalTitle"),
@@ -369,6 +380,13 @@
       waitingCount: document.querySelector("#waitingCount")
     };
 
+    const pageParams = new URLSearchParams(location.search);
+    const isDemoMode = ["1", "true", "yes"].includes(String(pageParams.get("demo") || "").toLowerCase());
+    const demoRace = {
+      raceId: "hoka-race-judge-demo",
+      name: "HOKA 裁判台体验赛",
+      startGroupSize: 2
+    };
     const selectedIds = new Set();
     const deviceId = `judge-${localStorage.getItem("src-judge-device-id") || crypto.randomUUID()}`;
     localStorage.setItem("src-judge-device-id", deviceId.replace(/^judge-/, ""));
@@ -379,6 +397,121 @@
     let operationEntry = null;
     let pollTimer = 0;
     let refreshInFlight = false;
+    let demoEntries = createDemoEntries();
+
+    function demoIsoAgo(milliseconds) {
+      return new Date(Date.now() - milliseconds).toISOString();
+    }
+
+    function createDemoEntries() {
+      const entry = (participantId, startOrder, startWave, athleteName, cardCode, options = {}) => ({
+        participantId,
+        startOrder,
+        startWave,
+        athleteName,
+        cardCode,
+        entryType: options.entryType || "individual",
+        memberNames: options.memberNames || [athleteName],
+        status: options.status || "not_ready",
+        confirmedAt: options.confirmedAt || null,
+        startedAt: options.startedAt || null,
+        result: options.result || null
+      });
+      const finishedResult = (elapsedMs) => ({
+        status: "finished",
+        elapsedMs,
+        latestCheckpoint: "END",
+        startTime: demoIsoAgo(elapsedMs + 180000),
+        finishTime: demoIsoAgo(180000)
+      });
+      return [
+        entry(9101, 1, 1, "飞跃一队", "DEMO-101", {
+          entryType: "team",
+          memberNames: ["林晨", "周宇", "陈悦", "沈航"],
+          status: "ready",
+          confirmedAt: demoIsoAgo(95000)
+        }),
+        entry(9102, 2, 1, "逐风小队", "DEMO-102", {
+          entryType: "team",
+          memberNames: ["王拓", "李佳", "顾言", "许宁"],
+          status: "ready",
+          confirmedAt: demoIsoAgo(72000)
+        }),
+        entry(9103, 3, 2, "向上小队", "DEMO-103", {
+          entryType: "team",
+          memberNames: ["高越", "苏晴", "邵一", "白露"],
+          status: "ready",
+          confirmedAt: demoIsoAgo(38000)
+        }),
+        entry(9104, 4, 2, "破风一队", "DEMO-104", {
+          entryType: "team",
+          memberNames: ["陆川", "韩雪", "江禾", "方哲"],
+          status: "started",
+          startedAt: demoIsoAgo(812000),
+          result: {
+            status: "racing",
+            elapsedMs: 812000,
+            latestCheckpoint: "STATION_3_START",
+            startTime: demoIsoAgo(812000),
+            finishTime: null
+          }
+        }),
+        entry(9105, 5, 3, "凌云小队", "DEMO-105", {
+          entryType: "team",
+          memberNames: ["何凡", "袁心", "陶然", "章驰"],
+          status: "started",
+          startedAt: demoIsoAgo(533000),
+          result: {
+            status: "paused",
+            elapsedMs: 487000,
+            latestCheckpoint: "STATION_2_START",
+            startTime: demoIsoAgo(533000),
+            finishTime: null
+          }
+        }),
+        entry(9106, 6, 3, "远山一队", "DEMO-106", {
+          entryType: "team",
+          memberNames: ["冯野", "罗一", "唐可", "夏至"],
+          status: "started",
+          startedAt: demoIsoAgo(2865000),
+          result: finishedResult(2685000)
+        }),
+        entry(9107, 7, 4, "新程小队", "DEMO-107", {
+          entryType: "team",
+          memberNames: ["叶舟", "宋然", "石青", "赵新"],
+          status: "started",
+          startedAt: demoIsoAgo(3018000),
+          result: finishedResult(2838000)
+        }),
+        entry(9108, 8, 4, "晨光一队", "DEMO-108", {
+          entryType: "team",
+          memberNames: ["邱晨", "蒋维", "徐安", "吴桐"],
+          status: "not_ready"
+        }),
+        entry(9109, 9, 5, "跃动小队", "DEMO-109", {
+          entryType: "team",
+          memberNames: ["郑博", "柳星", "潘月", "曹恺"],
+          status: "started",
+          startedAt: demoIsoAgo(1160000),
+          result: {
+            status: "dnf",
+            elapsedMs: 1040000,
+            latestCheckpoint: "STATION_4_START",
+            startTime: demoIsoAgo(1160000),
+            finishTime: null
+          }
+        })
+      ];
+    }
+
+    function updateDemoElapsedTimes() {
+      const now = Date.now();
+      demoEntries.forEach((entry) => {
+        if (entry.result?.status === "racing" && entry.result.startTime) {
+          entry.result.elapsedMs = Math.max(0, now - new Date(entry.result.startTime).getTime());
+        }
+      });
+    }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -398,6 +531,23 @@
     function setConnection(text, tone) {
       elements.connectionText.textContent = text;
       elements.connection.dataset.tone = tone;
+    }
+
+    function configureDemoMode() {
+      if (!isDemoMode) return;
+      document.title = "HOKA 裁判台体验模式";
+      elements.demoBadge.hidden = false;
+      elements.demoLink.href = "./judge.html";
+      elements.demoLink.textContent = "返回正式裁判台";
+      elements.refreshButton.textContent = "重置体验";
+      [elements.bindingLink, elements.nfcLink].forEach((link) => {
+        link.setAttribute("aria-disabled", "true");
+        link.tabIndex = -1;
+      });
+      elements.startAdminLabel.textContent = "管理员密码（体验模式无需输入）";
+      elements.startAdminCode.disabled = true;
+      elements.operationAdminLabel.textContent = "管理员密码（体验模式无需输入）";
+      elements.operationAdminCode.disabled = true;
     }
 
     async function readJson(response) {
@@ -601,6 +751,86 @@
       elements.selectionWave.textContent = selected.length ? `第 ${selected[0].startWave} 批已选择` : "本批已选择";
     }
 
+    function setActiveFilter(nextFilter) {
+      activeFilter = nextFilter;
+      document.querySelectorAll(".tab-button").forEach((item) => {
+        item.setAttribute("aria-pressed", String(item.dataset.filter === nextFilter));
+      });
+      selectedIds.clear();
+      renderEntries();
+      updateDock();
+    }
+
+    function applyDemoOperation(mode, entry, details = {}) {
+      entry.demoNotes = [...(entry.demoNotes || []), {
+        mode,
+        reason: details.reason || "",
+        createdAt: new Date().toISOString()
+      }];
+      if (mode === "adjustment") {
+        entry.result.elapsedMs = Math.max(0, Number(entry.result.elapsedMs || 0) + details.adjustmentMs);
+        return;
+      }
+      if (mode === "manual") {
+        entry.status = "started";
+        entry.startedAt = details.startTime;
+        entry.result = {
+          status: "finished",
+          elapsedMs: Math.max(0, new Date(details.finishTime).getTime() - new Date(details.startTime).getTime()),
+          latestCheckpoint: "END",
+          startTime: details.startTime,
+          finishTime: details.finishTime
+        };
+        return;
+      }
+      if (mode === "cancel-checkin") {
+        entry.status = "not_ready";
+        entry.confirmedAt = null;
+        entry.result = null;
+        return;
+      }
+      if (mode === "dnf") {
+        entry.demoPreviousState = {
+          status: entry.status,
+          confirmedAt: entry.confirmedAt,
+          startedAt: entry.startedAt,
+          result: entry.result ? JSON.parse(JSON.stringify(entry.result)) : null
+        };
+        entry.status = "started";
+        entry.result = {
+          ...(entry.result || {}),
+          status: "dnf",
+          elapsedMs: entry.result?.elapsedMs ?? null,
+          latestCheckpoint: entry.result?.latestCheckpoint || null,
+          startTime: entry.result?.startTime || entry.startedAt || null,
+          finishTime: null
+        };
+        return;
+      }
+      if (mode === "restore") {
+        const previous = entry.demoPreviousState;
+        if (previous) {
+          entry.status = previous.status;
+          entry.confirmedAt = previous.confirmedAt;
+          entry.startedAt = previous.startedAt;
+          entry.result = previous.result;
+        } else {
+          entry.status = "started";
+          entry.result = { ...entry.result, status: "racing", finishTime: null };
+        }
+        entry.demoPreviousState = null;
+      }
+    }
+
+    async function resetDemoExperience() {
+      demoEntries = createDemoEntries();
+      entries = demoEntries;
+      activeRace = demoRace;
+      setActiveFilter("ready");
+      await loadData({ silent: true });
+      setMessage("体验数据已重置。", "success");
+    }
+
     function updateBranding() {
       const hoka = isHokaRace(elements.raceId.value);
       document.body.classList.toggle("hoka", hoka);
@@ -619,6 +849,13 @@
     }
 
     async function loadRaces() {
+      if (isDemoMode) {
+        elements.raceId.replaceChildren(new Option(demoRace.name, demoRace.raceId));
+        elements.raceId.value = demoRace.raceId;
+        updateBranding();
+        updateUrl();
+        return;
+      }
       const requested = new URLSearchParams(location.search).get("raceId") || "";
       const payload = await readJson(await window.timingApiFetch("/api/races"));
       const races = payload.races.filter((race) => race.raceId && !race.isTemplate && race.status !== "finalized");
@@ -630,6 +867,19 @@
 
     async function loadData({ silent = false } = {}) {
       if (!elements.raceId.value || refreshInFlight) return;
+      if (isDemoMode) {
+        updateDemoElapsedTimes();
+        activeRace = demoRace;
+        entries = demoEntries;
+        elements.raceName.textContent = `${demoRace.name} · ${entries.length} 人`;
+        elements.groupSize.textContent = demoRace.startGroupSize;
+        updateCounts();
+        renderEntries();
+        updateDock();
+        setConnection("体验中", "live");
+        if (!silent) setMessage("体验数据已载入，所有操作只保存在当前页面。", "success");
+        return;
+      }
       refreshInFlight = true;
       if (!silent) setConnection("更新中", "idle");
       try {
@@ -677,10 +927,13 @@
       const selected = selectedEntries();
       if (!selected.length) return;
       elements.startModalTitle.textContent = `确认第 ${selected[0].startWave} 批发枪`;
+      elements.startDescription.textContent = isDemoMode
+        ? "确认后，所选队伍会使用同一个模拟开始时间。"
+        : "确认后，所选选手会写入同一个服务器开始时间。";
       elements.startParticipants.textContent = selected.map((entry) => `#${entry.startOrder} ${entry.athleteName}`).join(" / ");
       elements.startAdminCode.value = "";
       openModal(elements.startBackdrop);
-      elements.startAdminCode.focus();
+      (isDemoMode ? elements.confirmStartButton : elements.startAdminCode).focus();
     }
 
     function openOperation(mode, entry) {
@@ -714,8 +967,29 @@
       const selected = selectedEntries();
       if (!selected.length) return;
       elements.confirmStartButton.disabled = true;
-      elements.startError.textContent = "正在写入统一开始时间...";
+      elements.startError.textContent = isDemoMode ? "正在模拟发枪..." : "正在写入统一开始时间...";
       try {
+        if (isDemoMode) {
+          const startedAt = new Date().toISOString();
+          selected.forEach((entry) => {
+            entry.status = "started";
+            entry.startedAt = startedAt;
+            entry.result = {
+              status: "racing",
+              elapsedMs: 0,
+              latestCheckpoint: "START",
+              startTime: startedAt,
+              finishTime: null
+            };
+          });
+          const wave = selected[0].startWave;
+          const startedCount = selected.length;
+          closeModals();
+          updateCounts();
+          setActiveFilter("racing");
+          setMessage(`第 ${wave} 批 ${startedCount} 人已于 ${formatClock(startedAt)} 模拟开始。`, "success");
+          return;
+        }
         const payload = await readJson(await window.timingApiFetch("/api/start-race", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -752,30 +1026,52 @@
         if (operationMode === "adjustment") {
           const seconds = (Number(elements.adjustmentMinutes.value) || 0) * 60 + (Number(elements.adjustmentSeconds.value) || 0);
           if (seconds <= 0) throw new Error("调整时间必须大于 0 秒。 ");
-          await readJson(await window.timingApiFetch("/api/result-adjustments", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...base, adjustmentSeconds: seconds * Number(elements.adjustmentDirection.value) })
-          }));
+          const adjustmentSeconds = seconds * Number(elements.adjustmentDirection.value);
+          if (isDemoMode) {
+            applyDemoOperation(operationMode, operationEntry, {
+              reason: base.reason,
+              adjustmentMs: adjustmentSeconds * 1000
+            });
+          } else {
+            await readJson(await window.timingApiFetch("/api/result-adjustments", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...base, adjustmentSeconds })
+            }));
+          }
         } else if (operationMode === "manual") {
           const start = new Date(elements.manualStartTime.value);
           const finish = new Date(elements.manualFinishTime.value);
           if (!Number.isFinite(start.getTime()) || !Number.isFinite(finish.getTime()) || finish < start) {
             throw new Error("结束时间必须晚于或等于开始时间。 ");
           }
-          await readJson(await window.timingApiFetch("/api/manual-results", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...base, entryMode: "start_finish", startTime: start.toISOString(), finishTime: finish.toISOString() })
-          }));
+          const startTime = start.toISOString();
+          const finishTime = finish.toISOString();
+          if (isDemoMode) {
+            applyDemoOperation(operationMode, operationEntry, { reason: base.reason, startTime, finishTime });
+          } else {
+            await readJson(await window.timingApiFetch("/api/manual-results", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...base, entryMode: "start_finish", startTime, finishTime })
+            }));
+          }
         } else if (operationMode === "cancel-checkin") {
-          await readJson(await window.timingApiFetch("/api/start-checkins/cancel", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(base)
-          }));
+          if (isDemoMode) {
+            applyDemoOperation(operationMode, operationEntry, { reason: base.reason });
+          } else {
+            await readJson(await window.timingApiFetch("/api/start-checkins/cancel", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(base)
+            }));
+          }
         } else {
-          await readJson(await window.timingApiFetch("/api/participant-timing-controls", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...base, action: operationMode })
-          }));
+          if (isDemoMode) {
+            applyDemoOperation(operationMode, operationEntry, { reason: base.reason });
+          } else {
+            await readJson(await window.timingApiFetch("/api/participant-timing-controls", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...base, action: operationMode })
+            }));
+          }
         }
         const name = operationEntry.athleteName;
         closeModals();
@@ -789,11 +1085,7 @@
 
     document.querySelectorAll(".tab-button").forEach((button) => {
       button.addEventListener("click", () => {
-        activeFilter = button.dataset.filter;
-        document.querySelectorAll(".tab-button").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
-        selectedIds.clear();
-        renderEntries();
-        updateDock();
+        setActiveFilter(button.dataset.filter);
       });
     });
     document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModals));
@@ -804,7 +1096,10 @@
     const unlockSearch = () => { elements.searchInput.readOnly = false; };
     elements.searchInput.addEventListener("pointerdown", unlockSearch, { once: true });
     elements.searchInput.addEventListener("keydown", unlockSearch, { once: true });
-    elements.refreshButton.addEventListener("click", () => loadData());
+    elements.refreshButton.addEventListener("click", () => {
+      if (isDemoMode) resetDemoExperience();
+      else loadData();
+    });
     elements.startRaceButton.addEventListener("click", openStartModal);
     elements.confirmStartButton.addEventListener("click", confirmStart);
     elements.operationForm.addEventListener("submit", submitOperation);
@@ -820,6 +1115,7 @@
 
     async function start() {
       try {
+        configureDemoMode();
         elements.searchInput.value = "";
         await loadRaces();
         await loadData();
