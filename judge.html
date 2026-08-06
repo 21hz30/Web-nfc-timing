@@ -631,6 +631,14 @@
       return raceId === "hoka-race" || String(raceId || "").startsWith("hoka-race-");
     }
 
+    function configureEntryBranding() {
+      if (!isHokaRace(pageParams.get("raceId"))) return;
+      document.body.classList.add("hoka");
+      elements.brandLogo.src = "./assets/hoka-logo-white.png";
+      elements.brandLogo.alt = "HOKA logo";
+      document.title = "HOKA 裁判台";
+    }
+
     function setMessage(message, tone = "info") {
       elements.message.textContent = message;
       elements.message.dataset.tone = tone;
@@ -1388,6 +1396,7 @@
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeModals(); });
 
     function start() {
+      configureEntryBranding();
       configureDemoMode();
       if (isDemoMode) {
         startJudgeConsole();
