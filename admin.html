@@ -22,6 +22,16 @@
       background: #f3f5f7;
     }
 
+    body.auth-pending {
+      overflow: hidden;
+    }
+
+    body.auth-pending > header,
+    body.auth-pending > main {
+      pointer-events: none;
+      user-select: none;
+    }
+
     header {
       background: #121820;
       color: #ffffff;
@@ -172,6 +182,30 @@
 
     .modal-backdrop[hidden] {
       display: none;
+    }
+
+    .access-backdrop {
+      z-index: 50;
+      background: rgb(18 24 32 / 86%);
+    }
+
+    .access-card {
+      border-top: 5px solid #0f766e;
+      padding: 24px;
+    }
+
+    .access-card h2 {
+      font-size: 23px;
+    }
+
+    .access-card > p {
+      margin: 8px 0 18px;
+    }
+
+    .access-card button {
+      width: 100%;
+      min-height: 48px;
+      margin-top: 12px;
     }
 
     .modal-card {
@@ -468,8 +502,21 @@
     }
   </style>
 </head>
-<body>
-  <header>
+<body class="auth-pending">
+  <div id="accessBackdrop" class="modal-backdrop access-backdrop">
+    <form id="accessForm" class="modal-card access-card" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
+      <h2 id="accessTitle">比赛与绑定权限验证</h2>
+      <p>输入管理员密码后进入。本次打开期间无需重复验证，刷新页面后需要重新输入。</p>
+      <label>
+        管理员密码
+        <input id="accessAdminCode" type="password" autocomplete="current-password" required>
+      </label>
+      <div id="accessError" class="modal-error" aria-live="polite"></div>
+      <button id="accessSubmitButton" type="submit">验证并进入比赛与绑定</button>
+    </form>
+  </div>
+
+  <header id="adminHeader" inert>
     <h1>比赛与选手绑定</h1>
     <p>创建比赛、设置站点和出发批次，登记选手并绑定 NFC 卡。</p>
     <nav>
@@ -480,7 +527,7 @@
     </nav>
   </header>
 
-  <main>
+  <main id="adminApp" inert>
     <section id="raceOverview">
       <div class="overview-header">
         <div>
@@ -799,6 +846,13 @@
 
   <script src="./timing-api.js"></script>
   <script>
+    const accessBackdrop = document.querySelector("#accessBackdrop");
+    const accessForm = document.querySelector("#accessForm");
+    const accessAdminCode = document.querySelector("#accessAdminCode");
+    const accessError = document.querySelector("#accessError");
+    const accessSubmitButton = document.querySelector("#accessSubmitButton");
+    const adminHeader = document.querySelector("#adminHeader");
+    const adminApp = document.querySelector("#adminApp");
     const form = document.querySelector("#participantForm");
     const formStatus = document.querySelector("#formStatus");
     const participantsBody = document.querySelector("#participantsBody");
@@ -909,6 +963,8 @@
     let adjustingParticipant = null;
     let manualResultParticipantRecord = null;
     let timingControlParticipantRecord = null;
+    let adminPageStarted = false;
+    let refreshTimer = 0;
     const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
 
     function isTemplateRaceId(raceId) {
@@ -1823,11 +1879,51 @@
       await Promise.all([loadRaceConfig(), refresh()]);
     }
 
-    initialize().catch((error) => {
-      overviewRaceName.textContent = "比赛数据读取失败。";
-      setStatus(`刷新失败：${error.message}`, true);
+    async function startAdminPage() {
+      if (adminPageStarted) return;
+      adminPageStarted = true;
+      try {
+        await initialize();
+        refreshTimer = window.setInterval(() => refresh().catch(() => {}), 5000);
+      } catch (error) {
+        adminPageStarted = false;
+        overviewRaceName.textContent = "比赛数据读取失败。";
+        setStatus(`刷新失败：${error.message}`, true);
+      }
+    }
+
+    accessForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const adminCode = accessAdminCode.value;
+      if (!adminCode) return;
+      accessSubmitButton.disabled = true;
+      accessError.textContent = "正在验证...";
+      try {
+        await requestJson("/api/judge-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adminCode })
+        });
+        accessAdminCode.value = "";
+        accessError.textContent = "";
+        accessBackdrop.hidden = true;
+        adminHeader.inert = false;
+        adminApp.inert = false;
+        document.body.classList.remove("auth-pending");
+        await startAdminPage();
+      } catch (error) {
+        accessError.textContent = error.message === "Invalid administrator code"
+          ? "密码不正确，请重新输入。"
+          : error.message === "Judge authorization is not configured"
+            ? "管理员密码尚未配置，请联系管理员。"
+            : `验证失败：${error.message}`;
+        accessAdminCode.select();
+      } finally {
+        accessSubmitButton.disabled = false;
+      }
     });
-    setInterval(() => refresh().catch(() => {}), 5000);
+
+    accessAdminCode.focus();
   </script>
 </body>
 </html>

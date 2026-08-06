@@ -450,6 +450,14 @@ class TimingApiTests(unittest.TestCase):
             self.timing_payload(0, "RUN_IN"),
         )
         self.assertEqual(first["status"], "accepted")
+        self.request_json(
+            "/api/device-bindings",
+            {
+                "raceId": "auto-test",
+                "deviceId": "finalize-test-reader",
+                "assignment": "RUN_IN",
+            },
+        )
         with self.assertRaises(HTTPError) as error_context:
             self.request_json(
                 "/api/finalize-race",
@@ -457,12 +465,18 @@ class TimingApiTests(unittest.TestCase):
             )
         self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
 
-        finalized = self.request_json(
+        finalize_payload = self.request_json(
             "/api/finalize-race",
             {"raceId": "auto-test", "adminCode": "test-clear-code-1234"},
-        )["race"]
+        )
+        finalized = finalize_payload["race"]
         self.assertEqual(finalized["status"], "finalized")
         self.assertTrue(finalized["finalizedAt"])
+        self.assertEqual(finalize_payload["releasedDeviceBindings"], 1)
+        self.assertEqual(
+            self.request_json("/api/device-bindings?raceId=auto-test")["bindings"],
+            [],
+        )
         leaderboard = self.request_json("/api/leaderboard?raceId=auto-test")
         self.assertEqual(leaderboard["generatedAt"], finalized["finalizedAt"])
 
@@ -1156,15 +1170,56 @@ class TimingApiTests(unittest.TestCase):
             )
         self.assertEqual(error_context.exception.code, HTTPStatus.CONFLICT)
 
-        updated = self.request_json(
+        unchanged = self.request_json(
             "/api/device-bindings",
             {
                 "raceId": "auto-test",
                 "deviceId": "reader-out-01",
-                "assignment": "RUN_IN",
+                "assignment": "RUN_OUT",
             },
         )["binding"]
-        self.assertEqual(updated["assignment"], "RUN_IN")
+        self.assertEqual(unchanged["assignment"], "RUN_OUT")
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/device-bindings",
+                {
+                    "raceId": "auto-test",
+                    "deviceId": "reader-out-01",
+                    "assignment": "RUN_IN",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.CONFLICT)
+
+        with self.assertRaises(HTTPError) as error_context:
+            self.request_json(
+                "/api/device-bindings/unbind",
+                {
+                    "raceId": "auto-test",
+                    "deviceId": "reader-out-01",
+                    "adminCode": "wrong-code",
+                },
+            )
+        self.assertEqual(error_context.exception.code, HTTPStatus.FORBIDDEN)
+
+        removed = self.request_json(
+            "/api/device-bindings/unbind",
+            {
+                "raceId": "auto-test",
+                "deviceId": "reader-out-01",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(removed["removed"], 1)
+        rebound = self.request_json(
+            "/api/device-bindings",
+            {
+                "raceId": "auto-test",
+                "deviceId": "reader-out-02",
+                "assignment": "RUN_OUT",
+            },
+        )["binding"]
+        self.assertEqual(rebound["assignment"], "RUN_OUT")
 
     def test_wrong_gate_is_stored_without_advancing_progress(self):
         start = self.request_json(

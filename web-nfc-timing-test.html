@@ -336,6 +336,79 @@
       opacity: 0.5;
     }
 
+    .setting-button.danger {
+      border-color: var(--error);
+      background: var(--error);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgb(10 17 24 / 76%);
+    }
+
+    .modal-backdrop[hidden] {
+      display: none;
+    }
+
+    .modal-card {
+      width: min(430px, 100%);
+      border-top: 5px solid var(--error);
+      border-radius: 7px;
+      padding: 22px;
+      background: var(--surface);
+      box-shadow: 0 24px 70px rgb(0 0 0 / 32%);
+    }
+
+    .modal-card h2 {
+      margin: 0;
+      font-size: 21px;
+    }
+
+    .modal-card > p {
+      margin: 8px 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .modal-error {
+      min-height: 20px;
+      margin-top: 8px;
+      color: var(--error);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .modal-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      margin-top: 12px;
+    }
+
+    .modal-actions button {
+      min-height: 46px;
+      border: 0;
+      border-radius: 6px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .modal-actions .secondary {
+      background: var(--soft);
+      color: var(--text);
+    }
+
+    .modal-actions .danger {
+      background: var(--error);
+      color: #ffffff;
+    }
+
     button:disabled {
       cursor: not-allowed;
       opacity: 0.5;
@@ -645,8 +718,8 @@
           </select>
         </label>
         <label>
-          Device ID
-          <input id="deviceId" value="timing-reader-01" autocomplete="off">
+          本机识别码
+          <input id="deviceId" autocomplete="off" readonly>
         </label>
         <label>
           计时模式
@@ -703,9 +776,9 @@
         <div class="voice-setting">
           <div>
             <strong>设备绑定</strong>
-            <small id="deviceBindingStatus">请确认 Device ID 与本机角色后再开始扫描。</small>
+            <small id="deviceBindingStatus">请选择本机站点并完成绑定后再开始扫描。</small>
           </div>
-          <button id="bindDeviceButton" class="setting-button" type="button">绑定本机角色</button>
+          <button id="bindDeviceButton" class="setting-button" type="button">绑定本机站点</button>
         </div>
       </div>
     </details>
@@ -742,6 +815,22 @@
     </div>
   </div>
 
+  <div id="unbindBackdrop" class="modal-backdrop" hidden>
+    <form id="unbindForm" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="unbindTitle">
+      <h2 id="unbindTitle">解除本机站点绑定</h2>
+      <p id="unbindDescription">解绑后该站点会立即空出，其他手机可以重新绑定。请输入管理员密码确认。</p>
+      <label>
+        管理员密码
+        <input id="unbindAdminCode" type="password" autocomplete="current-password" required>
+      </label>
+      <div id="unbindError" class="modal-error" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="cancelUnbindButton" class="secondary" type="button">取消</button>
+        <button id="confirmUnbindButton" class="danger" type="submit">确认解除绑定</button>
+      </div>
+    </form>
+  </div>
+
   <script src="./timing-api.js"></script>
   <script>
     const elements = {
@@ -775,14 +864,22 @@
       successVoiceAudio: document.querySelector("#successVoiceAudio"),
       testVoiceButton: document.querySelector("#testVoiceButton"),
       timingMode: document.querySelector("#timingMode"),
+      unbindAdminCode: document.querySelector("#unbindAdminCode"),
+      unbindBackdrop: document.querySelector("#unbindBackdrop"),
+      unbindDescription: document.querySelector("#unbindDescription"),
+      unbindError: document.querySelector("#unbindError"),
+      unbindForm: document.querySelector("#unbindForm"),
+      cancelUnbindButton: document.querySelector("#cancelUnbindButton"),
+      confirmUnbindButton: document.querySelector("#confirmUnbindButton"),
       voiceEnabled: document.querySelector("#voiceEnabled"),
-      raceProfileStatus: document.querySelector("#raceProfileStatus")
-      ,deviceBindingStatus: document.querySelector("#deviceBindingStatus")
-      ,bindDeviceButton: document.querySelector("#bindDeviceButton")
-      ,brandLogo: document.querySelector("#brandLogo")
+      raceProfileStatus: document.querySelector("#raceProfileStatus"),
+      deviceBindingStatus: document.querySelector("#deviceBindingStatus"),
+      bindDeviceButton: document.querySelector("#bindDeviceButton"),
+      brandLogo: document.querySelector("#brandLogo")
     };
 
     const settingsKey = "srcNfcTimingSettingsV2";
+    const deviceIdKey = "srcNfcDeviceId";
     const templateRaceIds = new Set(["fitmonster-hyrox-single", "hoka-race"]);
     const duplicateWindowMs = 2500;
     const defaultApiUrl = "/api/timing-events";
@@ -890,7 +987,16 @@
         || "";
       ensureRaceOption(preferredRaceId);
       elements.raceId.value = preferredRaceId;
-      elements.deviceId.value = params.get("deviceId") || saved.deviceId || "timing-reader-01";
+      let stableDeviceId = localStorage.getItem(deviceIdKey)
+        || params.get("deviceId")
+        || saved.deviceId;
+      if (!stableDeviceId) {
+        stableDeviceId = typeof crypto.randomUUID === "function"
+          ? `nfc-${crypto.randomUUID()}`
+          : `nfc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+      localStorage.setItem(deviceIdKey, stableDeviceId);
+      elements.deviceId.value = stableDeviceId;
       elements.timingMode.value = params.get("timingMode") || params.get("mode") || saved.timingMode || "auto";
       elements.gateRole.value = params.get("role") || saved.gateRole || "RUN_IN";
       elements.stationId.value = params.get("checkpoint")
@@ -1062,29 +1168,86 @@
       return deviceBindings.find((binding) => binding.device_id === deviceId) || null;
     }
 
+    function assignmentLabel(assignment) {
+      return ["RUN_IN", "RUN_OUT", "FINISH"].includes(assignment)
+        ? shortRoleLabel(assignment)
+        : checkpointLabel(assignment);
+    }
+
+    function applyCurrentDeviceBinding() {
+      const ownBinding = currentDeviceBinding();
+      if (!ownBinding) return;
+      if (["RUN_IN", "RUN_OUT", "FINISH"].includes(ownBinding.assignment)) {
+        elements.timingMode.value = "auto";
+        elements.gateRole.value = ownBinding.assignment;
+      } else {
+        elements.timingMode.value = "manual";
+        elements.stationId.value = ownBinding.assignment;
+      }
+    }
+
+    function decorateAssignmentOptions(select, ownBinding) {
+      const deviceId = elements.deviceId.value.trim();
+      Array.from(select.options).forEach((option) => {
+        if (!option.dataset.bindingLabel) option.dataset.bindingLabel = option.textContent;
+        const binding = deviceBindings.find((item) => item.assignment === option.value);
+        const occupiedByAnotherDevice = Boolean(binding && binding.device_id !== deviceId);
+        option.textContent = option.dataset.bindingLabel
+          + (occupiedByAnotherDevice ? "（已占用）" : "");
+        const unavailableFinish = select === elements.gateRole
+          && option.value === "FINISH"
+          && raceProfile?.mode !== "three_reader_auto";
+        if (select === elements.gateRole && option.value === "FINISH") {
+          option.hidden = unavailableFinish;
+        }
+        option.disabled = unavailableFinish || occupiedByAnotherDevice;
+      });
+      select.disabled = document.body.classList.contains("scanning") || Boolean(ownBinding);
+    }
+
     function renderDeviceBindingAvailability() {
       const deviceId = elements.deviceId.value.trim();
       const ownBinding = currentDeviceBinding();
+      const scanning = document.body.classList.contains("scanning");
+      const selectedBinding = deviceBindings.find((binding) => binding.assignment === bindingAssignment());
+      const selectedOccupied = Boolean(selectedBinding && selectedBinding.device_id !== deviceId);
+
+      elements.deviceId.readOnly = true;
+      elements.deviceId.disabled = scanning;
+      elements.raceId.disabled = scanning || Boolean(ownBinding);
+      elements.timingMode.disabled = scanning || Boolean(ownBinding);
+      decorateAssignmentOptions(elements.gateRole, ownBinding);
+      decorateAssignmentOptions(elements.stationId, ownBinding);
+      elements.bindDeviceButton.disabled = scanning || (!ownBinding && (!deviceId || selectedOccupied));
+      elements.bindDeviceButton.classList.toggle("danger", Boolean(ownBinding));
+
       if (ownBinding) {
-        const assignment = elements.timingMode.value === "manual"
-          ? checkpointLabel(ownBinding.assignment)
-          : shortRoleLabel(ownBinding.assignment);
-        elements.deviceBindingStatus.textContent = `已绑定：${ownBinding.device_id} · ${assignment}`;
+        elements.deviceBindingStatus.textContent = `本机已占用：${assignmentLabel(ownBinding.assignment)}。比赛结束或主动解绑前会一直保留。`;
         elements.deviceBindingStatus.dataset.tone = "success";
-        elements.bindDeviceButton.textContent = "重新确认绑定";
-      } else if (deviceId) {
-        elements.deviceBindingStatus.textContent = "尚未确认；请点击“绑定本机角色”锁定当前选择。";
+        elements.bindDeviceButton.textContent = "解除本机绑定";
+      } else if (selectedOccupied) {
+        elements.deviceBindingStatus.textContent = "当前站点已被其他手机占用，请选择空闲站点。";
         elements.deviceBindingStatus.dataset.tone = "warning";
-        elements.bindDeviceButton.textContent = "绑定本机角色";
+        elements.bindDeviceButton.textContent = "绑定本机站点";
+      } else if (deviceId) {
+        elements.deviceBindingStatus.textContent = "本机尚未绑定；选择空闲站点后确认绑定。";
+        elements.deviceBindingStatus.dataset.tone = "warning";
+        elements.bindDeviceButton.textContent = "绑定本机站点";
       } else {
-        elements.deviceBindingStatus.textContent = "请先填写 Device ID。";
-        elements.bindDeviceButton.textContent = "绑定本机角色";
+        elements.deviceBindingStatus.textContent = "无法生成本机识别码，请刷新页面。";
+        elements.deviceBindingStatus.dataset.tone = "error";
+        elements.bindDeviceButton.textContent = "绑定本机站点";
       }
     }
 
     async function loadDeviceBindings() {
       const raceId = elements.raceId.value.trim();
-      if (!raceId) return;
+      if (!raceId) {
+        deviceBindings = [];
+        bindingConfirmed = false;
+        renderDeviceBindingAvailability();
+        return;
+      }
       const response = await window.timingApiFetch(
         "/api/device-bindings?raceId=" + encodeURIComponent(raceId)
       );
@@ -1092,6 +1255,7 @@
       if (!response.ok || !payload.ok) throw new Error(payload.error || ("HTTP " + response.status));
       deviceBindings = Array.isArray(payload.bindings) ? payload.bindings : [];
       bindingConfirmed = Boolean(currentDeviceBinding());
+      applyCurrentDeviceBinding();
       renderDeviceBindingAvailability();
     }
 
@@ -1114,12 +1278,49 @@
       setStatus(`设备绑定成功：${deviceId} · ${assignmentLabel}`, "success");
     }
 
+    function openUnbindModal() {
+      const ownBinding = currentDeviceBinding();
+      if (!ownBinding) return;
+      elements.unbindAdminCode.value = "";
+      elements.unbindError.textContent = "";
+      elements.unbindDescription.textContent = `本机当前占用“${assignmentLabel(ownBinding.assignment)}”。解绑后其他手机可以立即选择该站点。`;
+      elements.unbindBackdrop.hidden = false;
+      elements.unbindAdminCode.focus();
+    }
+
+    function closeUnbindModal() {
+      elements.unbindBackdrop.hidden = true;
+      elements.unbindForm.reset();
+      elements.unbindError.textContent = "";
+    }
+
+    async function unbindDevice() {
+      const response = await window.timingApiFetch("/api/device-bindings/unbind", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          raceId: elements.raceId.value.trim(),
+          deviceId: elements.deviceId.value.trim(),
+          adminCode: elements.unbindAdminCode.value
+        })
+      });
+      const payload = await readApiResponse(response);
+      if (!response.ok || !payload.ok) {
+        const error = new Error(payload.error || ("HTTP " + response.status));
+        error.status = response.status;
+        throw error;
+      }
+      closeUnbindModal();
+      await loadDeviceBindings();
+      setStatus("本机站点绑定已解除，现在可以选择新的比赛和站点。", "success");
+    }
+
     async function ensureDeviceBinding() {
       await loadDeviceBindings();
       const assignment = bindingAssignment();
       const ownBinding = currentDeviceBinding();
       if (!bindingConfirmed || !ownBinding || ownBinding.assignment !== assignment) {
-        throw new Error("请先点击“绑定本机角色”，确认当前 Device ID 和角色");
+        throw new Error("请先点击“绑定本机站点”，确认当前比赛和站点");
       }
     }
 
@@ -1153,6 +1354,7 @@
       elements.testVoiceButton.disabled = !elements.voiceEnabled.checked;
       if (!document.body.classList.contains("scanning")) renderReadyState();
       saveSettings();
+      renderDeviceBindingAvailability();
     }
 
     function renderReadyState() {
@@ -1590,20 +1792,11 @@
     }
 
     function lockConfiguration(locked) {
-      [
-        elements.deviceId,
-        elements.duplicateProtectionSeconds,
-        elements.gateRole,
-        elements.raceId,
-        elements.stationId,
-        elements.testVoiceButton,
-        elements.timingMode,
-        elements.voiceEnabled
-      ].forEach((control) => {
-        control.disabled = locked;
-      });
+      elements.duplicateProtectionSeconds.disabled = locked;
+      elements.voiceEnabled.disabled = locked;
       elements.testVoiceButton.disabled = locked || !elements.voiceEnabled.checked;
       if (locked) elements.settingsPanel.open = false;
+      renderDeviceBindingAvailability();
     }
 
     elements.startButton.addEventListener("click", async () => {
@@ -1687,7 +1880,31 @@
     });
 
     elements.bindDeviceButton.addEventListener("click", () => {
+      if (currentDeviceBinding()) {
+        openUnbindModal();
+        return;
+      }
       bindDevice().catch((error) => setStatus(`设备绑定失败：${error.message}`, "error"));
+    });
+
+    elements.cancelUnbindButton.addEventListener("click", closeUnbindModal);
+    elements.unbindBackdrop.addEventListener("click", (event) => {
+      if (event.target === elements.unbindBackdrop) closeUnbindModal();
+    });
+    elements.unbindForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      elements.confirmUnbindButton.disabled = true;
+      elements.unbindError.textContent = "正在验证并解除绑定...";
+      try {
+        await unbindDevice();
+      } catch (error) {
+        elements.unbindError.textContent = error.status === 403
+          ? "密码不正确，请重新输入。"
+          : `解除绑定失败：${error.message}`;
+        elements.unbindAdminCode.select();
+      } finally {
+        elements.confirmUnbindButton.disabled = false;
+      }
     });
 
     [
@@ -1709,7 +1926,7 @@
       refreshRaceData().catch(showRaceProfileError);
     });
 
-    [elements.deviceId, elements.gateRole, elements.stationId].forEach((control) => {
+    [elements.gateRole, elements.stationId, elements.timingMode].forEach((control) => {
       control.addEventListener("change", () => {
         bindingConfirmed = false;
         renderDeviceBindingAvailability();
@@ -1729,6 +1946,11 @@
     loadSettings();
     renderConfiguration();
     refreshRaceData({ reloadOptions: true }).catch(showRaceProfileError);
+    window.setInterval(() => {
+      if (document.visibilityState === "visible" && elements.raceId.value) {
+        loadDeviceBindings().catch(() => {});
+      }
+    }, 10000);
   </script>
 </body>
 </html>

@@ -1940,9 +1940,15 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       }, 409);
     }
     if (existing.status === "finalized" && existing.finalized_at) {
+      const releasedBindings = await databaseRequest("device_bindings", {
+        method: "DELETE",
+        query: { race_id: `eq.${raceId}` },
+        prefer: "return=representation",
+      });
       return jsonResponse({
         ok: true,
         race: raceResponse(existing),
+        releasedDeviceBindings: Array.isArray(releasedBindings) ? releasedBindings.length : 0,
         storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
         cloudError: null,
       });
@@ -1964,9 +1970,15 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       },
       prefer: "return=minimal",
     });
+    const releasedBindings = await databaseRequest("device_bindings", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}` },
+      prefer: "return=representation",
+    });
     return jsonResponse({
       ok: true,
       race: raceResponse(rows[0]),
+      releasedDeviceBindings: Array.isArray(releasedBindings) ? releasedBindings.length : 0,
       storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
       cloudError: null,
     });
@@ -2218,6 +2230,12 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         error: "This Race ID is a read-only template; create a dated race session first",
       }, 409);
     }
+    if (profile.status === "finalized") {
+      return jsonResponse(
+        { ok: false, status: "race_finalized", error: "This race has ended" },
+        409,
+      );
+    }
     const existing = await databaseRequest("device_bindings", {
       query: {
         select: "*",
@@ -2226,6 +2244,17 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         limit: "1",
       },
     });
+    if (existing[0]) {
+      if (existing[0].assignment === assignment) {
+        return jsonResponse({ ok: true, raceId, binding: existing[0] });
+      }
+      return jsonResponse({
+        ok: false,
+        status: "device_already_bound",
+        error: "This device is already bound; unbind it before choosing another station",
+        binding: existing[0],
+      }, 409);
+    }
     const occupied = await databaseRequest("device_bindings", {
       query: {
         select: "device_id,assignment",
@@ -2242,19 +2271,53 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       }, 409);
     }
     const now = new Date().toISOString();
-    const rows = await databaseRequest("device_bindings", {
-      method: "POST",
-      query: { on_conflict: "race_id,device_id" },
-      body: {
-        race_id: raceId,
-        device_id: deviceId,
-        assignment,
-        created_at: existing[0]?.created_at || now,
-        updated_at: now,
-      },
-      prefer: "resolution=merge-duplicates,return=representation",
+    try {
+      const rows = await databaseRequest("device_bindings", {
+        method: "POST",
+        body: {
+          race_id: raceId,
+          device_id: deviceId,
+          assignment,
+          created_at: now,
+          updated_at: now,
+        },
+        prefer: "return=representation",
+      });
+      return jsonResponse({ ok: true, raceId, binding: rows[0] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("duplicate key value")) throw error;
+      return jsonResponse({
+        ok: false,
+        status: "assignment_already_bound",
+        error: "This role is already bound to another device",
+      }, 409);
+    }
+  }
+
+  if (route === "/device-bindings/unbind") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Device unbinding is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const deviceId = String(payload.deviceId || "").trim();
+    const suppliedCode = String(payload.adminCode || "");
+    if (!deviceId || deviceId.length > 100) throw new Error("deviceId is required");
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    const removed = await databaseRequest("device_bindings", {
+      method: "DELETE",
+      query: { race_id: `eq.${raceId}`, device_id: `eq.${deviceId}` },
+      prefer: "return=representation",
     });
-    return jsonResponse({ ok: true, raceId, binding: rows[0] });
+    return jsonResponse({
+      ok: true,
+      raceId,
+      deviceId,
+      removed: Array.isArray(removed) ? removed.length : 0,
+    });
   }
 
   if (route === "/timing-events") {

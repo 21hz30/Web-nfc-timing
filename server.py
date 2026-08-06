@@ -1405,6 +1405,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_post_device_binding()
             return
 
+        if parsed.path == "/api/device-bindings/unbind":
+            self.handle_post_device_unbind()
+            return
+
         if parsed.path == "/api/participants":
             self.handle_post_participant()
             return
@@ -1934,8 +1938,35 @@ class TimingHandler(SimpleHTTPRequestHandler):
             if error_payload := template_race_error(profile):
                 self.send_json(error_payload, HTTPStatus.CONFLICT)
                 return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
             now = utc_now()
             with connect_db() as db:
+                existing = db.execute(
+                    "SELECT race_id, device_id, assignment, created_at, updated_at "
+                    "FROM device_bindings WHERE race_id = ? AND device_id = ?",
+                    (race_id, device_id),
+                ).fetchone()
+                if existing:
+                    if existing["assignment"] == assignment:
+                        self.send_json(
+                            {"ok": True, "raceId": race_id, "binding": row_to_dict(existing)}
+                        )
+                    else:
+                        self.send_json(
+                            {
+                                "ok": False,
+                                "status": "device_already_bound",
+                                "error": "This device is already bound; unbind it before choosing another station",
+                                "binding": row_to_dict(existing),
+                            },
+                            HTTPStatus.CONFLICT,
+                        )
+                    return
                 occupied = db.execute(
                     "SELECT device_id, assignment FROM device_bindings "
                     "WHERE race_id = ? AND assignment = ?",
@@ -1947,22 +1978,67 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         HTTPStatus.CONFLICT,
                     )
                     return
-                existing = db.execute(
-                    "SELECT created_at FROM device_bindings WHERE race_id = ? AND device_id = ?",
-                    (race_id, device_id),
-                ).fetchone()
-                db.execute(
-                    "INSERT INTO device_bindings (race_id, device_id, assignment, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?) "
-                    "ON CONFLICT (race_id, device_id) DO UPDATE SET assignment = excluded.assignment, updated_at = excluded.updated_at",
-                    (race_id, device_id, assignment, existing["created_at"] if existing else now, now),
-                )
+                try:
+                    db.execute(
+                        "INSERT INTO device_bindings (race_id, device_id, assignment, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (race_id, device_id, assignment, now, now),
+                    )
+                except sqlite3.IntegrityError:
+                    self.send_json(
+                        {
+                            "ok": False,
+                            "status": "assignment_already_bound",
+                            "error": "This role is already bound to another device",
+                        },
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
                 row = db.execute(
                     "SELECT race_id, device_id, assignment, created_at, updated_at FROM device_bindings "
                     "WHERE race_id = ? AND device_id = ?",
                     (race_id, device_id),
                 ).fetchone()
             self.send_json({"ok": True, "raceId": race_id, "binding": row_to_dict(row)})
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_device_unbind(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            device_id = str(payload.get("deviceId") or "").strip()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Device unbinding is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not race_id or len(race_id) > 80 or not all(c.isalnum() or c in "-_" for c in race_id):
+                raise ValueError("raceId must contain only letters, numbers, hyphens, or underscores")
+            if not device_id or len(device_id) > 100:
+                raise ValueError("deviceId is required")
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            with connect_db() as db:
+                cursor = db.execute(
+                    "DELETE FROM device_bindings WHERE race_id = ? AND device_id = ?",
+                    (race_id, device_id),
+                )
+            self.send_json(
+                {
+                    "ok": True,
+                    "raceId": race_id,
+                    "deviceId": device_id,
+                    "removed": cursor.rowcount,
+                }
+            )
         except (json.JSONDecodeError, ValueError) as error:
             self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
@@ -2978,6 +3054,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 self.send_json(error_payload, HTTPStatus.CONFLICT)
                 return
             action = None
+            released_device_bindings = 0
             if profile.get("status") != "finalized":
                 profile["status"] = "finalized"
                 profile["finalized_at"] = utc_now()
@@ -2993,6 +3070,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "SELECT * FROM race_admin_actions WHERE id = ?",
                         (cursor.lastrowid,),
                     ).fetchone()
+            with connect_db() as db:
+                released_device_bindings = db.execute(
+                    "DELETE FROM device_bindings WHERE race_id = ?",
+                    (race_id,),
+                ).rowcount
             profile_cloud = sync_supabase_record("race_profiles", profile)
             action_cloud = (
                 sync_supabase_record("race_admin_actions", action) if action else None
@@ -3001,6 +3083,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 {
                     "ok": True,
                     "race": race_profile_response(profile),
+                    "releasedDeviceBindings": released_device_bindings,
                     "storage": {
                         "localSaved": True,
                         "supabaseSaved": bool(
