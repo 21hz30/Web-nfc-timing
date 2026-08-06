@@ -133,6 +133,51 @@
     .tab-button[aria-pressed="true"] { background: #243442; color: #ffffff; }
     .tab-button[aria-pressed="true"] strong { color: #ffffff; }
 
+    .wave-panel {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      background: #f7f9fa;
+    }
+    .wave-panel[hidden] { display: none; }
+    .wave-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .wave-title { display: flex; min-width: 0; align-items: baseline; gap: 9px; }
+    .wave-title strong { color: #24313d; font-size: 14px; }
+    .wave-title span { color: var(--muted); font-size: 11px; font-weight: 750; }
+    .wave-select-button {
+      min-height: 36px;
+      border: 1px solid #9bc9b7;
+      border-radius: 5px;
+      padding: 6px 10px;
+      background: #ffffff;
+      color: #076343;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .wave-select-button[aria-pressed="true"] { background: var(--success-soft); }
+    .wave-select-button:disabled { border-color: #d1d9df; color: #87939e; cursor: default; }
+    .wave-list { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
+    .wave-list::-webkit-scrollbar { display: none; }
+    .wave-button {
+      display: grid;
+      min-width: 166px;
+      min-height: 58px;
+      flex: 0 0 auto;
+      gap: 4px;
+      border: 1px solid #c8d1db;
+      border-radius: 6px;
+      padding: 9px 11px;
+      background: #ffffff;
+      color: #344452;
+      text-align: left;
+      cursor: pointer;
+    }
+    .wave-button strong { font-size: 14px; }
+    .wave-button span { color: var(--muted); font-size: 11px; font-weight: 750; }
+    .wave-button[aria-pressed="true"] { border-color: #243442; background: #243442; color: #ffffff; }
+    .wave-button[aria-pressed="true"] span { color: rgb(255 255 255 / 74%); }
+    .wave-empty { min-height: 44px; padding: 12px 0 2px; color: var(--muted); font-size: 12px; font-weight: 750; }
+
     .queue-toolbar {
       display: grid;
       grid-template-columns: minmax(220px, 1fr) auto;
@@ -222,6 +267,10 @@
         overflow: visible;
       }
       .tab-button { min-width: 0; }
+      .wave-panel-head { align-items: stretch; flex-direction: column; }
+      .wave-title { justify-content: space-between; }
+      .wave-select-button { width: 100%; }
+      .wave-button { min-width: 148px; }
       .batch-copy { text-align: left; }
       .column-head { display: none; }
       .entry-row { grid-template-columns: 36px 56px minmax(0, 1fr) auto; gap: 8px; min-height: 104px; padding: 11px 9px; }
@@ -266,9 +315,16 @@
           <button class="tab-button" type="button" data-filter="not_ready" aria-pressed="false">未核验 <strong id="waitingCount">0</strong></button>
           <button class="tab-button" type="button" data-filter="dnf" aria-pressed="false">退赛 <strong id="dnfCount">0</strong></button>
         </div>
+        <div id="wavePanel" class="wave-panel">
+          <div class="wave-panel-head">
+            <div class="wave-title"><strong>出发批次</strong><span id="wavePanelSummary">正在读取批次</span></div>
+            <button id="selectWaveButton" class="wave-select-button" type="button" aria-pressed="false" disabled>选择本批待发选手</button>
+          </div>
+          <div id="waveList" class="wave-list" aria-label="出发批次"></div>
+        </div>
         <div class="queue-toolbar">
           <input id="judgeParticipantQuery" name="judge-participant-query" type="text" placeholder="搜索选手、团队或卡号" autocomplete="off" spellcheck="false" readonly>
-          <div class="batch-copy">每批 <strong id="groupSize">1</strong> 人 · 当前显示 <strong id="visibleCount">0</strong> 人</div>
+          <div class="batch-copy"><strong id="currentWaveCopy">全部批次</strong> · 每批 <strong id="groupSize">1</strong> 人 · 当前显示 <strong id="visibleCount">0</strong> 人</div>
         </div>
         <div class="column-head" aria-hidden="true">
           <span>选择</span><span>出发</span><span>选手 / 团队</span><span>卡号</span><span>状态</span><span>操作</span>
@@ -339,6 +395,7 @@
       confirmStartButton: document.querySelector("#confirmStartButton"),
       connection: document.querySelector("#connection"),
       connectionText: document.querySelector("#connectionText"),
+      currentWaveCopy: document.querySelector("#currentWaveCopy"),
       demoBadge: document.querySelector("#demoBadge"),
       demoLink: document.querySelector("#demoLink"),
       dnfCount: document.querySelector("#dnfCount"),
@@ -365,6 +422,7 @@
       readyCount: document.querySelector("#readyCount"),
       refreshButton: document.querySelector("#refreshButton"),
       searchInput: document.querySelector("#judgeParticipantQuery"),
+      selectWaveButton: document.querySelector("#selectWaveButton"),
       selectedCount: document.querySelector("#selectedCount"),
       selectionWave: document.querySelector("#selectionWave"),
       startAdminCode: document.querySelector("#startAdminCode"),
@@ -377,6 +435,9 @@
       startParticipants: document.querySelector("#startParticipants"),
       startRaceButton: document.querySelector("#startRaceButton"),
       visibleCount: document.querySelector("#visibleCount"),
+      waveList: document.querySelector("#waveList"),
+      wavePanel: document.querySelector("#wavePanel"),
+      wavePanelSummary: document.querySelector("#wavePanelSummary"),
       waitingCount: document.querySelector("#waitingCount")
     };
 
@@ -392,6 +453,7 @@
     localStorage.setItem("src-judge-device-id", deviceId.replace(/^judge-/, ""));
     let entries = [];
     let activeFilter = "ready";
+    let activeWave = null;
     let activeRace = null;
     let operationMode = "";
     let operationEntry = null;
@@ -617,6 +679,7 @@
       const query = elements.searchInput.value.trim().toLowerCase();
       return entries.filter((entry) => {
         if (filterStatus(entry) !== activeFilter) return false;
+        if (activeFilter === "ready" && Number(entry.startWave) !== Number(activeWave)) return false;
         if (!query) return true;
         const haystack = [entry.athleteName, entry.cardCode, ...(entry.memberNames || [])].join(" ").toLowerCase();
         return haystack.includes(query);
@@ -625,6 +688,101 @@
 
     function selectedEntries() {
       return entries.filter((entry) => selectedIds.has(entry.participantId));
+    }
+
+    function readyWaveSummaries() {
+      const waves = new Map();
+      entries.forEach((entry) => {
+        const wave = Number(entry.startWave);
+        if (!Number.isInteger(wave) || wave < 1) return;
+        if (!waves.has(wave)) waves.set(wave, { wave, total: 0, ready: 0 });
+        const summary = waves.get(wave);
+        summary.total += 1;
+        if (filterStatus(entry) === "ready") summary.ready += 1;
+      });
+      return [...waves.values()].filter((summary) => summary.ready > 0).sort((left, right) => left.wave - right.wave);
+    }
+
+    function syncActiveWave(waves = readyWaveSummaries()) {
+      if (activeFilter !== "ready") return waves;
+      if (!waves.some((summary) => summary.wave === Number(activeWave))) {
+        activeWave = waves[0]?.wave || null;
+        selectedIds.clear();
+      }
+      return waves;
+    }
+
+    function selectWave(wave) {
+      if (Number(activeWave) === Number(wave)) return;
+      activeWave = Number(wave);
+      selectedIds.clear();
+      renderWavePanel();
+      renderEntries();
+      updateDock();
+      setMessage(`已切换到第 ${activeWave} 批。`, "info");
+    }
+
+    function toggleActiveWaveSelection() {
+      if (!activeWave) return;
+      const waveEntries = entries.filter((entry) => (
+        filterStatus(entry) === "ready" && Number(entry.startWave) === Number(activeWave)
+      ));
+      const allSelected = waveEntries.length > 0 && waveEntries.every((entry) => selectedIds.has(entry.participantId));
+      selectedIds.clear();
+      if (!allSelected) {
+        waveEntries.slice(0, Number(activeRace?.startGroupSize || 1)).forEach((entry) => selectedIds.add(entry.participantId));
+      }
+      renderWavePanel();
+      renderEntries();
+      updateDock();
+    }
+
+    function renderWavePanel() {
+      elements.wavePanel.hidden = activeFilter !== "ready";
+      elements.currentWaveCopy.textContent = activeFilter === "ready" && activeWave ? `第 ${activeWave} 批` : "全部批次";
+      if (activeFilter !== "ready") return;
+
+      const waves = syncActiveWave();
+      elements.wavePanelSummary.textContent = `${waves.length} 个待发批次`;
+      if (!waves.length) {
+        activeWave = null;
+        elements.waveList.replaceChildren(Object.assign(document.createElement("div"), {
+          className: "wave-empty",
+          textContent: "当前没有待发批次"
+        }));
+        elements.selectWaveButton.disabled = true;
+        elements.selectWaveButton.setAttribute("aria-pressed", "false");
+        elements.selectWaveButton.textContent = "选择本批待发选手";
+        elements.currentWaveCopy.textContent = "无待发批次";
+        return;
+      }
+
+      const buttons = waves.map((summary) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "wave-button";
+        button.dataset.wave = String(summary.wave);
+        button.setAttribute("aria-pressed", String(summary.wave === Number(activeWave)));
+        button.setAttribute("aria-label", `第 ${summary.wave} 批，${summary.ready} 人待发，共 ${summary.total} 人`);
+        const title = document.createElement("strong");
+        title.textContent = `第 ${summary.wave} 批`;
+        const meta = document.createElement("span");
+        meta.textContent = `${summary.ready} 人待发 · ${summary.total}/${activeRace?.startGroupSize || 1} 人`;
+        button.append(title, meta);
+        button.addEventListener("click", () => selectWave(summary.wave));
+        return button;
+      });
+      elements.waveList.replaceChildren(...buttons);
+
+      const activeReadyEntries = entries.filter((entry) => (
+        filterStatus(entry) === "ready" && Number(entry.startWave) === Number(activeWave)
+      ));
+      const allSelected = activeReadyEntries.length > 0
+        && activeReadyEntries.every((entry) => selectedIds.has(entry.participantId));
+      elements.selectWaveButton.disabled = activeReadyEntries.length === 0;
+      elements.selectWaveButton.setAttribute("aria-pressed", String(allSelected));
+      elements.selectWaveButton.textContent = allSelected ? "取消本批选择" : "选择本批待发选手";
+      elements.currentWaveCopy.textContent = `第 ${activeWave} 批`;
     }
 
     function actionButton(label, action, entry, tone = "") {
@@ -649,6 +807,11 @@
         checkbox.setAttribute("aria-label", `选择 ${entry.athleteName}`);
         checkbox.addEventListener("change", () => {
           if (checkbox.checked) {
+            if (Number(activeWave) !== Number(entry.startWave)) {
+              checkbox.checked = false;
+              setMessage("请先选择选手所属的出发批次。", "error");
+              return;
+            }
             const currentWave = selectedEntries()[0]?.startWave;
             if (currentWave && currentWave !== entry.startWave) {
               checkbox.checked = false;
@@ -664,6 +827,7 @@
           } else {
             selectedIds.delete(entry.participantId);
           }
+          renderWavePanel();
           renderEntries();
           updateDock();
         });
@@ -725,9 +889,12 @@
     function renderEntries() {
       const visible = visibleEntries();
       elements.visibleCount.textContent = String(visible.length);
+      const emptyText = activeFilter === "ready"
+        ? activeWave ? "当前批次没有待发选手" : "当前没有待发批次"
+        : "当前状态下没有选手";
       elements.entryList.replaceChildren(...(visible.length
         ? visible.map(createEntryRow)
-        : [Object.assign(document.createElement("div"), { className: "empty-state", textContent: "当前状态下没有选手" })]));
+        : [Object.assign(document.createElement("div"), { className: "empty-state", textContent: emptyText })]));
     }
 
     function updateCounts() {
@@ -757,6 +924,8 @@
         item.setAttribute("aria-pressed", String(item.dataset.filter === nextFilter));
       });
       selectedIds.clear();
+      syncActiveWave();
+      renderWavePanel();
       renderEntries();
       updateDock();
     }
@@ -874,6 +1043,7 @@
         elements.raceName.textContent = `${demoRace.name} · ${entries.length} 人`;
         elements.groupSize.textContent = demoRace.startGroupSize;
         updateCounts();
+        renderWavePanel();
         renderEntries();
         updateDock();
         setConnection("体验中", "live");
@@ -894,6 +1064,7 @@
         elements.raceName.textContent = `${activeRace.name || elements.raceId.value} · ${entries.length} 人`;
         elements.groupSize.textContent = activeRace.startGroupSize || 1;
         updateCounts();
+        renderWavePanel();
         renderEntries();
         updateDock();
         setConnection(`已更新 ${formatClock(queuePayload.generatedAt)}`, "live");
@@ -1100,12 +1271,14 @@
       if (isDemoMode) resetDemoExperience();
       else loadData();
     });
+    elements.selectWaveButton.addEventListener("click", toggleActiveWaveSelection);
     elements.startRaceButton.addEventListener("click", openStartModal);
     elements.confirmStartButton.addEventListener("click", confirmStart);
     elements.operationForm.addEventListener("submit", submitOperation);
     elements.raceId.addEventListener("change", async () => {
       selectedIds.clear();
       activeFilter = "ready";
+      activeWave = null;
       document.querySelectorAll(".tab-button").forEach((item) => item.setAttribute("aria-pressed", String(item.dataset.filter === "ready")));
       updateBranding();
       updateUrl();
