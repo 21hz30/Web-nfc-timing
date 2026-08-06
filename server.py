@@ -1373,6 +1373,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/judge-auth":
+            self.handle_post_judge_auth()
+            return
+
         if parsed.path == "/api/reset-timing":
             self.handle_post_reset_timing()
             return
@@ -1438,6 +1442,27 @@ class TimingHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def handle_post_judge_auth(self) -> None:
+        try:
+            payload = self.read_json_body()
+            supplied_code = str(payload.get("adminCode") or "")
+            configured_code = leaderboard_clear_code()
+            if len(configured_code) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Judge authorization is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+                self.send_json(
+                    {"ok": False, "error": "Invalid administrator code"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            self.send_json({"ok": True, "authenticated": True})
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
     def handle_post_reset_timing(self) -> None:
         try:

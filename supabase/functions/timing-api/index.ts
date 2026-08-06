@@ -978,6 +978,18 @@ async function handleGet(route: string, url: URL): Promise<Response> {
 async function handlePost(route: string, request: Request): Promise<Response> {
   const payload = await readJsonBody(request);
 
+  if (route === "/judge-auth") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Judge authorization is not configured" }, 503);
+    }
+    const suppliedCode = String(payload.adminCode || "");
+    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    }
+    return jsonResponse({ ok: true, authenticated: true });
+  }
+
   if (route === "/start-checkins") {
     const raceId = requiredRaceId(payload.raceId);
     const cardCode = String(payload.cardCode || "").trim().toUpperCase();

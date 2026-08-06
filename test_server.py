@@ -156,6 +156,29 @@ class TimingApiTests(unittest.TestCase):
             self.request_json(path, payload)
         self.assertEqual(error_context.exception.code, expected_status)
 
+    def test_judge_auth_validates_admin_code_without_changing_race_data(self):
+        self.assert_post_error(
+            "/api/judge-auth",
+            {"adminCode": "wrong-code"},
+            HTTPStatus.FORBIDDEN,
+        )
+        authenticated = self.request_json(
+            "/api/judge-auth",
+            {"adminCode": "test-clear-code-1234"},
+        )
+        self.assertTrue(authenticated["ok"])
+        self.assertTrue(authenticated["authenticated"])
+
+        configured_code = os.environ.pop("LEADERBOARD_CLEAR_CODE")
+        try:
+            self.assert_post_error(
+                "/api/judge-auth",
+                {"adminCode": configured_code},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+        finally:
+            os.environ["LEADERBOARD_CLEAR_CODE"] = configured_code
+
     def test_api_advances_full_race_and_finishes_station_eight(self):
         latest = None
         for index in range(17):

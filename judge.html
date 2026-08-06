@@ -33,6 +33,8 @@
     body { margin: 0; min-height: 100vh; min-height: 100dvh; background: #edf1f4; }
     body.hoka { --brand: #009dff; --accent: #d8f000; --accent-ink: #122438; background: #009dff; }
     body.modal-open { overflow: hidden; }
+    body.auth-pending { overflow: hidden; }
+    body.auth-pending .app { pointer-events: none; user-select: none; }
     button, input, select, textarea { font: inherit; letter-spacing: 0; }
 
     .app { width: min(1240px, 100%); min-height: 100vh; margin: 0 auto; background: #edf1f4; }
@@ -246,6 +248,28 @@
     .modal-button.danger { background: var(--error); color: #ffffff; }
     .modal-button:disabled { cursor: wait; opacity: .5; }
 
+    .auth-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 18px; background: rgb(10 17 24 / 86%); }
+    .auth-backdrop[hidden] { display: none; }
+    .auth-panel { width: min(430px, 100%); border-top: 5px solid var(--accent); border-radius: 7px; padding: 24px; background: #ffffff; box-shadow: 0 28px 80px rgb(0 0 0 / 38%); }
+    .auth-kicker { margin-bottom: 7px; color: var(--accent); font-size: 11px; font-weight: 950; text-transform: uppercase; }
+    .auth-panel h2 { margin: 0; font-size: 23px; }
+    .auth-panel > p { margin: 8px 0 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .auth-submit { width: 100%; min-height: 48px; margin-top: 12px; border: 0; border-radius: 6px; background: var(--brand); color: var(--brand-ink); font-weight: 950; cursor: pointer; }
+    .auth-submit:disabled { cursor: wait; opacity: .55; }
+
+    .start-confirm-modal { overflow: hidden; border-top: 6px solid #d97706; padding-top: 18px; }
+    .start-confirm-head { display: flex; align-items: center; gap: 12px; }
+    .start-confirm-icon { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #fff1d6; color: #9b5a00; font-size: 24px; font-weight: 950; }
+    .start-confirm-head h2 { font-size: 22px; }
+    .start-impact { margin: 14px 0 12px; border: 1px solid #efc37d; border-radius: 6px; padding: 12px; background: #fff8e8; color: #673b00; }
+    .start-impact strong, .start-impact span { display: block; }
+    .start-impact strong { font-size: 14px; }
+    .start-impact span { margin-top: 4px; font-size: 12px; font-weight: 700; line-height: 1.45; }
+    .start-confirm-modal .participant-summary { border-left-color: #d97706; background: #fffaf0; font-size: 13px; font-weight: 800; }
+    .start-confirm-modal .modal-actions { margin-top: 18px; }
+    .start-confirm-modal .modal-button { min-height: 48px; padding-right: 18px; padding-left: 18px; }
+    .start-confirm-modal .confirm-start-button { min-width: 210px; background: var(--success); color: #ffffff; }
+
     @media (max-width: 900px) {
       .race-bar { grid-template-columns: minmax(220px, 1fr) repeat(4, auto); }
       .column-head, .entry-row { grid-template-columns: 36px 66px minmax(150px, 1fr) minmax(135px, .7fr) minmax(180px, auto); }
@@ -284,11 +308,25 @@
       .modal-grid { grid-template-columns: 1fr; }
       .dock-inner { gap: 9px; }
       .start-button { min-width: 154px; font-size: 14px; }
+      .auth-panel { padding: 20px; }
+      .start-confirm-modal .modal-actions { display: grid; grid-template-columns: 1fr; }
+      .start-confirm-modal .modal-button { width: 100%; min-width: 0; }
     }
   </style>
 </head>
-<body>
-  <div class="app">
+<body class="auth-pending">
+  <div id="authBackdrop" class="auth-backdrop">
+    <form id="authForm" class="auth-panel" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="auth-kicker">赛事控制权限</div>
+      <h2 id="authTitle">裁判台权限验证</h2>
+      <p>输入管理员密码后进入裁判台。本次打开期间无需重复输入，刷新页面后需要重新验证。</p>
+      <label>管理员密码<input id="authAdminCode" type="password" autocomplete="current-password" required></label>
+      <div id="authError" class="modal-error" aria-live="polite"></div>
+      <button id="authSubmitButton" class="auth-submit" type="submit">验证并进入裁判台</button>
+    </form>
+  </div>
+
+  <div id="judgeApp" class="app" inert>
     <header>
       <div class="brand">
         <img id="brandLogo" src="./assets/src-logo.png" alt="SRC logo">
@@ -343,15 +381,20 @@
   </div>
 
   <div id="startBackdrop" class="modal-backdrop" hidden>
-    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="startModalTitle">
-      <h2 id="startModalTitle">确认本批发枪</h2>
-      <p id="startDescription">确认后，所选选手会写入同一个服务器开始时间。</p>
+    <section class="modal start-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="startModalTitle">
+      <div class="start-confirm-head">
+        <div class="start-confirm-icon" aria-hidden="true">!</div>
+        <h2 id="startModalTitle">确认本批发枪</h2>
+      </div>
+      <div class="start-impact">
+        <strong>即将开始计时</strong>
+        <span id="startDescription">确认后，所选选手会立即写入同一个服务器开始时间。</span>
+      </div>
       <div id="startParticipants" class="participant-summary"></div>
-      <label><span id="startAdminLabel">管理员密码</span><input id="startAdminCode" type="password" autocomplete="current-password"></label>
       <div id="startError" class="modal-error"></div>
       <div class="modal-actions">
         <button class="modal-button secondary" type="button" data-close-modal>返回</button>
-        <button id="confirmStartButton" class="modal-button primary" type="button">确认发枪</button>
+        <button id="confirmStartButton" class="modal-button confirm-start-button" type="button">确认发枪，立即开始</button>
       </div>
     </section>
   </div>
@@ -373,7 +416,6 @@
         <label>结束时间<input id="manualFinishTime" type="datetime-local" step="1"></label>
       </div>
       <label>备注<textarea id="operationReason" maxlength="500" required></textarea></label>
-      <label><span id="operationAdminLabel">管理员密码</span><input id="operationAdminCode" type="password" autocomplete="current-password" required></label>
       <div id="operationError" class="modal-error"></div>
       <div class="modal-actions">
         <button class="modal-button secondary" type="button" data-close-modal>取消</button>
@@ -389,6 +431,11 @@
       adjustmentFields: document.querySelector("#adjustmentFields"),
       adjustmentMinutes: document.querySelector("#adjustmentMinutes"),
       adjustmentSeconds: document.querySelector("#adjustmentSeconds"),
+      authAdminCode: document.querySelector("#authAdminCode"),
+      authBackdrop: document.querySelector("#authBackdrop"),
+      authError: document.querySelector("#authError"),
+      authForm: document.querySelector("#authForm"),
+      authSubmitButton: document.querySelector("#authSubmitButton"),
       bindingLink: document.querySelector("#bindingLink"),
       brandLogo: document.querySelector("#brandLogo"),
       confirmOperationButton: document.querySelector("#confirmOperationButton"),
@@ -402,13 +449,12 @@
       entryList: document.querySelector("#entryList"),
       finishedCount: document.querySelector("#finishedCount"),
       groupSize: document.querySelector("#groupSize"),
+      judgeApp: document.querySelector("#judgeApp"),
       manualFields: document.querySelector("#manualFields"),
       manualFinishTime: document.querySelector("#manualFinishTime"),
       manualStartTime: document.querySelector("#manualStartTime"),
       message: document.querySelector("#message"),
       nfcLink: document.querySelector("#nfcLink"),
-      operationAdminCode: document.querySelector("#operationAdminCode"),
-      operationAdminLabel: document.querySelector("#operationAdminLabel"),
       operationBackdrop: document.querySelector("#operationBackdrop"),
       operationDescription: document.querySelector("#operationDescription"),
       operationError: document.querySelector("#operationError"),
@@ -425,8 +471,6 @@
       selectWaveButton: document.querySelector("#selectWaveButton"),
       selectedCount: document.querySelector("#selectedCount"),
       selectionWave: document.querySelector("#selectionWave"),
-      startAdminCode: document.querySelector("#startAdminCode"),
-      startAdminLabel: document.querySelector("#startAdminLabel"),
       startBackdrop: document.querySelector("#startBackdrop"),
       startDescription: document.querySelector("#startDescription"),
       startDock: document.querySelector("#startDock"),
@@ -459,6 +503,8 @@
     let operationEntry = null;
     let pollTimer = 0;
     let refreshInFlight = false;
+    let judgeAdminCode = "";
+    let judgeConsoleStarted = false;
     let demoEntries = createDemoEntries();
 
     function demoIsoAgo(milliseconds) {
@@ -598,6 +644,9 @@
     function configureDemoMode() {
       if (!isDemoMode) return;
       document.title = "HOKA 裁判台体验模式";
+      elements.authBackdrop.hidden = true;
+      elements.judgeApp.inert = false;
+      document.body.classList.remove("auth-pending");
       elements.demoBadge.hidden = false;
       elements.demoLink.href = "./judge.html";
       elements.demoLink.textContent = "返回正式裁判台";
@@ -606,10 +655,6 @@
         link.setAttribute("aria-disabled", "true");
         link.tabIndex = -1;
       });
-      elements.startAdminLabel.textContent = "管理员密码（体验模式无需输入）";
-      elements.startAdminCode.disabled = true;
-      elements.operationAdminLabel.textContent = "管理员密码（体验模式无需输入）";
-      elements.operationAdminCode.disabled = true;
     }
 
     async function readJson(response) {
@@ -1099,12 +1144,11 @@
       if (!selected.length) return;
       elements.startModalTitle.textContent = `确认第 ${selected[0].startWave} 批发枪`;
       elements.startDescription.textContent = isDemoMode
-        ? "确认后，所选队伍会使用同一个模拟开始时间。"
-        : "确认后，所选选手会写入同一个服务器开始时间。";
+        ? "确认后，所选队伍会立即使用同一个模拟开始时间。"
+        : "确认后，所选选手会立即写入同一个服务器开始时间。";
       elements.startParticipants.textContent = selected.map((entry) => `#${entry.startOrder} ${entry.athleteName}`).join(" / ");
-      elements.startAdminCode.value = "";
       openModal(elements.startBackdrop);
-      (isDemoMode ? elements.confirmStartButton : elements.startAdminCode).focus();
+      elements.confirmStartButton.focus();
     }
 
     function openOperation(mode, entry) {
@@ -1168,7 +1212,7 @@
             raceId: elements.raceId.value,
             participantIds: selected.map((entry) => entry.participantId),
             deviceId,
-            adminCode: elements.startAdminCode.value
+            adminCode: judgeAdminCode
           })
         }));
         selectedIds.clear();
@@ -1191,7 +1235,7 @@
           raceId: elements.raceId.value,
           participantId: operationEntry.participantId,
           reason: elements.operationReason.value.trim(),
-          adminCode: elements.operationAdminCode.value
+          adminCode: judgeAdminCode
         };
         if (!base.reason) throw new Error("请填写备注。 ");
         if (operationMode === "adjustment") {
@@ -1254,6 +1298,62 @@
       }
     }
 
+    async function startJudgeConsole() {
+      if (judgeConsoleStarted) return;
+      judgeConsoleStarted = true;
+      try {
+        elements.searchInput.value = "";
+        await loadRaces();
+        await loadData();
+        window.setTimeout(() => {
+          if (document.activeElement !== elements.searchInput && elements.searchInput.value) {
+            elements.searchInput.value = "";
+            renderEntries();
+          }
+        }, 800);
+        pollTimer = window.setInterval(() => {
+          if (elements.startBackdrop.hidden && elements.operationBackdrop.hidden && document.visibilityState === "visible") {
+            loadData({ silent: true });
+          }
+        }, 4000);
+      } catch (error) {
+        judgeConsoleStarted = false;
+        setConnection("连接失败", "error");
+        setMessage(`启动失败：${error.message}`, "error");
+      }
+    }
+
+    async function authenticateJudge(event) {
+      event.preventDefault();
+      const adminCode = elements.authAdminCode.value;
+      if (!adminCode) return;
+      elements.authSubmitButton.disabled = true;
+      elements.authError.textContent = "正在验证...";
+      try {
+        await readJson(await window.timingApiFetch("/api/judge-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adminCode })
+        }));
+        judgeAdminCode = adminCode;
+        elements.authAdminCode.value = "";
+        elements.authError.textContent = "";
+        elements.authBackdrop.hidden = true;
+        elements.judgeApp.inert = false;
+        document.body.classList.remove("auth-pending");
+        await startJudgeConsole();
+      } catch (error) {
+        elements.authError.textContent = error.message === "Invalid administrator code"
+          ? "密码不正确，请重新输入。"
+          : error.message === "Judge authorization is not configured"
+            ? "裁判台密码尚未配置，请联系管理员。"
+            : `验证失败：${error.message}`;
+        elements.authAdminCode.select();
+      } finally {
+        elements.authSubmitButton.disabled = false;
+      }
+    }
+
     document.querySelectorAll(".tab-button").forEach((button) => {
       button.addEventListener("click", () => {
         setActiveFilter(button.dataset.filter);
@@ -1274,6 +1374,7 @@
     elements.selectWaveButton.addEventListener("click", toggleActiveWaveSelection);
     elements.startRaceButton.addEventListener("click", openStartModal);
     elements.confirmStartButton.addEventListener("click", confirmStart);
+    elements.authForm.addEventListener("submit", authenticateJudge);
     elements.operationForm.addEventListener("submit", submitOperation);
     elements.raceId.addEventListener("change", async () => {
       selectedIds.clear();
@@ -1286,27 +1387,15 @@
     });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeModals(); });
 
-    async function start() {
-      try {
-        configureDemoMode();
-        elements.searchInput.value = "";
-        await loadRaces();
-        await loadData();
-        window.setTimeout(() => {
-          if (document.activeElement !== elements.searchInput && elements.searchInput.value) {
-            elements.searchInput.value = "";
-            renderEntries();
-          }
-        }, 800);
-        pollTimer = window.setInterval(() => {
-          if (elements.startBackdrop.hidden && elements.operationBackdrop.hidden && document.visibilityState === "visible") {
-            loadData({ silent: true });
-          }
-        }, 4000);
-      } catch (error) {
-        setConnection("连接失败", "error");
-        setMessage(`启动失败：${error.message}`, "error");
+    function start() {
+      configureDemoMode();
+      if (isDemoMode) {
+        startJudgeConsole();
+        return;
       }
+      setConnection("等待验证", "idle");
+      setMessage("请先验证裁判台权限。", "info");
+      elements.authAdminCode.focus();
     }
 
     window.addEventListener("beforeunload", () => window.clearInterval(pollTimer));
