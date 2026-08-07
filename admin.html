@@ -170,6 +170,13 @@
       min-width: 150px;
     }
 
+    .field-help {
+      color: #6b7785;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -638,8 +645,9 @@
           </select>
         </label>
         <label>
-          出发顺序
-          <input id="startOrder" type="number" min="1" max="100000" step="1" placeholder="留空自动排到最后">
+          出发顺序（选填）
+          <input id="startOrder" type="number" min="1" max="100000" step="1" placeholder="暂不确定可留空">
+          <small class="field-help">留空会先临时排到最后；正式比赛前可在下方列表随时调整。</small>
         </label>
         <div class="actions">
           <button id="saveParticipantButton" type="submit">保存 / 绑定</button>
@@ -698,7 +706,7 @@
         <table>
           <thead>
             <tr>
-              <th>出发</th>
+              <th>出发顺序 / 批次</th>
               <th>参赛单位</th>
               <th>类型 / 成员</th>
               <th>NFC 卡</th>
@@ -1159,7 +1167,7 @@
       setStatus(message);
     }
 
-    function editParticipant(participant) {
+    function editParticipant(participant, { focusStartOrder = false } = {}) {
       editingParticipantId = Number(participant.id) || null;
       editingCardCode = participant.card_code;
       cardCodeInput.value = participant.card_code;
@@ -1182,10 +1190,17 @@
       }
       saveParticipantButton.textContent = "保存修改";
       cancelEditButton.hidden = false;
-      setStatus(
-        `正在编辑 ${participant.card_code}。可以修改 Card Code、参赛名称和成员；保存时需要管理员验证。`
+      setStatus(focusStartOrder
+        ? `正在调整 ${participant.athlete_name} 的出发顺序；修改数字后保存即可更新批次。`
+        : `正在编辑 ${participant.card_code}。可以修改资料、NFC 卡和出发顺序；保存时需要管理员验证。`
       );
       form.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (focusStartOrder) {
+        window.setTimeout(() => {
+          startOrderInput.focus();
+          startOrderInput.select();
+        }, 350);
+      }
     }
 
     function requestAdminCode({
@@ -1669,7 +1684,8 @@
             <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
             <td>
               <div class="row-actions">
-                <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>编辑</button>
+                <button class="secondary compact" type="button" data-action="order" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>调整顺序</button>
+                <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>编辑资料</button>
                 <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>删除绑定</button>
               </div>
             </td>
@@ -1744,15 +1760,21 @@
             confirmation: "UPDATE_PARTICIPANT"
           };
         }
-        await requestJson(endpoint, {
+        const startOrderWasProvided = Boolean(startOrderInput.value);
+        const result = await requestJson(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestPayload)
         });
         const previousCardCode = editingCardCode;
+        const assignedStartOrder = result.participant?.start_order
+          ?? result.participant?.startOrder
+          ?? payload.startOrder;
         const successMessage = isEditing
           ? `已更新：${previousCardCode} → ${payload.cardCode} · ${payload.athleteName}`
-          : `已绑定：${payload.cardCode} → ${payload.athleteName}`;
+          : startOrderWasProvided
+            ? `已绑定：${payload.cardCode} → ${payload.athleteName} · 出发顺序 #${assignedStartOrder}`
+            : `已绑定：${payload.cardCode} → ${payload.athleteName} · 暂按 #${assignedStartOrder} 排列，赛前可调整`;
         resetParticipantForm(successMessage);
         await refresh();
       } catch (error) {
@@ -1865,6 +1887,7 @@
       if (!button) return;
       const participant = visibleParticipants[Number(button.dataset.index)];
       if (!participant) return;
+      if (button.dataset.action === "order") editParticipant(participant, { focusStartOrder: true });
       if (button.dataset.action === "edit") editParticipant(participant);
       if (button.dataset.action === "adjust") openResultAdjustment(participant);
       if (button.dataset.action === "manual-result") openManualResult(participant);
