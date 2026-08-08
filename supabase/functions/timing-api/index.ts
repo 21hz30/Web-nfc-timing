@@ -81,7 +81,7 @@ async function databaseRequest(
     url.searchParams.set(key, value);
   }
 
-  const response = await fetch(url, {
+  const requestInit = {
     method: options.method || "GET",
     headers: {
       apikey: secretKey,
@@ -90,10 +90,13 @@ async function databaseRequest(
       ...(options.prefer ? { Prefer: options.prefer } : {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  };
 
-  const text = await response.text();
-  if (!response.ok) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, requestInit);
+    const text = await response.text();
+    if (response.ok) return text ? JSON.parse(text) : null;
+
     let detail = text;
     try {
       const parsed = JSON.parse(text);
@@ -101,9 +104,15 @@ async function databaseRequest(
     } catch {
       // Keep the response text as the error detail.
     }
+    const futureJwt = response.status === 401 && /JWT issued at future/i.test(String(detail));
+    if (futureJwt && attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
+      continue;
+    }
     throw new Error(`Supabase HTTP ${response.status}: ${detail}`);
   }
-  return text ? JSON.parse(text) : null;
+
+  throw new Error("Supabase request retry limit reached");
 }
 
 function requiredRaceId(value: unknown): string {
