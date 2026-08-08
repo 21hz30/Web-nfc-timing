@@ -477,9 +477,11 @@
 
     .hoka-mobile-card {
       display: grid;
-      gap: 12px;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 10px;
       min-width: 0;
-      padding: 15px;
+      min-height: 238px;
+      padding: 14px;
       border: 1px solid #d7e5ee;
       border-left: 4px solid transparent;
       border-radius: 8px;
@@ -492,66 +494,119 @@
       border-left-color: #009dff;
     }
 
-    .hoka-mobile-head,
-    .hoka-mobile-time-row,
-    .hoka-mobile-progress-row {
-      display: flex;
+    .hoka-mobile-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       min-width: 0;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      align-items: start;
+      gap: 12px;
+    }
+
+    .hoka-mobile-identity {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      min-width: 0;
+      align-items: start;
+      gap: 9px;
+    }
+
+    .hoka-mobile-title {
+      min-width: 0;
     }
 
     .hoka-mobile-rank {
+      padding-top: 2px;
       color: #008de6;
       font-size: 15px;
       font-weight: 950;
     }
 
     .hoka-mobile-name {
+      display: -webkit-box;
       overflow-wrap: anywhere;
-      font-size: 21px;
+      overflow: hidden;
+      font-size: 19px;
       font-weight: 950;
-      line-height: 1.12;
+      line-height: 1.14;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
     }
 
     .hoka-mobile-members {
-      margin-top: 5px;
+      overflow: hidden;
+      margin-top: 4px;
       color: #617588;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 750;
-      line-height: 1.4;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .hoka-mobile-time-row span,
-    .hoka-mobile-progress-row span {
+    .hoka-mobile-total {
+      display: grid;
+      min-width: 92px;
+      justify-items: end;
+      gap: 3px;
+    }
+
+    .hoka-mobile-total span,
+    .hoka-mobile-current span {
       color: #617588;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 850;
     }
 
     .hoka-mobile-time {
       color: #08253d;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 30px;
+      font-size: 28px;
       font-variant-numeric: tabular-nums;
       font-weight: 950;
       line-height: 1;
     }
 
+    .hoka-mobile-state-row {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #d7e5ee;
+    }
+
+    .hoka-mobile-current {
+      display: flex;
+      min-width: 0;
+      align-items: baseline;
+      justify-content: flex-end;
+      gap: 6px;
+      color: #08253d;
+      text-align: right;
+    }
+
+    .hoka-mobile-current strong {
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .hoka-mobile-stations {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 5px;
+      align-self: end;
+      gap: 4px;
     }
 
     .hoka-mobile-station {
       display: grid;
       min-width: 0;
-      min-height: 62px;
+      min-height: 54px;
       place-items: center;
-      gap: 5px;
-      padding: 7px 2px;
+      gap: 4px;
+      padding: 6px 2px;
       border: 1px solid #cfe0ea;
       border-radius: 6px;
       background: #f5f9fc;
@@ -560,7 +615,7 @@
 
     .hoka-mobile-station strong {
       color: #617588;
-      font-size: 9px;
+      font-size: 8px;
       line-height: 1.1;
     }
 
@@ -590,11 +645,41 @@
     .hoka-mobile-note {
       display: grid;
       gap: 4px;
-      padding-top: 10px;
+      overflow: hidden;
+      max-height: 38px;
+      padding-top: 7px;
       border-top: 1px solid #d7e5ee;
       color: #617588;
       font-size: 11px;
       line-height: 1.35;
+    }
+
+    .scoreboard-layout.station-mode .table-wrap {
+      display: none;
+    }
+
+    .scoreboard-layout.station-mode .hoka-mobile-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    body[data-race-theme="hoka"] .hoka-mobile-card .status.finished {
+      border-color: #78c89e;
+      background: #e8f8ef;
+      color: #087443;
+    }
+
+    body[data-race-theme="hoka"] .hoka-mobile-card .status.racing {
+      border-color: #009dff;
+      background: #eaf7ff;
+      color: #006eb5;
+    }
+
+    body[data-race-theme="hoka"] .hoka-mobile-card .status.not_started {
+      border-color: #cfe0ea;
+      background: #f5f9fc;
+      color: #617588;
     }
 
     .fit-card {
@@ -1509,6 +1594,63 @@
       }
 
       .fitmonster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+      .scoreboard-layout.station-mode .hoka-mobile-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (min-width: 1800px) {
+      .scoreboard-layout.station-mode .hoka-mobile-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+
+    @media (min-width: 2300px) {
+      body[data-race-theme="hoka"] header {
+        padding-block: 12px;
+      }
+
+      body[data-race-theme="hoka"] main {
+        padding: 10px 14px 14px;
+      }
+
+      body[data-race-theme="hoka"] .brand-logo.is-hoka {
+        width: 128px;
+        height: 58px;
+      }
+
+      body[data-race-theme="hoka"] h1 {
+        font-size: 26px;
+      }
+
+      body[data-race-theme="hoka"] .toolbar {
+        margin-bottom: 10px;
+      }
+
+      body[data-race-theme="hoka"] .metric {
+        min-width: 112px;
+        padding-block: 8px;
+      }
+
+      .scoreboard-layout.station-mode .hoka-mobile-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .hoka-mobile-card {
+        min-height: 232px;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .hoka-mobile-name {
+        font-size: 18px;
+      }
+
+      .hoka-mobile-time {
+        font-size: 27px;
+      }
     }
 
     @media (max-width: 820px) {
@@ -1602,12 +1744,8 @@
 
       .fitmonster-grid { grid-template-columns: 1fr; }
 
-      .scoreboard-layout.station-mode .table-wrap {
-        display: none;
-      }
-
       .scoreboard-layout.station-mode .hoka-mobile-grid {
-        display: grid;
+        grid-template-columns: 1fr;
         gap: 10px;
       }
     }
@@ -2452,22 +2590,28 @@
       const race = selectedRace();
       const isMock = race.kind === "mock";
       const isTemplate = Boolean(race.isTemplate) || isOfficialRaceId(race.raceId);
+      const isReadOnlyPreview = Boolean(window.timingApiReadOnly);
+      const readOnlyTitle = language === "zh" ? "本地实时预览为只读模式" : "Local live preview is read-only";
       updateRaceBranding(race.raceId);
       clearRaceButton.textContent = t("clearRace");
-      clearRaceButton.disabled = isMock || isTemplate;
+      clearRaceButton.disabled = isMock || isTemplate || isReadOnlyPreview;
       clearRaceButton.title = isMock
         ? t("clearDisabled")
-        : isTemplate ? t("templateReadOnly") : t("clearRace");
+        : isTemplate ? t("templateReadOnly") : isReadOnlyPreview ? readOnlyTitle : t("clearRace");
       resetTimingButton.textContent = t("resetTiming");
-      resetTimingButton.disabled = isMock || isTemplate || activeRaceFinalized;
+      resetTimingButton.disabled = isMock || isTemplate || isReadOnlyPreview || activeRaceFinalized;
       resetTimingButton.title = isMock
         ? t("clearDisabled")
         : isTemplate
           ? t("templateReadOnly")
-          : activeRaceFinalized ? t("resetFinalizedDisabled") : t("resetTiming");
+          : isReadOnlyPreview
+            ? readOnlyTitle
+            : activeRaceFinalized ? t("resetFinalizedDisabled") : t("resetTiming");
       finalizeRaceButton.textContent = activeRaceFinalized ? t("reopenRace") : t("finalizeRace");
-      finalizeRaceButton.disabled = isMock || isTemplate;
-      finalizeRaceButton.title = isTemplate ? t("templateReadOnly") : finalizeRaceButton.textContent;
+      finalizeRaceButton.disabled = isMock || isTemplate || isReadOnlyPreview;
+      finalizeRaceButton.title = isTemplate
+        ? t("templateReadOnly")
+        : isReadOnlyPreview ? readOnlyTitle : finalizeRaceButton.textContent;
       liveLabel.textContent = isTemplate
         ? t("raceTemplate")
         : activeRaceFinalized ? t("finalizedRace") : t("live");
@@ -2498,11 +2642,15 @@
         logo.classList.toggle("is-hoka", usesHokaLogo);
       });
       if (usesHokaTheme) {
+        const race = selectedRace();
+        const raceTitle = race && race.raceId !== "hoka-race-demo" && race.raceId !== "hoka-race"
+          ? race[language]
+          : "HOKA 团队挑战赛2026";
         document.body.dataset.raceTheme = "hoka";
         brandEyebrow.textContent = "";
-        title.textContent = "HOKA 团队挑战赛2026";
+        title.textContent = raceTitle;
         subtitle.textContent = "TOGETHER WE FLY HIGHER";
-        document.title = "HOKA 团队挑战赛2026 · 实时排名";
+        document.title = `${raceTitle} · 实时排名`;
         return;
       }
       delete document.body.dataset.raceTheme;
@@ -3021,20 +3169,24 @@
       return `
         <article class="${cardClasses}">
           <div class="hoka-mobile-head">
-            <span class="hoka-mobile-rank">#${escapeHtml(row.rank)}</span>
+            <div class="hoka-mobile-identity">
+              <span class="hoka-mobile-rank">#${escapeHtml(row.rank)}</span>
+              <div class="hoka-mobile-title">
+                <div class="hoka-mobile-name">${escapeHtml(row.athleteName)}</div>
+                ${members}
+              </div>
+            </div>
+            <div class="hoka-mobile-total">
+              <span>${escapeHtml(t("elapsed"))}</span>
+              <strong class="hoka-mobile-time"${liveDurationAttributes(row.elapsedMs, row.timerRunning)}>${formatDuration(row.elapsedMs)}</strong>
+            </div>
+          </div>
+          <div class="hoka-mobile-state-row">
             <span class="status ${escapeHtml(row.status)}">${escapeHtml(translateStatus(row.status))}</span>
-          </div>
-          <div>
-            <div class="hoka-mobile-name">${escapeHtml(row.athleteName)}</div>
-            ${members}
-          </div>
-          <div class="hoka-mobile-time-row">
-            <span>${escapeHtml(t("elapsed"))}</span>
-            <strong class="hoka-mobile-time"${liveDurationAttributes(row.elapsedMs, row.timerRunning)}>${formatDuration(row.elapsedMs)}</strong>
-          </div>
-          <div class="hoka-mobile-progress-row">
-            <span>${escapeHtml(t("current"))}</span>
-            <strong>${escapeHtml(translateCurrent(row.current))}</strong>
+            <div class="hoka-mobile-current">
+              <span>${escapeHtml(t("current"))}</span>
+              <strong>${escapeHtml(translateCurrent(row.current))}</strong>
+            </div>
           </div>
           <div class="hoka-mobile-stations">${stationCells}</div>
           ${notes ? `<div class="hoka-mobile-note">${notes}</div>` : ""}
@@ -3440,7 +3592,9 @@
       updatedAt.textContent = `${t("error")}: ${error.message}`;
       leaderboardTableWrap.hidden = columns.usesDetailedSegments;
       fitMonsterGrid.hidden = !columns.usesDetailedSegments;
-      hokaMobileGrid.innerHTML = "";
+      hokaMobileGrid.innerHTML = columns.usesStationTiming
+        ? `<div class="empty">${escapeHtml(error.message)}</div>`
+        : "";
       fitMonsterGrid.innerHTML = columns.usesDetailedSegments
         ? `<div class="empty">${escapeHtml(error.message)}</div>`
         : "";
