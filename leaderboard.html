@@ -2073,7 +2073,14 @@
     let activeRaceFinalized = false;
     let activeRaceIsTemplate = false;
     let lastLeaderboardRefreshMs = 0;
+    let leaderboardRefreshInFlight = false;
+    let consecutiveLeaderboardErrors = 0;
+    let nextLeaderboardRetryMs = 0;
+    let lastSuccessfulLeaderboard = null;
+    let renderedLeaderboardRaceId = null;
     let leaderboardNowMs = Date.now();
+    const LEADERBOARD_REFRESH_INTERVAL_MS = 3000;
+    const LEADERBOARD_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
     const adDeck = document.querySelector("#adDeck");
     const adStageContent = document.querySelector("#adStageContent");
     const adBadge = document.querySelector("#adBadge");
@@ -2228,6 +2235,10 @@
         team: "团队",
         error: "错误",
         demoData: "演示数据",
+        reconnecting: "重连中",
+        connectionInterrupted: "连接中断",
+        showingCachedData: "显示上次数据",
+        retryIn: "{seconds} 秒后重试",
         statusText: {
           finished: "已完赛",
           racing: "比赛中",
@@ -2335,6 +2346,10 @@
         team: "Team",
         error: "Error",
         demoData: "Demo data",
+        reconnecting: "RECONNECTING",
+        connectionInterrupted: "Connection interrupted",
+        showingCachedData: "Showing last data",
+        retryIn: "Retrying in {seconds}s",
         statusText: {
           finished: "Finished",
           racing: "Racing",
@@ -2550,8 +2565,21 @@
       raceIdInput.value = knownRaceIds.has(selectedId) ? selectedId : initialRaceId;
     }
 
+    async function timedLeaderboardFetch(input, timeoutMs = 10000) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await window.timingApiFetch(input, { signal: controller.signal });
+      } catch (error) {
+        if (error?.name === "AbortError") throw new Error("API request timed out");
+        throw error;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    }
+
     async function loadRaceCatalog() {
-      const response = await window.timingApiFetch("/api/races");
+      const response = await timedLeaderboardFetch("/api/races");
       const responseText = await response.text();
       let payload;
       try {
@@ -2569,6 +2597,8 @@
         if (existing) {
           existing.isTemplate = Boolean(race.isTemplate) || existing.isTemplate;
           existing.status = race.status || "active";
+          existing.zh = race.name || existing.zh;
+          existing.en = race.name || existing.en;
           return;
         }
         const item = {
@@ -3564,7 +3594,7 @@
     }
 
     async function fetchLeaderboardPayload(raceId) {
-      const response = await window.timingApiFetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
+      const response = await timedLeaderboardFetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`);
       const responseText = await response.text();
       let payload;
       try {
@@ -3578,7 +3608,76 @@
       return payload;
     }
 
-    function renderLeaderboardError(error) {
+    function leaderboardCacheKey(raceId) {
+      return `timingLeaderboardCache:${raceId}`;
+    }
+
+    function readLeaderboardCache(raceId) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(leaderboardCacheKey(raceId)) || "null");
+        const savedAt = Number(cached?.savedAt);
+        if (!Number.isFinite(savedAt) || Date.now() - savedAt > LEADERBOARD_CACHE_MAX_AGE_MS) return null;
+        if (cached?.payload?.race?.raceId !== raceId || !Array.isArray(cached?.payload?.leaderboard)) return null;
+        return cached;
+      } catch {
+        return null;
+      }
+    }
+
+    function rememberLeaderboard(raceId, payload) {
+      const cached = { savedAt: Date.now(), payload };
+      lastSuccessfulLeaderboard = { raceId, ...cached };
+      try {
+        localStorage.setItem(leaderboardCacheKey(raceId), JSON.stringify(cached));
+      } catch {
+        // The live in-memory copy still protects the current screen.
+      }
+    }
+
+    function cachedLeaderboardForRace(raceId) {
+      if (lastSuccessfulLeaderboard?.raceId === raceId) return lastSuccessfulLeaderboard;
+      const cached = readLeaderboardCache(raceId);
+      if (cached) lastSuccessfulLeaderboard = { raceId, ...cached };
+      return cached;
+    }
+
+    function ensureRequestedRaceCatalogItem(raceId) {
+      if (!raceId || knownRaceIds.has(raceId)) return;
+      const cached = readLeaderboardCache(raceId);
+      const cachedRace = cached?.payload?.race;
+      const name = cachedRace?.name || (isHokaRaceId(raceId) ? "HOKA 团队挑战赛" : raceId);
+      raceCatalog.push({
+        raceId,
+        kind: "session",
+        isTemplate: Boolean(cachedRace?.isTemplate),
+        isTest: isTestRaceId(raceId),
+        status: cachedRace?.status || "active",
+        zh: name,
+        en: name
+      });
+      knownRaceIds.add(raceId);
+    }
+
+    function renderCachedLeaderboard(raceId) {
+      const cached = cachedLeaderboardForRace(raceId);
+      if (!cached) return false;
+      renderLeaderboard(cached.payload, false);
+      return true;
+    }
+
+    function renderLeaderboardError(error, retryDelayMs = 0) {
+      const raceId = raceIdInput.value || initialRaceId;
+      const cached = cachedLeaderboardForRace(raceId);
+      if (cached) {
+        if (renderedLeaderboardRaceId !== raceId) {
+          renderLeaderboard(cached.payload, false);
+        }
+        const cachedTime = new Date(cached.savedAt).toLocaleTimeString();
+        const retrySeconds = Math.max(1, Math.ceil(retryDelayMs / 1000));
+        liveLabel.textContent = t("reconnecting");
+        updatedAt.textContent = `${t("connectionInterrupted")} · ${t("showingCachedData")} ${cachedTime} · ${t("retryIn").replace("{seconds}", retrySeconds)}`;
+        return;
+      }
       const race = selectedRace();
       const stationCount = isHokaRaceId(race.raceId) ? 5 : 8;
       const columns = configureSplitColumns({
@@ -3604,6 +3703,7 @@
     }
 
     function renderLeaderboard(payload, isDemoData) {
+      renderedLeaderboardRaceId = payload.race?.raceId || raceIdInput.value || initialRaceId;
       activeRaceFinalized = payload.race?.status === "finalized";
       activeRaceIsTemplate = Boolean(payload.race?.isTemplate) || isOfficialRaceId(payload.race?.raceId);
       const payloadTimeMs = Date.parse(payload.generatedAt || "");
@@ -3691,17 +3791,31 @@
       const payload = isDemoData
         ? mockLeaderboardPayload(raceId)
         : await fetchLeaderboardPayload(raceId);
+      if (!isDemoData) rememberLeaderboard(raceId, payload);
       renderLeaderboard(payload, isDemoData);
     }
 
     async function refreshLoop(force = false) {
       const now = Date.now();
+      if (leaderboardRefreshInFlight) return;
+      if (!force && now < nextLeaderboardRetryMs) return;
       if (activeRaceFinalized && !force && now - lastLeaderboardRefreshMs < 5000) return;
       lastLeaderboardRefreshMs = now;
+      leaderboardRefreshInFlight = true;
       try {
         await loadLeaderboard();
+        consecutiveLeaderboardErrors = 0;
+        nextLeaderboardRetryMs = 0;
       } catch (error) {
-        renderLeaderboardError(error);
+        consecutiveLeaderboardErrors += 1;
+        const retryDelayMs = Math.min(
+          30000,
+          LEADERBOARD_REFRESH_INTERVAL_MS * (2 ** Math.min(consecutiveLeaderboardErrors - 1, 4))
+        );
+        nextLeaderboardRetryMs = Date.now() + retryDelayMs;
+        renderLeaderboardError(error, retryDelayMs);
+      } finally {
+        leaderboardRefreshInFlight = false;
       }
     }
 
@@ -4030,8 +4144,12 @@
       activeRaceFinalized = false;
       activeRaceIsTemplate = isOfficialRaceId(raceIdInput.value);
       lastLeaderboardRefreshMs = 0;
+      consecutiveLeaderboardErrors = 0;
+      nextLeaderboardRetryMs = 0;
+      lastSuccessfulLeaderboard = null;
       updateRaceControls();
-      refreshLoop();
+      renderCachedLeaderboard(raceIdInput.value);
+      refreshLoop(true);
     });
 
     toolbarToggleButton.addEventListener("click", () => {
@@ -4069,8 +4187,14 @@
     adPlayButton.addEventListener("click", toggleAdPlayback);
 
     async function initializeLeaderboard() {
+      ensureRequestedRaceCatalogItem(initialRaceId);
       applyTheme(theme);
       applyLanguage(language);
+      raceIdInput.value = knownRaceIds.has(initialRaceId)
+        ? initialRaceId
+        : "fitmonster-hyrox-single";
+      updateRaceControls();
+      renderCachedLeaderboard(raceIdInput.value);
       try {
         await loadRaceCatalog();
       } catch (error) {
@@ -4081,11 +4205,12 @@
         ? initialRaceId
         : "fitmonster-hyrox-single";
       updateRaceControls();
-      await refreshLoop();
+      renderCachedLeaderboard(raceIdInput.value);
+      await refreshLoop(true);
     }
 
     initializeLeaderboard();
-    setInterval(refreshLoop, 1000);
+    setInterval(refreshLoop, LEADERBOARD_REFRESH_INTERVAL_MS);
     setInterval(updateLiveDurations, 250);
     setInterval(tickAds, 120);
   </script>
