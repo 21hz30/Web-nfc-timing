@@ -1,0 +1,56 @@
+name: src-timing
+
+services:
+  migrate:
+    image: postgres:17.6-alpine
+    platform: linux/amd64
+    pull_policy: never
+    environment:
+      AUTHENTICATOR_PASSWORD: ${AUTHENTICATOR_PASSWORD}
+      TARGET_DATABASE_URL: ${TARGET_DATABASE_URL}
+    entrypoint: ["/bin/sh", "/deploy/scripts/migrate.sh"]
+    volumes:
+      - ../../supabase/migrations:/migrations:ro
+      - .:/deploy:ro
+
+  postgrest:
+    image: postgrest/postgrest:v14.5
+    platform: linux/amd64
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_URI: ${PGRST_DB_URI}
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+    mem_limit: 192m
+
+  timing-api:
+    image: src-timing-api:${IMAGE_TAG:-aliyun-amd64}
+    platform: linux/amd64
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      - postgrest
+    environment:
+      DATABASE_REST_SERVICE_KEY: ${DATABASE_REST_SERVICE_KEY}
+      DATABASE_REST_URL: http://postgrest:3000/
+      LEADERBOARD_CLEAR_CODE: ${LEADERBOARD_CLEAR_CODE}
+      TIMING_PUBLIC_KEY: ${TIMING_PUBLIC_KEY}
+      TIMING_ENVIRONMENT: production
+      TIMING_STORAGE_PROVIDER: aliyun-postgres
+    mem_limit: 384m
+
+  web:
+    image: src-timing-web:${IMAGE_TAG:-aliyun-amd64}
+    platform: linux/amd64
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      - timing-api
+    ports:
+      - "80:8080"
+    mem_limit: 96m

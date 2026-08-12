@@ -1,0 +1,10 @@
+.git
+.DS_Store
+.env*
+.timing-api-key
+.vercel
+__pycache__
+data
+deploy/aliyun/.env
+deploy/aliyun/backups
+supabase/.temp

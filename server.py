@@ -3,8 +3,12 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import base64
+import hashlib
+import secrets
 import sqlite3
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -18,6 +22,9 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "timing.sqlite3"
 TIMING_API_KEY_PATH = ROOT / ".timing-api-key"
+TIMING_ENVIRONMENT = os.environ.get("TIMING_ENVIRONMENT", "development").strip().lower()
+if TIMING_ENVIRONMENT not in {"development", "production", "test"}:
+    raise RuntimeError("TIMING_ENVIRONMENT must be development, production, or test")
 SUPABASE_URL = os.environ.get(
     "SUPABASE_URL",
     "https://lfzvkqwpekgtkcnpzbqj.supabase.co",
@@ -26,7 +33,10 @@ SUPABASE_PUBLISHABLE_KEY = os.environ.get(
     "SUPABASE_PUBLISHABLE_KEY",
     "sb_publishable_rEY1bSLnKyW4p84tVi4VJQ_Zkic_clr",
 )
-SUPABASE_SYNC_ENABLED = os.environ.get("SUPABASE_SYNC_ENABLED", "1") != "0"
+SUPABASE_SYNC_ENABLED = os.environ.get(
+    "SUPABASE_SYNC_ENABLED",
+    "1" if TIMING_ENVIRONMENT == "production" else "0",
+) == "1"
 SUPABASE_TIMEOUT_SECONDS = 15
 PARTICIPANT_COLUMNS = (
     "id",
@@ -123,8 +133,34 @@ RACE_ADMIN_ACTION_COLUMNS = (
     "reason",
     "created_at",
 )
+JUDGE_STATION_ACCOUNT_ROLES = (
+    "start",
+    "station_1",
+    "station_2",
+    "station_3",
+    "station_4",
+    "station_5",
+)
+JUDGE_STATION_ACCOUNT_ROLE_LABELS = {
+    "start": "开始",
+    "station_1": "站点 1",
+    "station_2": "站点 2",
+    "station_3": "站点 3",
+    "station_4": "站点 4",
+    "station_5": "站点 5 / 冲线",
+}
+JUDGE_TOKEN_TTL_SECONDS = 12 * 60 * 60
+JUDGE_PASSWORD_ITERATIONS = 240_000
 RACE_MODES = {"two_reader_auto", "three_reader_auto", "station_checkpoints"}
 ENTRY_TYPES = {"individual", "doubles", "team"}
+HOKA_FULL_CHECKPOINT_RACE_IDS = {
+    "nfc-test-001",
+    "hoka-race",
+    "hoka-race-sh",
+    "hoka-race-hz",
+    "hoka-race-final",
+    "hoka-race-demo",
+}
 LAST_SUPABASE_SYNC = {
     "attemptedAt": None,
     "saved": None,
@@ -313,6 +349,21 @@ def init_db() -> None:
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS judge_station_accounts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              race_id TEXT NOT NULL,
+              role TEXT NOT NULL,
+              username TEXT NOT NULL,
+              password_hash TEXT NOT NULL,
+              password_salt TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE (race_id, role),
+              UNIQUE (race_id, username)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_participants_race
               ON participants (race_id, card_code);
 
@@ -336,6 +387,9 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_race_admin_actions_race_created
               ON race_admin_actions (race_id, created_at DESC, id DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_judge_station_accounts_race
+              ON judge_station_accounts (race_id, active, role);
             """
         )
         ensure_participant_columns(db)
@@ -528,43 +582,19 @@ def default_race_profile(race_id: str) -> dict:
 def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
     for race_id, name, mode, station_count, checkpoints, entry_type in (
         (
-            "hyrox-sim-001",
-            "SRC Hyrox Simulation · 001",
-            "two_reader_auto",
-            8,
-            None,
-            "individual",
-        ),
-        (
             "nfc-test-001",
-            "Peoplearth Simulation · 001",
-            "two_reader_auto",
-            8,
-            None,
-            "individual",
-        ),
-        (
-            "supabase-e2e-20260716",
-            "Peoplearth Simulation · 002",
-            "two_reader_auto",
-            8,
-            None,
-            "individual",
-        ),
-        (
-            "fitmonster-hyrox-single",
-            "SRC Hyrox Simulation",
-            "three_reader_auto",
-            8,
-            None,
-            "individual",
-        ),
-        (
-            "hoka-race",
-            "Hoka Race",
+            "HOKA 团队挑战赛 - 测试数据",
             "station_checkpoints",
             5,
-            build_station_boundary_checkpoints(5),
+            build_station_checkpoints(5),
+            "team",
+        ),
+        (
+            "hoka-race-sh",
+            "HOKA 团队挑战赛 - 上海站",
+            "station_checkpoints",
+            5,
+            build_station_checkpoints(5),
             "team",
         ),
         (
@@ -572,7 +602,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
             "HOKA 团队挑战赛 - 杭州站",
             "station_checkpoints",
             5,
-            build_station_boundary_checkpoints(5),
+            build_station_checkpoints(5),
             "team",
         ),
         (
@@ -580,7 +610,7 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
             "HOKA 团队挑战赛 - 决赛",
             "station_checkpoints",
             5,
-            build_station_boundary_checkpoints(5),
+            build_station_checkpoints(5),
             "team",
         ),
     ):
@@ -591,7 +621,6 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
             station_count,
             checkpoints=checkpoints,
             entry_type=entry_type,
-            is_template=race_id in {"fitmonster-hyrox-single", "hoka-race"},
         )
         db.execute(
             """
@@ -614,24 +643,29 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
                 profile["updated_at"],
             ),
         )
-        if race_id in {"fitmonster-hyrox-single", "hoka-race"}:
-            db.execute(
-                """
-                UPDATE race_profiles
-                SET name = ?, mode = ?, station_count = ?, checkpoints_json = ?,
-                    entry_type = ?, is_template = 1, updated_at = ?
-                WHERE race_id = ?
-                """,
-                (
-                    profile["name"],
-                    profile["mode"],
-                    profile["station_count"],
-                    json.dumps(profile["checkpoints"]),
-                    profile["entry_type"],
-                    profile["updated_at"],
-                    profile["race_id"],
-                ),
-            )
+
+    hoka_checkpoints = json.dumps(build_station_checkpoints(5))
+    placeholders = ",".join("?" for _ in HOKA_FULL_CHECKPOINT_RACE_IDS)
+    db.execute(
+        f"UPDATE race_profiles SET mode = 'station_checkpoints', station_count = 5, "
+        f"checkpoints_json = ?, entry_type = 'team', updated_at = ? "
+        f"WHERE race_id IN ({placeholders}) AND checkpoints_json <> ?",
+        (
+            hoka_checkpoints,
+            utc_now(),
+            *sorted(HOKA_FULL_CHECKPOINT_RACE_IDS),
+            hoka_checkpoints,
+        ),
+    )
+    db.execute(
+        "UPDATE race_profiles SET name = ?, updated_at = ? WHERE race_id = ? AND name <> ?",
+        (
+            "HOKA 团队挑战赛 - 测试数据",
+            utc_now(),
+            "nfc-test-001",
+            "HOKA 团队挑战赛 - 测试数据",
+        ),
+    )
 
 
 def race_profile_from_row(row: sqlite3.Row | dict) -> dict:
@@ -979,7 +1013,202 @@ def timing_api_key() -> str:
 
 
 def leaderboard_clear_code() -> str:
-    return os.environ.get("LEADERBOARD_CLEAR_CODE", "").strip()
+    configured = os.environ.get("LEADERBOARD_CLEAR_CODE", "").strip()
+    if configured:
+        return configured
+    if TIMING_ENVIRONMENT != "development":
+        return ""
+    local_secret_path = ROOT / ".local-judge-secrets"
+    try:
+        for line in local_secret_path.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key.strip() == "LEADERBOARD_CLEAR_CODE":
+                return value.strip().strip("\"'")
+    except OSError:
+        pass
+    return ""
+
+
+def judge_password_hash(password: str, salt: str) -> str:
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        JUDGE_PASSWORD_ITERATIONS,
+    )
+    return digest.hex()
+
+
+def create_judge_password(password: str) -> tuple[str, str]:
+    salt = secrets.token_hex(16)
+    return salt, judge_password_hash(password, salt)
+
+
+def verify_judge_password(password: str, password_hash: str, salt: str) -> bool:
+    if not password or not password_hash or not salt:
+        return False
+    return hmac.compare_digest(judge_password_hash(password, salt), password_hash)
+
+
+def issue_judge_token(race_id: str, role: str, display_name: str) -> str:
+    secret = leaderboard_clear_code()
+    if len(secret) < 8:
+        return ""
+    payload = {
+        "raceId": race_id,
+        "role": role,
+        "displayName": display_name,
+        "expiresAt": int(time.time()) + JUDGE_TOKEN_TTL_SECONDS,
+    }
+    encoded_payload = base64.urlsafe_b64encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).rstrip(b"=").decode("ascii")
+    signature = hmac.new(
+        secret.encode("utf-8"), encoded_payload.encode("ascii"), hashlib.sha256
+    ).digest()
+    encoded_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+    return f"{encoded_payload}.{encoded_signature}"
+
+
+def verify_judge_token(token: str, race_id: str) -> dict | None:
+    secret = leaderboard_clear_code()
+    if len(secret) < 8 or not token or "." not in token:
+        return None
+    encoded_payload, encoded_signature = token.split(".", 1)
+    expected_signature = hmac.new(
+        secret.encode("utf-8"), encoded_payload.encode("ascii"), hashlib.sha256
+    ).digest()
+    supplied_signature = encoded_signature.encode("ascii")
+    expected_encoded = base64.urlsafe_b64encode(expected_signature).rstrip(b"=")
+    if not hmac.compare_digest(supplied_signature, expected_encoded):
+        return None
+    try:
+        padded = encoded_payload + "=" * (-len(encoded_payload) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        expires_at = int(payload.get("expiresAt") or 0)
+    except (TypeError, ValueError):
+        return None
+    if (
+        str(payload.get("raceId") or "") not in {race_id, "*"}
+        or str(payload.get("role") or "") not in {"admin", *JUDGE_STATION_ACCOUNT_ROLES}
+        or expires_at <= int(time.time())
+    ):
+        return None
+    return payload
+
+
+def admin_code_matches(supplied_code: str) -> bool:
+    configured_code = leaderboard_clear_code()
+    return bool(
+        len(configured_code) >= 8
+        and supplied_code
+        and hmac.compare_digest(supplied_code, configured_code)
+    )
+
+
+def judge_request_authorization(payload: dict, race_id: str) -> dict | None:
+    token_payload = verify_judge_token(str(payload.get("judgeToken") or ""), race_id)
+    if token_payload:
+        return token_payload
+    if admin_code_matches(str(payload.get("adminCode") or "")):
+        return {"raceId": race_id, "role": "admin", "displayName": "管理员"}
+    return None
+
+
+def judge_role_checkpoints(profile: dict, role: str) -> list[str]:
+    if role == "admin":
+        return []
+    if role == "start":
+        return ["START"]
+    try:
+        station_number = int(role.split("_", 1)[1])
+    except (IndexError, ValueError):
+        return []
+    checkpoints = profile.get("checkpoints") or []
+    if profile.get("mode") != "station_checkpoints":
+        return []
+
+    if "STATION_1_START" in checkpoints:
+        allowed = []
+        direct_checkpoint = f"STATION_{station_number}_START"
+        if direct_checkpoint in checkpoints:
+            allowed.append(direct_checkpoint)
+        if station_number >= int(profile.get("station_count") or 0) and "END" in checkpoints:
+            allowed.append("END")
+        return allowed
+
+    # Legacy station-boundary races treat START as station 1's beginning.
+    boundary_checkpoint = (
+        "END"
+        if station_number >= int(profile.get("station_count") or 0)
+        else f"STATION_{station_number + 1}_START"
+    )
+    return [boundary_checkpoint] if boundary_checkpoint in checkpoints else []
+
+
+def judge_role_checkpoint(profile: dict, role: str) -> str | None:
+    checkpoints = judge_role_checkpoints(profile, role)
+    return checkpoints[0] if checkpoints else None
+
+
+def manual_checkpoint_station_ids(profile: dict, station_id: str) -> list[str]:
+    checkpoints = profile.get("checkpoints") or []
+    final_station = f"STATION_{int(profile.get('station_count') or 0)}_START"
+    try:
+        final_station_index = checkpoints.index(final_station)
+    except ValueError:
+        return [station_id]
+    if (
+        profile.get("mode") == "station_checkpoints"
+        and "STATION_1_START" in checkpoints
+        and station_id == final_station
+        and final_station_index + 1 < len(checkpoints)
+        and checkpoints[final_station_index + 1] == "END"
+    ):
+        return [station_id, "END"]
+    return [station_id]
+
+
+def next_race_checkpoint(profile: dict, recorded_checkpoints) -> tuple[str | None, str | None]:
+    checkpoints = profile.get("checkpoints") or []
+    checkpoint_index = {
+        checkpoint: index for index, checkpoint in enumerate(checkpoints)
+    }
+    latest_checkpoint = None
+    latest_index = -1
+    for checkpoint in recorded_checkpoints:
+        index = checkpoint_index.get(checkpoint, -1)
+        if index > latest_index:
+            latest_checkpoint = checkpoint
+            latest_index = index
+    expected_checkpoint = (
+        checkpoints[latest_index + 1]
+        if latest_index + 1 < len(checkpoints)
+        else None
+    )
+    return latest_checkpoint, expected_checkpoint
+
+
+def judge_account_response(row: sqlite3.Row | dict) -> dict:
+    source = row_to_dict(row) if isinstance(row, sqlite3.Row) else dict(row)
+    role = str(source.get("role") or "")
+    return {
+        "id": source.get("id"),
+        "raceId": source.get("race_id"),
+        "role": role,
+        "roleLabel": JUDGE_STATION_ACCOUNT_ROLE_LABELS.get(role, role),
+        "username": source.get("username"),
+        "displayName": source.get("display_name"),
+        "active": bool(source.get("active")),
+        "allowedCheckpoint": source.get("allowed_checkpoint"),
+        "createdAt": source.get("created_at"),
+        "updatedAt": source.get("updated_at"),
+    }
 
 
 def template_race_error(profile: dict) -> dict | None:
@@ -1318,6 +1547,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 {
                     "ok": True,
                     "dbPath": str(DB_PATH),
+                    "environment": TIMING_ENVIRONMENT,
                     "time": utc_now(),
                     "storage": {
                         "primary": "sqlite",
@@ -1369,12 +1599,20 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_get_start_queue(parsed.query)
             return
 
+        if parsed.path == "/api/judge-station-accounts":
+            self.handle_get_judge_station_accounts(parsed.query)
+            return
+
         super().do_GET()
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/api/judge-auth":
             self.handle_post_judge_auth()
+            return
+
+        if parsed.path == "/api/judge-station-accounts":
+            self.handle_post_judge_station_account()
             return
 
         if parsed.path == "/api/reset-timing":
@@ -1421,6 +1659,14 @@ class TimingHandler(SimpleHTTPRequestHandler):
             self.handle_post_manual_result()
             return
 
+        if parsed.path == "/api/manual-checkpoints":
+            self.handle_post_manual_checkpoint()
+            return
+
+        if parsed.path == "/api/rollback-checkpoint":
+            self.handle_post_rollback_checkpoint()
+            return
+
         if parsed.path == "/api/participant-timing-controls":
             self.handle_post_participant_timing_control()
             return
@@ -1450,7 +1696,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
     def handle_post_judge_auth(self) -> None:
         try:
             payload = self.read_json_body()
-            supplied_code = str(payload.get("adminCode") or "")
             configured_code = leaderboard_clear_code()
             if len(configured_code) < 8:
                 self.send_json(
@@ -1458,14 +1703,360 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 )
                 return
-            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+            race_id = str(payload.get("raceId") or "").strip()
+            username = str(payload.get("username") or "").strip().lower()
+            password = str(payload.get("password") or "")
+            supplied_code = str(payload.get("adminCode") or password)
+            if username == "admin":
+                if not admin_code_matches(password):
+                    self.send_json(
+                        {"ok": False, "error": "Invalid administrator code"},
+                        HTTPStatus.FORBIDDEN,
+                    )
+                    return
+                role = "admin"
+                display_name = "全局管理员"
+                race_id = "*"
+            elif username:
+                if not race_id:
+                    raise ValueError("raceId is required for a station account")
+                with connect_db() as db:
+                    account = db.execute(
+                        "SELECT * FROM judge_station_accounts "
+                        "WHERE race_id = ? AND username = ? AND active = 1",
+                        (race_id, username),
+                    ).fetchone()
+                if not account or not verify_judge_password(
+                    password, account["password_hash"], account["password_salt"]
+                ):
+                    self.send_json(
+                        {"ok": False, "error": "Invalid judge account or password"},
+                        HTTPStatus.FORBIDDEN,
+                    )
+                    return
+                role = account["role"]
+                display_name = account["display_name"]
+            elif not admin_code_matches(supplied_code):
                 self.send_json(
                     {"ok": False, "error": "Invalid administrator code"},
                     HTTPStatus.FORBIDDEN,
                 )
                 return
-            self.send_json({"ok": True, "authenticated": True})
+            else:
+                role = "admin"
+                display_name = "管理员"
+                race_id = race_id or "*"
+            token = issue_judge_token(race_id, role, display_name)
+            self.send_json(
+                {
+                    "ok": True,
+                    "authenticated": True,
+                    "role": role,
+                    "displayName": display_name,
+                    "raceId": race_id,
+                    "judgeToken": token,
+                    "allowedCheckpoint": None
+                    if role == "admin"
+                    else judge_role_checkpoint(get_race_profile(race_id), role),
+                    "allowedCheckpoints": []
+                    if role == "admin"
+                    else judge_role_checkpoints(get_race_profile(race_id), role),
+                }
+            )
         except (json.JSONDecodeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_rollback_checkpoint(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            try:
+                participant_id = int(payload.get("participantId"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("participantId is required") from error
+            reason = str(payload.get("reason") or "管理员撤回误触").strip()
+            if not race_id or len(race_id) > 80 or not all(
+                character.isalnum() or character in "-_" for character in race_id
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if participant_id <= 0:
+                raise ValueError("participantId is required")
+            if not reason or len(reason) > 500:
+                raise ValueError("reason must be between 1 and 500 characters")
+            authorization = judge_request_authorization(payload, race_id)
+            if not authorization or authorization.get("role") != "admin":
+                self.send_json(
+                    {"ok": False, "error": "Administrator authorization is required"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+            reverted_at = utc_now()
+            with connect_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                participant = db.execute(
+                    "SELECT * FROM participants WHERE race_id = ? AND id = ?",
+                    (race_id, participant_id),
+                ).fetchone()
+                if not participant:
+                    raise ValueError("Participant was not found in this race")
+                checkpoint_events = db.execute(
+                    "SELECT * FROM timing_events "
+                    "WHERE race_id = ? AND participant_id = ? AND status = 'accepted' "
+                    "ORDER BY event_time ASC, id ASC",
+                    (race_id, participant_id),
+                ).fetchall()
+                latest_checkpoint, _ = next_race_checkpoint(
+                    profile,
+                    (row["station_id"] for row in checkpoint_events),
+                )
+                if not latest_checkpoint:
+                    self.send_json(
+                        {
+                            "ok": False,
+                            "status": "nothing_to_rollback",
+                            "error": "This participant has no accepted checkpoint to roll back",
+                        },
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+
+                latest_event = max(
+                    (row for row in checkpoint_events if row["station_id"] == latest_checkpoint),
+                    key=lambda row: (row["event_time"], row["id"]),
+                )
+                linked_station_ids = [latest_checkpoint]
+                confirmed_station_id = latest_checkpoint
+                try:
+                    latest_raw = json.loads(latest_event["raw_json"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    latest_raw = {}
+                raw_linked = latest_raw.get("linkedStationIds")
+                if (
+                    isinstance(raw_linked, list)
+                    and latest_checkpoint in raw_linked
+                    and all(station_id in profile["checkpoints"] for station_id in raw_linked)
+                ):
+                    linked_station_ids = [str(station_id) for station_id in raw_linked]
+                    confirmed_station_id = str(
+                        latest_raw.get("confirmedStationId") or latest_checkpoint
+                    )
+
+                events_to_revert = []
+                for row in checkpoint_events:
+                    if row["station_id"] not in linked_station_ids:
+                        continue
+                    if len(linked_station_ids) == 1:
+                        if row["id"] == latest_event["id"]:
+                            events_to_revert.append(row)
+                        continue
+                    try:
+                        row_raw = json.loads(row["raw_json"] or "{}")
+                    except (TypeError, json.JSONDecodeError):
+                        row_raw = {}
+                    if (
+                        row["event_time"] == latest_event["event_time"]
+                        and row_raw.get("linkedStationIds") == raw_linked
+                        and str(row_raw.get("confirmedStationId") or "") == confirmed_station_id
+                    ):
+                        events_to_revert.append(row)
+
+                reverted_events = []
+                for row in events_to_revert:
+                    try:
+                        raw_payload = json.loads(row["raw_json"] or "{}")
+                    except (TypeError, json.JSONDecodeError):
+                        raw_payload = {"originalRawJson": row["raw_json"]}
+                    raw_payload["rollback"] = {
+                        "reason": reason,
+                        "revertedAt": reverted_at,
+                        "revertedBy": authorization.get("displayName") or "全局管理员",
+                    }
+                    db.execute(
+                        "UPDATE timing_events SET status = 'reverted', raw_json = ? WHERE id = ?",
+                        (json.dumps(raw_payload, ensure_ascii=False), row["id"]),
+                    )
+                    reverted_events.append(
+                        db.execute("SELECT * FROM timing_events WHERE id = ?", (row["id"],)).fetchone()
+                    )
+
+                checkin = None
+                if "START" in linked_station_ids:
+                    db.execute(
+                        "UPDATE start_checkins SET status = 'ready', started_at = NULL, updated_at = ? "
+                        "WHERE race_id = ? AND participant_id = ?",
+                        (reverted_at, race_id, participant_id),
+                    )
+                    checkin = db.execute(
+                        "SELECT * FROM start_checkins WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()
+
+                remaining_events = db.execute(
+                    "SELECT station_id FROM timing_events "
+                    "WHERE race_id = ? AND participant_id = ? AND status = 'accepted'",
+                    (race_id, participant_id),
+                ).fetchall()
+                previous_checkpoint, _ = next_race_checkpoint(
+                    profile,
+                    (row["station_id"] for row in remaining_events),
+                )
+
+            event_cloud_results = [
+                sync_supabase_record("timing_events", event)
+                for event in reverted_events
+            ]
+            checkin_cloud = sync_supabase_record("start_checkins", checkin) if checkin else None
+            self.send_json(
+                {
+                    "ok": True,
+                    "status": "reverted",
+                    "raceId": race_id,
+                    "participantId": participant_id,
+                    "revertedStationIds": [event["station_id"] for event in reverted_events],
+                    "previousCheckpoint": previous_checkpoint,
+                    "events": [row_to_dict(event) for event in reverted_events],
+                    "storage": {
+                        "localSaved": True,
+                        "supabaseSaved": all(result["saved"] for result in event_cloud_results)
+                        and (checkin_cloud is None or checkin_cloud["saved"]),
+                    },
+                    "cloudError": next(
+                        (result["error"] for result in event_cloud_results if result["error"]),
+                        None,
+                    ) or (checkin_cloud or {}).get("error"),
+                }
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_get_judge_station_accounts(self, query: str) -> None:
+        params = parse_qs(query)
+        race_id = params.get("raceId", [""])[0].strip()
+        if not race_id:
+            self.send_json({"ok": False, "error": "raceId is required"}, HTTPStatus.BAD_REQUEST)
+            return
+        authorization = judge_request_authorization(
+            {
+                "judgeToken": params.get("judgeToken", [""])[0],
+                "adminCode": params.get("adminCode", [""])[0],
+            },
+            race_id,
+        )
+        if not authorization or authorization.get("role") != "admin":
+            self.send_json({"ok": False, "error": "Administrator authorization is required"}, HTTPStatus.FORBIDDEN)
+            return
+        with connect_db() as db:
+            rows = db.execute(
+                "SELECT id, race_id, role, username, display_name, active, created_at, updated_at "
+                "FROM judge_station_accounts WHERE race_id = ? ORDER BY id",
+                (race_id,),
+            ).fetchall()
+        accounts = []
+        profile = get_race_profile(race_id)
+        for row in rows:
+            account = judge_account_response(row)
+            account["allowedCheckpoint"] = judge_role_checkpoint(profile, account["role"])
+            account["allowedCheckpoints"] = judge_role_checkpoints(profile, account["role"])
+            accounts.append(account)
+        self.send_json({"ok": True, "raceId": race_id, "accounts": accounts})
+
+    def handle_post_judge_station_account(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            role = str(payload.get("role") or "").strip().lower()
+            username = str(payload.get("username") or "").strip().lower()
+            password = str(payload.get("password") or "")
+            display_name = str(payload.get("displayName") or "").strip()
+            active = payload.get("active", True) is not False
+            if not race_id or len(race_id) > 80 or not all(c.isalnum() or c in "-_" for c in race_id):
+                raise ValueError("raceId must contain only letters, numbers, hyphens, or underscores")
+            if role not in JUDGE_STATION_ACCOUNT_ROLES:
+                raise ValueError("role must be one of the six judge station roles")
+            if len(username) < 2 or len(username) > 50 or not all(c.isalnum() or c in "._-" for c in username):
+                raise ValueError("username must contain 2-50 letters, numbers, dots, hyphens, or underscores")
+            if display_name and len(display_name) > 80:
+                raise ValueError("displayName must be 80 characters or fewer")
+            authorization = judge_request_authorization(payload, race_id)
+            if not authorization:
+                if len(leaderboard_clear_code()) < 8:
+                    self.send_json({"ok": False, "error": "Judge authorization is not configured"}, HTTPStatus.SERVICE_UNAVAILABLE)
+                else:
+                    self.send_json({"ok": False, "error": "Administrator authorization is required"}, HTTPStatus.FORBIDDEN)
+                return
+            if authorization.get("role") != "admin":
+                self.send_json({"ok": False, "error": "Administrator authorization is required"}, HTTPStatus.FORBIDDEN)
+                return
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            now = utc_now()
+            with connect_db() as db:
+                existing = db.execute(
+                    "SELECT * FROM judge_station_accounts WHERE race_id = ? AND role = ?",
+                    (race_id, role),
+                ).fetchone()
+                if not password and not existing:
+                    raise ValueError("password is required when creating an account")
+                if password and (len(password) < 8 or len(password) > 200):
+                    raise ValueError("password must be between 8 and 200 characters")
+                if existing and existing["username"] != username:
+                    username_conflict = db.execute(
+                        "SELECT 1 FROM judge_station_accounts WHERE race_id = ? AND username = ? AND role <> ?",
+                        (race_id, username, role),
+                    ).fetchone()
+                    if username_conflict:
+                        raise ValueError("username is already used by another role in this race")
+                if not existing:
+                    salt, password_hash = create_judge_password(password)
+                    cursor = db.execute(
+                        "INSERT INTO judge_station_accounts "
+                        "(race_id, role, username, password_hash, password_salt, display_name, active, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (race_id, role, username, password_hash, salt,
+                         display_name or JUDGE_STATION_ACCOUNT_ROLE_LABELS[role], int(active), now, now),
+                    )
+                    account_id = cursor.lastrowid
+                else:
+                    salt = existing["password_salt"]
+                    password_hash = existing["password_hash"]
+                    if password:
+                        salt, password_hash = create_judge_password(password)
+                    db.execute(
+                        "UPDATE judge_station_accounts SET username = ?, password_hash = ?, password_salt = ?, "
+                        "display_name = ?, active = ?, updated_at = ? WHERE id = ?",
+                        (username, password_hash, salt,
+                         display_name or existing["display_name"] or JUDGE_STATION_ACCOUNT_ROLE_LABELS[role],
+                         int(active), now, existing["id"]),
+                    )
+                    account_id = existing["id"]
+                row = db.execute(
+                    "SELECT id, race_id, role, username, display_name, active, created_at, updated_at "
+                    "FROM judge_station_accounts WHERE id = ?",
+                    (account_id,),
+                ).fetchone()
+            account = judge_account_response(row)
+            account["allowedCheckpoint"] = judge_role_checkpoint(profile, role)
+            account["allowedCheckpoints"] = judge_role_checkpoints(profile, role)
+            self.send_json({"ok": True, "account": account}, HTTPStatus.CREATED)
+        except sqlite3.IntegrityError:
+            self.send_json({"ok": False, "error": "username is already used by another role in this race"}, HTTPStatus.CONFLICT)
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
             self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
 
     def handle_post_reset_timing(self) -> None:
@@ -2199,7 +2790,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
             ).fetchall()
 
         profile = get_race_profile(race_id)
-        start_group_size = int(profile.get("start_group_size") or 1)
         entries = []
         for row in rows:
             participant = participant_response(row)
@@ -2218,8 +2808,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "entryType": participant["entry_type"],
                     "memberNames": participant["member_names"],
                     "cardCode": participant["card_code"],
-                    "startOrder": participant["start_order"],
-                    "startWave": ((participant["start_order"] - 1) // start_group_size) + 1,
                     "checkInStatus": participant.get("check_in_status")
                     or "not_checked_in",
                     "status": status,
@@ -2233,7 +2821,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
         entries.sort(
             key=lambda entry: (
                 status_order[entry["status"]],
-                entry["startOrder"],
+                entry["confirmedAt"] or "",
                 entry["athleteName"],
             )
         )
@@ -2249,7 +2837,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "ready": sum(entry["status"] == "ready" for entry in entries),
                     "started": sum(entry["status"] == "started" for entry in entries),
                     "waiting": sum(entry["status"] == "not_ready" for entry in entries),
-                    "startGroupSize": start_group_size,
                 },
             }
         )
@@ -2378,13 +2965,11 @@ class TimingHandler(SimpleHTTPRequestHandler):
         try:
             payload = self.read_json_body()
             race_id = str(payload.get("raceId") or "").strip()
-            supplied_code = str(payload.get("adminCode") or "")
-            configured_code = leaderboard_clear_code()
             try:
                 participant_id = int(payload.get("participantId"))
             except (TypeError, ValueError) as error:
                 raise ValueError("participantId is required") from error
-            if len(configured_code) < 8:
+            if len(leaderboard_clear_code()) < 8:
                 self.send_json(
                     {"ok": False, "error": "Judge authorization is not configured"},
                     HTTPStatus.SERVICE_UNAVAILABLE,
@@ -2392,9 +2977,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 return
             if not race_id or participant_id <= 0:
                 raise ValueError("raceId and participantId are required")
-            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+            authorization = judge_request_authorization(payload, race_id)
+            if not authorization or authorization.get("role") not in {"admin", "start"}:
                 self.send_json(
-                    {"ok": False, "error": "Invalid administrator code"},
+                    {"ok": False, "error": "Start judge authorization is required"},
                     HTTPStatus.FORBIDDEN,
                 )
                 return
@@ -2437,8 +3023,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
             payload = self.read_json_body()
             race_id = str(payload.get("raceId") or "").strip()
             device_id = str(payload.get("deviceId") or "judge-console").strip()
-            supplied_code = str(payload.get("adminCode") or "")
-            configured_code = leaderboard_clear_code()
             requested_ids = payload.get("participantIds")
             if not isinstance(requested_ids, list) or not 1 <= len(requested_ids) <= 50:
                 raise ValueError("Select between 1 and 50 participants")
@@ -2454,7 +3038,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     raise ValueError("participantIds must contain positive integers")
                 if participant_id not in participant_ids:
                     participant_ids.append(participant_id)
-            if len(configured_code) < 8:
+            if len(leaderboard_clear_code()) < 8:
                 self.send_json(
                     {"ok": False, "error": "Judge authorization is not configured"},
                     HTTPStatus.SERVICE_UNAVAILABLE,
@@ -2464,9 +3048,10 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 raise ValueError("raceId is required")
             if not device_id or len(device_id) > 100:
                 raise ValueError("deviceId must be between 1 and 100 characters")
-            if not supplied_code or not hmac.compare_digest(supplied_code, configured_code):
+            authorization = judge_request_authorization(payload, race_id)
+            if not authorization or authorization.get("role") not in {"admin", "start"}:
                 self.send_json(
-                    {"ok": False, "error": "Invalid administrator code"},
+                    {"ok": False, "error": "Start judge authorization is required"},
                     HTTPStatus.FORBIDDEN,
                 )
                 return
@@ -2482,7 +3067,16 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
-            started_at = utc_now()
+            requested_started_at = str(payload.get("startedAt") or "").strip()
+            if requested_started_at:
+                parsed_started_at = parse_iso(requested_started_at)
+                if parsed_started_at is None or parsed_started_at.tzinfo is None:
+                    raise ValueError("startedAt must be an ISO 8601 timestamp with a timezone")
+                started_at = parsed_started_at.astimezone(timezone.utc).isoformat(
+                    timespec="milliseconds"
+                ).replace("+00:00", "Z")
+            else:
+                started_at = utc_now()
             batch_id = str(uuid.uuid4())
             placeholders = ",".join("?" for _ in participant_ids)
             with connect_db() as db:
@@ -2493,17 +3087,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 ).fetchall()
                 if len(participants) != len(participant_ids):
                     raise ValueError("One or more selected participants do not belong to this race")
-                start_group_size = int(profile.get("start_group_size") or 1)
-                if len(participants) > start_group_size:
-                    raise ValueError(
-                        f"This race allows at most {start_group_size} participants per start"
-                    )
-                start_waves = {
-                    ((int(participant["start_order"] or 1) - 1) // start_group_size) + 1
-                    for participant in participants
-                }
-                if len(start_waves) != 1:
-                    raise ValueError("Selected participants must belong to the same start wave")
                 started_count = db.execute(
                     f"SELECT COUNT(*) FROM timing_events WHERE race_id = ? "
                     f"AND participant_id IN ({placeholders}) AND station_id = 'START' AND status = 'accepted'",
@@ -2592,7 +3175,6 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "raceId": race_id,
                     "batchId": batch_id,
                     "startedAt": started_at,
-                    "startWave": next(iter(start_waves)),
                     "startedCount": len(participants),
                     "participants": [
                         {
@@ -2886,6 +3468,236 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "manualResult": manual_result_response(row),
                     "storage": {"localSaved": True, "supabaseSaved": cloud["saved"]},
                     "cloudError": cloud["error"],
+                },
+                HTTPStatus.CREATED,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+    def handle_post_manual_checkpoint(self) -> None:
+        try:
+            payload = self.read_json_body()
+            race_id = str(payload.get("raceId") or "").strip()
+            try:
+                participant_id = int(payload.get("participantId"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("participantId is required") from error
+            station_id = str(payload.get("stationId") or "").strip().upper()
+            event_time_input = str(payload.get("eventTime") or "").strip()
+            reason = str(payload.get("reason") or "").strip()
+            device_id = str(payload.get("deviceId") or "judge-console").strip()
+            if len(leaderboard_clear_code()) < 8:
+                self.send_json(
+                    {"ok": False, "error": "Manual checkpoint entry is not configured"},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            if not race_id or len(race_id) > 80 or not all(
+                character.isalnum() or character in "-_" for character in race_id
+            ):
+                raise ValueError(
+                    "raceId must contain only letters, numbers, hyphens, or underscores"
+                )
+            if participant_id <= 0:
+                raise ValueError("participantId is required")
+            if not station_id:
+                raise ValueError("stationId is required")
+            if len(device_id) > 100:
+                raise ValueError("deviceId must be 100 characters or fewer")
+            if len(reason) > 500:
+                raise ValueError("reason must be 500 characters or fewer")
+            reason = reason or "现场裁判人工确认"
+            authorization = judge_request_authorization(payload, race_id)
+            if not authorization:
+                self.send_json(
+                    {"ok": False, "error": "Judge authorization is required"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            profile = get_race_profile(race_id)
+            if error_payload := template_race_error(profile):
+                self.send_json(error_payload, HTTPStatus.CONFLICT)
+                return
+            if profile.get("status") == "finalized":
+                self.send_json(
+                    {"ok": False, "status": "race_finalized", "error": "This race has ended"},
+                    HTTPStatus.CONFLICT,
+                )
+                return
+            if station_id not in profile["checkpoints"]:
+                raise ValueError("stationId is not part of this race profile")
+            allowed_checkpoints = judge_role_checkpoints(profile, authorization.get("role"))
+            if authorization.get("role") != "admin" and station_id not in allowed_checkpoints:
+                self.send_json(
+                    {
+                        "ok": False,
+                        "status": "checkpoint_not_allowed",
+                        "error": "This judge account cannot confirm the selected checkpoint",
+                        "allowedCheckpoint": allowed_checkpoints[0] if allowed_checkpoints else None,
+                        "allowedCheckpoints": allowed_checkpoints,
+                    },
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+
+            parsed_event_time = parse_iso(event_time_input)
+            if not parsed_event_time or parsed_event_time.tzinfo is None:
+                raise ValueError("eventTime must be an ISO-8601 timestamp with a timezone")
+            event_time = parsed_event_time.astimezone(timezone.utc).isoformat(
+                timespec="milliseconds"
+            ).replace("+00:00", "Z")
+            metadata = checkpoint_metadata(station_id)
+            station_ids = manual_checkpoint_station_ids(profile, station_id)
+            event_ids = [f"judge-manual-checkpoint:{uuid.uuid4()}" for _ in station_ids]
+            received_at = utc_now()
+            with connect_db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                participant = db.execute(
+                    "SELECT * FROM participants WHERE race_id = ? AND id = ?",
+                    (race_id, participant_id),
+                ).fetchone()
+                if not participant:
+                    raise ValueError("Participant was not found in this race")
+                checkpoint_events = db.execute(
+                    "SELECT station_id, event_time FROM timing_events "
+                    "WHERE race_id = ? AND participant_id = ? AND status = 'accepted' "
+                    "ORDER BY event_time ASC, id ASC",
+                    (race_id, participant_id),
+                ).fetchall()
+                latest_checkpoint, expected_checkpoint = next_race_checkpoint(
+                    profile,
+                    (row["station_id"] for row in checkpoint_events),
+                )
+                if station_id != expected_checkpoint:
+                    self.send_json(
+                        {
+                            "ok": False,
+                            "status": "wrong_checkpoint",
+                            "error": "Only the participant's next checkpoint can be confirmed",
+                            "stationId": station_id,
+                            "latestCheckpoint": latest_checkpoint,
+                            "expectedCheckpoint": expected_checkpoint,
+                        },
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                latest_event_time = next(
+                    (
+                        row["event_time"]
+                        for row in checkpoint_events
+                        if row["station_id"] == latest_checkpoint
+                    ),
+                    None,
+                )
+                if latest_event_time and parse_iso(event_time) < parse_iso(latest_event_time):
+                    raise ValueError(
+                        "eventTime must not be earlier than the previous checkpoint time"
+                    )
+                events = []
+                for recorded_station_id, event_id in zip(station_ids, event_ids, strict=True):
+                    recorded_metadata = checkpoint_metadata(recorded_station_id)
+                    db.execute(
+                        """
+                        INSERT INTO timing_events (
+                          event_id, race_id, device_id, station_id, station_label,
+                          station_number, checkpoint_type, card_code, serial_number,
+                          event_time, received_at, source, timing_mode, gate_role,
+                          duplicate_window_seconds, status, participant_id, raw_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'manual', NULL,
+                                  10, 'accepted', ?, ?)
+                        """,
+                        (
+                            event_id,
+                            race_id,
+                            device_id,
+                            recorded_station_id,
+                            recorded_metadata["station_label"],
+                            recorded_metadata["station_number"],
+                            recorded_metadata["checkpoint_type"],
+                            participant["card_code"],
+                            event_time,
+                            received_at,
+                            "judge-manual-checkpoint",
+                            participant_id,
+                            json.dumps(
+                                {
+                                    "eventId": event_id,
+                                    "raceId": race_id,
+                                    "participantId": participant_id,
+                                    "stationId": recorded_station_id,
+                                    "confirmedStationId": station_id,
+                                    "linkedStationIds": station_ids,
+                                    "eventTime": event_time,
+                                    "reason": reason,
+                                    "deviceId": device_id,
+                                    "source": "judge-manual-checkpoint",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    )
+                    events.append(
+                        db.execute(
+                            "SELECT * FROM timing_events WHERE event_id = ?",
+                            (event_id,),
+                        ).fetchone()
+                    )
+                if station_id == "START":
+                    db.execute(
+                        """
+                        INSERT INTO start_checkins (
+                          id, race_id, participant_id, device_id, status,
+                          confirmed_at, started_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 'started', ?, ?, ?)
+                        ON CONFLICT (race_id, participant_id) DO UPDATE SET
+                          device_id = excluded.device_id,
+                          status = 'started',
+                          confirmed_at = excluded.confirmed_at,
+                          started_at = excluded.started_at,
+                          updated_at = excluded.updated_at
+                        """,
+                        (
+                            str(uuid.uuid4()), race_id, participant_id, device_id,
+                            event_time, event_time, received_at,
+                        ),
+                    )
+                event = events[0]
+                checkin = (
+                    db.execute(
+                        "SELECT * FROM start_checkins WHERE race_id = ? AND participant_id = ?",
+                        (race_id, participant_id),
+                    ).fetchone()
+                    if station_id == "START"
+                    else None
+                )
+
+            event_cloud_results = [
+                sync_supabase_record("timing_events", recorded_event)
+                for recorded_event in events
+            ]
+            checkin_cloud = sync_supabase_record("start_checkins", checkin) if checkin else None
+            self.send_json(
+                {
+                    "ok": True,
+                    "status": "accepted",
+                    "raceId": race_id,
+                    "participantId": participant_id,
+                    "stationId": station_id,
+                    "stationIds": station_ids,
+                    "stationLabel": metadata["station_label"],
+                    "eventTime": event_time,
+                    "event": row_to_dict(event),
+                    "events": [row_to_dict(recorded_event) for recorded_event in events],
+                    "storage": {
+                        "localSaved": True,
+                        "supabaseSaved": all(result["saved"] for result in event_cloud_results)
+                        and (checkin_cloud is None or checkin_cloud["saved"]),
+                    },
+                    "cloudError": next(
+                        (result["error"] for result in event_cloud_results if result["error"]),
+                        None,
+                    ) or (checkin_cloud or {}).get("error"),
                 },
                 HTTPStatus.CREATED,
             )

@@ -107,6 +107,41 @@
       margin-top: 14px;
     }
 
+    .judge-account-row {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: minmax(150px, .8fr) repeat(3, minmax(150px, 1fr)) auto;
+      gap: 10px;
+      align-items: end;
+      border-top: 1px solid #e1e6ec;
+      padding-top: 12px;
+    }
+
+    .judge-account-heading {
+      display: grid;
+      gap: 4px;
+      color: #1d2b38;
+    }
+
+    .judge-account-heading span {
+      color: #6b7785;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .judge-account-active {
+      display: flex;
+      min-height: 44px;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .judge-account-active input {
+      width: 18px;
+      min-height: 18px;
+    }
+
     label {
       display: grid;
       gap: 6px;
@@ -479,6 +514,10 @@
         grid-template-columns: 1fr;
       }
 
+      .judge-account-row {
+        grid-template-columns: 1fr;
+      }
+
       .modal-grid { grid-template-columns: 1fr; }
 
       .member-fields {
@@ -525,7 +564,7 @@
 
   <header id="adminHeader" inert>
     <h1>比赛与选手绑定</h1>
-    <p>创建比赛、设置站点和出发批次，登记选手并绑定 NFC 卡。</p>
+    <p>创建比赛、设置站点，登记参赛单位并绑定 NFC 卡。</p>
     <nav>
       <a href="./admin.html" aria-current="page">比赛与绑定</a>
       <a href="./judge.html">裁判台</a>
@@ -644,11 +683,6 @@
             <option value="not_checked_in">Not Checked In</option>
           </select>
         </label>
-        <label>
-          出发顺序（选填）
-          <input id="startOrder" type="number" min="1" max="100000" step="1" placeholder="暂不确定可留空">
-          <small class="field-help">留空会先临时排到最后；正式比赛前可在下方列表随时调整。</small>
-        </label>
         <div class="actions">
           <button id="saveParticipantButton" type="submit">保存 / 绑定</button>
           <button id="cancelEditButton" class="secondary" type="button" hidden>取消编辑</button>
@@ -659,7 +693,7 @@
 
     <section id="raceConfiguration">
       <h2>比赛设置</h2>
-      <p>设置比赛站点、计时方式和每批同时出发人数。</p>
+      <p>设置比赛站点和计时方式。比赛开始时，裁判可从所有“待发”队伍中自由多选并统一发枪。</p>
       <form id="raceConfigForm" class="grid">
         <label>
           Race ID
@@ -689,15 +723,21 @@
           站点数量
           <input id="raceStationCount" type="number" min="1" max="20" step="1" value="8">
         </label>
-        <label>
-          每批同时出发
-          <input id="raceStartGroupSize" type="number" min="1" max="50" step="1" value="1">
-        </label>
         <div class="actions">
           <button type="submit">保存比赛配置</button>
         </div>
       </form>
       <div id="raceConfigStatus" class="status">读取比赛配置中。</div>
+    </section>
+
+    <section id="judgeAccountConfiguration">
+      <h2>裁判台账号</h2>
+      <p>为当前比赛配置 6 个独立账号。密码只保存为不可逆哈希；留空密码表示沿用原密码。</p>
+      <div id="judgeAccountsRows" class="grid"></div>
+      <div class="actions">
+        <button id="saveJudgeAccountsButton" type="button">保存裁判账号</button>
+      </div>
+      <div id="judgeAccountsStatus" class="status">选择比赛后读取账号配置。</div>
     </section>
 
     <section id="participantList">
@@ -706,7 +746,6 @@
         <table>
           <thead>
             <tr>
-              <th>出发顺序 / 批次</th>
               <th>参赛单位</th>
               <th>类型 / 成员</th>
               <th>NFC 卡</th>
@@ -715,7 +754,7 @@
             </tr>
           </thead>
           <tbody id="participantsBody">
-            <tr class="empty-row"><td colspan="6">正在读取选手数据。</td></tr>
+            <tr class="empty-row"><td colspan="5">正在读取选手数据。</td></tr>
           </tbody>
         </table>
       </div>
@@ -858,6 +897,9 @@
     const accessForm = document.querySelector("#accessForm");
     const accessAdminCode = document.querySelector("#accessAdminCode");
     const accessError = document.querySelector("#accessError");
+    const judgeAccountsRows = document.querySelector("#judgeAccountsRows");
+    const saveJudgeAccountsButton = document.querySelector("#saveJudgeAccountsButton");
+    const judgeAccountsStatus = document.querySelector("#judgeAccountsStatus");
     const accessSubmitButton = document.querySelector("#accessSubmitButton");
     const adminHeader = document.querySelector("#adminHeader");
     const adminApp = document.querySelector("#adminApp");
@@ -888,8 +930,6 @@
     const athleteNameInput = document.querySelector("#athleteName");
     const individualFields = Array.from(document.querySelectorAll("[data-individual-field]"));
     const cardCodeInput = document.querySelector("#cardCode");
-    const startOrderInput = document.querySelector("#startOrder");
-    const raceStartGroupSizeInput = document.querySelector("#raceStartGroupSize");
     const saveParticipantButton = document.querySelector("#saveParticipantButton");
     const cancelEditButton = document.querySelector("#cancelEditButton");
     const adminCodeModal = document.querySelector("#adminCodeModal");
@@ -958,12 +998,11 @@
         deviceCount: 6,
         entryType: "team",
         mode: "station_checkpoints",
-        checkpointLayout: "station_boundaries"
+        checkpointLayout: "station_starts"
       }
     ];
     let activeEntryType = "individual";
     let selectedRaceDefaultEntryType = "individual";
-    let selectedRaceStartGroupSize = 1;
     let visibleParticipants = [];
     let visibleResults = new Map();
     let editingParticipantId = null;
@@ -973,6 +1012,15 @@
     let timingControlParticipantRecord = null;
     let adminPageStarted = false;
     let refreshTimer = 0;
+    let adminAuthCode = "";
+    const judgeAccountRoles = [
+      ["start", "开始", "START"],
+      ["station_1", "站点 1", "STATION_1_START"],
+      ["station_2", "站点 2", "STATION_2_START"],
+      ["station_3", "站点 3", "STATION_3_START"],
+      ["station_4", "站点 4", "STATION_4_START"],
+      ["station_5", "站点 5 / 冲线", "STATION_5_START / END"]
+    ];
     const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
 
     function isTemplateRaceId(raceId) {
@@ -1163,11 +1211,10 @@
       cancelEditButton.hidden = true;
       applyEntryType(selectedRaceDefaultEntryType);
       document.querySelector("#checkInStatus").value = "checked_in";
-      startOrderInput.value = "";
       setStatus(message);
     }
 
-    function editParticipant(participant, { focusStartOrder = false } = {}) {
+    function editParticipant(participant) {
       editingParticipantId = Number(participant.id) || null;
       editingCardCode = participant.card_code;
       cardCodeInput.value = participant.card_code;
@@ -1177,7 +1224,6 @@
       document.querySelector("#gender").value = participant.gender || "";
       document.querySelector("#division").value = participant.division || "";
       document.querySelector("#checkInStatus").value = participant.check_in_status || "checked_in";
-      startOrderInput.value = String(participant.start_order || "");
       const memberNames = Array.isArray(participant.member_names)
         ? participant.member_names
         : [participant.athlete_name];
@@ -1190,17 +1236,8 @@
       }
       saveParticipantButton.textContent = "保存修改";
       cancelEditButton.hidden = false;
-      setStatus(focusStartOrder
-        ? `正在调整 ${participant.athlete_name} 的出发顺序；修改数字后保存即可更新批次。`
-        : `正在编辑 ${participant.card_code}。可以修改资料、NFC 卡和出发顺序；保存时需要管理员验证。`
-      );
+      setStatus(`正在编辑 ${participant.card_code}。保存资料或 NFC 卡需要管理员验证。`);
       form.scrollIntoView({ behavior: "smooth", block: "start" });
-      if (focusStartOrder) {
-        window.setTimeout(() => {
-          startOrderInput.focus();
-          startOrderInput.select();
-        }, 350);
-      }
     }
 
     function requestAdminCode({
@@ -1549,7 +1586,7 @@
       if (official) {
         return `${race.name || official.name} · 比赛模板（只读） · ${category} · ${official.stationCount} 站 / ${official.deviceCount} 手机`;
       }
-      return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站 · ${race.startGroupSize || 1} 人/批`;
+      return `${race.name || race.raceId} · ${category} · ${race.stationCount || "?"} 站`;
     }
 
     function isDatedRaceSession(raceId) {
@@ -1621,6 +1658,74 @@
       updateRaceLinks(selectedRaceId());
     }
 
+    function renderJudgeAccountRows(accounts = []) {
+      const byRole = new Map(accounts.map((account) => [account.role, account]));
+      judgeAccountsRows.replaceChildren(...judgeAccountRoles.map(([role, label, checkpoint]) => {
+        const account = byRole.get(role) || {};
+        const wrapper = document.createElement("div");
+        wrapper.className = "judge-account-row";
+        wrapper.innerHTML = `
+          <div class="judge-account-heading"><strong>${label}</strong><span>${checkpoint}</span></div>
+          <label>登录账号<input data-judge-role="${role}" data-judge-field="username" value="${escapeHtml(account.username || "")}" autocomplete="off" placeholder="例如 ${role}"></label>
+          <label>显示名称<input data-judge-role="${role}" data-judge-field="displayName" value="${escapeHtml(account.displayName || label)}" autocomplete="off"></label>
+          <label>新密码<input data-judge-role="${role}" data-judge-field="password" type="password" autocomplete="new-password" placeholder="至少 8 位，留空不修改"></label>
+          <label class="judge-account-active"><input data-judge-role="${role}" data-judge-field="active" type="checkbox" ${account.active === false ? "" : "checked"}> 启用账号</label>
+        `;
+        return wrapper;
+      }));
+    }
+
+    async function loadJudgeStationAccounts() {
+      if (!adminAuthCode || !selectedRaceId()) return;
+      judgeAccountsStatus.textContent = "正在读取裁判账号...";
+      try {
+        const payload = await requestJson(
+          `/api/judge-station-accounts?raceId=${encodeURIComponent(selectedRaceId())}&adminCode=${encodeURIComponent(adminAuthCode)}`
+        );
+        renderJudgeAccountRows(payload.accounts || []);
+        judgeAccountsStatus.textContent = "账号配置已读取。密码不会回显。";
+        judgeAccountsStatus.classList.remove("error");
+      } catch (error) {
+        judgeAccountsStatus.textContent = `读取失败：${error.message}`;
+        judgeAccountsStatus.classList.add("error");
+      }
+    }
+
+    async function saveJudgeStationAccounts() {
+      if (!adminAuthCode) return;
+      saveJudgeAccountsButton.disabled = true;
+      judgeAccountsStatus.textContent = "正在保存裁判账号...";
+      try {
+        for (const [role] of judgeAccountRoles) {
+          const field = (name) => document.querySelector(`[data-judge-role="${role}"][data-judge-field="${name}"]`);
+          const username = field("username").value.trim();
+          const password = field("password").value;
+          if (!username) throw new Error(`${role} 账号不能为空。`);
+          await requestJson("/api/judge-station-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              raceId: selectedRaceId(),
+              role,
+              username,
+              password,
+              displayName: field("displayName").value.trim(),
+              active: field("active").checked,
+              adminCode: adminAuthCode
+            })
+          });
+        }
+        judgeAccountsStatus.textContent = "6 个裁判角色已保存。";
+        judgeAccountsStatus.classList.remove("error");
+        await loadJudgeStationAccounts();
+      } catch (error) {
+        judgeAccountsStatus.textContent = `保存失败：${error.message}`;
+        judgeAccountsStatus.classList.add("error");
+      } finally {
+        saveJudgeAccountsButton.disabled = false;
+      }
+    }
+
     async function loadRaceConfig() {
       const raceId = selectedRaceId();
       raceConfigId.value = raceId;
@@ -1632,16 +1737,14 @@
       document.querySelector("#raceConfigName").value = race.name || race.raceId;
       document.querySelector("#raceMode").value = race.mode;
       document.querySelector("#raceStationCount").value = race.stationCount;
-      raceStartGroupSizeInput.value = race.startGroupSize || 1;
       raceEntryTypeSelect.value = race.entryType || "individual";
       selectedRaceDefaultEntryType = race.entryType || "individual";
-      selectedRaceStartGroupSize = Number(race.startGroupSize) || 1;
       applyEntryType(selectedRaceDefaultEntryType);
       overviewRaceName.textContent = raceOptionLabel(race);
       updateRaceLinks(raceId);
       raceConfigStatus.textContent =
         race.name + " · " + race.mode + " · " + race.stationCount
-        + " stations · " + race.startGroupSize + " 人/批";
+        + " stations";
       raceConfigStatus.classList.remove("error");
       applyTemplateReadOnlyState(race);
     }
@@ -1677,14 +1780,12 @@
           : escapeHtml(memberNames.join(" / "));
         return `
           <tr>
-            <td class="mono">#${escapeHtml(participant.start_order || "-")}<br>第 ${Math.floor(((Number(participant.start_order) || 1) - 1) / selectedRaceStartGroupSize) + 1} 批</td>
             <td><strong>${escapeHtml(participant.athlete_name)}</strong></td>
             <td>${escapeHtml(entryTypeLabel(entryType))}${entryType === "individual" ? "" : `<br><span class="muted">${memberSummary}</span>`}</td>
             <td class="mono">${escapeHtml(participant.card_code)}</td>
             <td><span class="pill ${escapeHtml(participant.check_in_status)}">${escapeHtml(participant.check_in_status)}</span></td>
             <td>
               <div class="row-actions">
-                <button class="secondary compact" type="button" data-action="order" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>调整顺序</button>
                 <button class="secondary compact" type="button" data-action="edit" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>编辑资料</button>
                 <button class="danger compact" type="button" data-action="delete" data-index="${visibleParticipants.indexOf(participant)}" ${isTemplateRaceId(raceId) ? "disabled" : ""}>删除绑定</button>
               </div>
@@ -1737,7 +1838,6 @@
           gender: entryType === "individual" ? document.querySelector("#gender").value : "",
           division: entryType === "individual" ? document.querySelector("#division").value : "",
           checkInStatus: document.querySelector("#checkInStatus").value,
-          startOrder: startOrderInput.value ? Number(startOrderInput.value) : null
         };
         const isEditing = Number.isInteger(editingParticipantId) && editingParticipantId > 0;
         let endpoint = "/api/participants";
@@ -1760,21 +1860,15 @@
             confirmation: "UPDATE_PARTICIPANT"
           };
         }
-        const startOrderWasProvided = Boolean(startOrderInput.value);
         const result = await requestJson(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestPayload)
         });
         const previousCardCode = editingCardCode;
-        const assignedStartOrder = result.participant?.start_order
-          ?? result.participant?.startOrder
-          ?? payload.startOrder;
         const successMessage = isEditing
           ? `已更新：${previousCardCode} → ${payload.cardCode} · ${payload.athleteName}`
-          : startOrderWasProvided
-            ? `已绑定：${payload.cardCode} → ${payload.athleteName} · 出发顺序 #${assignedStartOrder}`
-            : `已绑定：${payload.cardCode} → ${payload.athleteName} · 暂按 #${assignedStartOrder} 排列，赛前可调整`;
+          : `已绑定：${payload.cardCode} → ${payload.athleteName} · 等待起点核验`;
         resetParticipantForm(successMessage);
         await refresh();
       } catch (error) {
@@ -1793,15 +1887,13 @@
             name: document.querySelector("#raceConfigName").value.trim(),
             mode: document.querySelector("#raceMode").value,
             entryType: raceEntryTypeSelect.value,
-            stationCount: Number(document.querySelector("#raceStationCount").value),
-            startGroupSize: Number(raceStartGroupSizeInput.value)
+            stationCount: Number(document.querySelector("#raceStationCount").value)
           })
         });
         await loadRaceOptions(payload.race.raceId);
         raceConfigStatus.textContent =
           "已保存：" + payload.race.name + " · " + payload.race.mode
-          + " · " + payload.race.stationCount + " stations · "
-          + payload.race.startGroupSize + " 人/批";
+          + " · " + payload.race.stationCount + " stations";
         raceConfigStatus.classList.remove("error");
         await Promise.all([loadRaceConfig(), refresh()]);
       } catch (error) {
@@ -1833,7 +1925,6 @@
             mode: template.mode,
             entryType: template.entryType,
             stationCount: template.stationCount,
-            startGroupSize: Number(template.startGroupSize) || 1,
             checkpointLayout: template.checkpointLayout
           })
         });
@@ -1866,6 +1957,7 @@
         raceConfigStatus.classList.add("error");
         setStatus(`刷新失败：${error.message}`, true);
       });
+      loadJudgeStationAccounts();
     });
 
     entryTypeSelect.addEventListener("change", () => {
@@ -1887,7 +1979,6 @@
       if (!button) return;
       const participant = visibleParticipants[Number(button.dataset.index)];
       if (!participant) return;
-      if (button.dataset.action === "order") editParticipant(participant, { focusStartOrder: true });
       if (button.dataset.action === "edit") editParticipant(participant);
       if (button.dataset.action === "adjust") openResultAdjustment(participant);
       if (button.dataset.action === "manual-result") openManualResult(participant);
@@ -1900,6 +1991,8 @@
       applyEntryType("individual");
       await loadRaceOptions();
       await Promise.all([loadRaceConfig(), refresh()]);
+      renderJudgeAccountRows();
+      await loadJudgeStationAccounts();
     }
 
     async function startAdminPage() {
@@ -1927,6 +2020,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ adminCode })
         });
+        adminAuthCode = adminCode;
         accessAdminCode.value = "";
         accessError.textContent = "";
         accessBackdrop.hidden = true;
@@ -1947,6 +2041,7 @@
     });
 
     accessAdminCode.focus();
+    saveJudgeAccountsButton.addEventListener("click", saveJudgeStationAccounts);
   </script>
 </body>
 </html>

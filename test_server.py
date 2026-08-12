@@ -77,9 +77,11 @@ class TimingApiTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.original_db_path = server.DB_PATH
         self.original_supabase_sync_enabled = server.SUPABASE_SYNC_ENABLED
+        self.original_timing_environment = server.TIMING_ENVIRONMENT
         self.original_clear_code = os.environ.get("LEADERBOARD_CLEAR_CODE")
         server.DB_PATH = Path(self.tempdir.name) / "timing.sqlite3"
         server.SUPABASE_SYNC_ENABLED = False
+        server.TIMING_ENVIRONMENT = "test"
         os.environ["LEADERBOARD_CLEAR_CODE"] = "test-clear-code-1234"
         server.init_db()
 
@@ -111,6 +113,7 @@ class TimingApiTests(unittest.TestCase):
         self.thread.join(timeout=2)
         server.DB_PATH = self.original_db_path
         server.SUPABASE_SYNC_ENABLED = self.original_supabase_sync_enabled
+        server.TIMING_ENVIRONMENT = self.original_timing_environment
         if self.original_clear_code is None:
             os.environ.pop("LEADERBOARD_CLEAR_CODE", None)
         else:
@@ -155,6 +158,7 @@ class TimingApiTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error_context:
             self.request_json(path, payload)
         self.assertEqual(error_context.exception.code, expected_status)
+        return json.loads(error_context.exception.read().decode("utf-8"))
 
     def test_judge_auth_validates_admin_code_without_changing_race_data(self):
         self.assert_post_error(
@@ -169,6 +173,23 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(authenticated["ok"])
         self.assertTrue(authenticated["authenticated"])
 
+        admin_account = self.request_json(
+            "/api/judge-auth",
+            {
+                "raceId": "auto-test",
+                "username": "admin",
+                "password": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(admin_account["role"], "admin")
+        self.assertEqual(admin_account["displayName"], "全局管理员")
+        self.assertTrue(admin_account["judgeToken"])
+        cross_race_accounts = self.request_json(
+            "/api/judge-station-accounts?raceId=nfc-test-001&judgeToken="
+            + admin_account["judgeToken"]
+        )
+        self.assertTrue(cross_race_accounts["ok"])
+
         configured_code = os.environ.pop("LEADERBOARD_CLEAR_CODE")
         try:
             self.assert_post_error(
@@ -178,6 +199,284 @@ class TimingApiTests(unittest.TestCase):
             )
         finally:
             os.environ["LEADERBOARD_CLEAR_CODE"] = configured_code
+
+    def test_judge_station_accounts_authenticate_and_enforce_roles(self):
+        self.request_json(
+            "/api/race-config",
+            {
+                "raceId": "auto-test",
+                "name": "Station Judge Test",
+                "mode": "station_checkpoints",
+                "stationCount": 5,
+                "checkpointLayout": "station_boundaries",
+                "entryType": "team",
+            },
+        )
+        for role, username in (("start", "start-judge"), ("station_1", "station-1")):
+            account = self.request_json(
+                "/api/judge-station-accounts",
+                {
+                    "raceId": "auto-test",
+                    "role": role,
+                    "username": username,
+                    "password": "test-password-123",
+                    "displayName": f"Test {role}",
+                    "active": True,
+                    "adminCode": "test-clear-code-1234",
+                },
+            )["account"]
+            self.assertEqual(account["role"], role)
+            self.assertNotIn("passwordHash", account)
+
+        listing = self.request_json(
+            "/api/judge-station-accounts?raceId=auto-test&adminCode=test-clear-code-1234"
+        )["accounts"]
+        self.assertEqual({account["role"] for account in listing}, {"start", "station_1"})
+        self.assertTrue(all("passwordHash" not in account for account in listing))
+
+        start_auth = self.request_json(
+            "/api/judge-auth",
+            {
+                "raceId": "auto-test",
+                "username": "START-JUDGE",
+                "password": "test-password-123",
+            },
+        )
+        self.assertEqual(start_auth["role"], "start")
+        self.assertEqual(start_auth["allowedCheckpoint"], "START")
+        self.assertTrue(start_auth["judgeToken"])
+
+        station_auth = self.request_json(
+            "/api/judge-auth",
+            {
+                "raceId": "auto-test",
+                "username": "station-1",
+                "password": "test-password-123",
+            },
+        )
+        self.assertEqual(station_auth["role"], "station_1")
+        self.assertEqual(station_auth["allowedCheckpoint"], "STATION_2_START")
+
+        self.assert_post_error(
+            "/api/start-race",
+            {
+                "raceId": "auto-test",
+                "participantIds": [1],
+                "judgeToken": station_auth["judgeToken"],
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_2_START",
+                "eventTime": "2026-01-01T00:00:10Z",
+                "reason": "role permission check",
+                "judgeToken": start_auth["judgeToken"],
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+        manual_start = self.request_json(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "START",
+                "eventTime": "2026-01-01T00:00:05Z",
+                "reason": "start NFC fallback",
+                "judgeToken": start_auth["judgeToken"],
+            },
+        )
+        self.assertEqual(manual_start["stationId"], "START")
+        queue_entry = self.request_json("/api/start-queue?raceId=auto-test")["entries"][0]
+        self.assertEqual(queue_entry["status"], "started")
+        station_checkpoint = self.request_json(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_2_START",
+                "eventTime": "2026-01-01T00:00:20Z",
+                "judgeToken": station_auth["judgeToken"],
+            },
+        )
+        self.assertEqual(station_checkpoint["stationId"], "STATION_2_START")
+        self.assertEqual(
+            json.loads(station_checkpoint["event"]["raw_json"])["reason"],
+            "现场裁判人工确认",
+        )
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_2_START",
+                "eventTime": "2026-01-01T00:00:21Z",
+                "reason": "previous station must remain locked",
+                "judgeToken": station_auth["judgeToken"],
+            },
+            HTTPStatus.CONFLICT,
+        )
+        self.assert_post_error(
+            "/api/judge-auth",
+            {
+                "raceId": "auto-test",
+                "username": "station-1",
+                "password": "wrong-password",
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+
+        self.request_json(
+            "/api/judge-station-accounts",
+            {
+                "raceId": "auto-test",
+                "role": "station_1",
+                "username": "station-1",
+                "displayName": "Test station_1",
+                "active": False,
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assert_post_error(
+            "/api/judge-auth",
+            {
+                "raceId": "auto-test",
+                "username": "station-1",
+                "password": "test-password-123",
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+
+    def test_admin_can_rollback_latest_checkpoint_and_paired_finish(self):
+        self.request_json(
+            "/api/race-config",
+            {
+                "raceId": "auto-test",
+                "name": "Checkpoint Rollback Test",
+                "mode": "station_checkpoints",
+                "stationCount": 5,
+                "checkpointLayout": "station_starts",
+                "entryType": "team",
+            },
+        )
+        account = self.request_json(
+            "/api/judge-station-accounts",
+            {
+                "raceId": "auto-test",
+                "role": "station_1",
+                "username": "station-one",
+                "password": "test-password-123",
+                "active": True,
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertTrue(account["ok"])
+        station_auth = self.request_json(
+            "/api/judge-auth",
+            {
+                "raceId": "auto-test",
+                "username": "station-one",
+                "password": "test-password-123",
+            },
+        )
+        base_payload = {
+            "raceId": "auto-test",
+            "participantId": 1,
+            "adminCode": "test-clear-code-1234",
+        }
+        for station_id, second in (
+            ("START", 10),
+            ("STATION_1_START", 20),
+            ("STATION_2_START", 30),
+        ):
+            self.request_json(
+                "/api/manual-checkpoints",
+                {
+                    **base_payload,
+                    "stationId": station_id,
+                    "eventTime": f"2026-01-01T00:00:{second:02d}Z",
+                },
+            )
+
+        self.assert_post_error(
+            "/api/rollback-checkpoint",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "judgeToken": station_auth["judgeToken"],
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+        rollback = self.request_json(
+            "/api/rollback-checkpoint",
+            base_payload,
+        )
+        self.assertEqual(rollback["status"], "reverted")
+        self.assertEqual(rollback["revertedStationIds"], ["STATION_2_START"])
+        self.assertEqual(rollback["previousCheckpoint"], "STATION_1_START")
+        leaderboard = self.request_json("/api/leaderboard?raceId=auto-test")["leaderboard"][0]
+        self.assertEqual(leaderboard["latestCheckpoint"], "STATION_1_START")
+        with server.connect_db() as db:
+            reverted = db.execute(
+                "SELECT status, raw_json FROM timing_events "
+                "WHERE race_id = ? AND participant_id = ? AND station_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                ("auto-test", 1, "STATION_2_START"),
+            ).fetchone()
+        self.assertEqual(reverted["status"], "reverted")
+        self.assertEqual(json.loads(reverted["raw_json"])["rollback"]["reason"], "管理员撤回误触")
+
+        for station_id, second in (
+            ("STATION_2_START", 31),
+            ("STATION_3_START", 40),
+            ("STATION_4_START", 50),
+            ("STATION_5_START", 59),
+        ):
+            self.request_json(
+                "/api/manual-checkpoints",
+                {
+                    **base_payload,
+                    "stationId": station_id,
+                    "eventTime": f"2026-01-01T00:00:{second:02d}Z",
+                },
+            )
+        finish_rollback = self.request_json("/api/rollback-checkpoint", base_payload)
+        self.assertEqual(
+            finish_rollback["revertedStationIds"],
+            ["STATION_5_START", "END"],
+        )
+        self.assertEqual(finish_rollback["previousCheckpoint"], "STATION_4_START")
+        after_finish_rollback = self.request_json(
+            "/api/leaderboard?raceId=auto-test"
+        )["leaderboard"][0]
+        self.assertEqual(after_finish_rollback["status"], "racing")
+        self.assertEqual(after_finish_rollback["latestCheckpoint"], "STATION_4_START")
+
+    def test_station_start_judge_roles_include_station_one_and_finish(self):
+        profile = server.make_race_profile(
+            "hoka-role-test",
+            "HOKA Role Test",
+            "station_checkpoints",
+            5,
+            checkpoints=server.build_station_checkpoints(5),
+            entry_type="team",
+        )
+        self.assertEqual(server.judge_role_checkpoints(profile, "start"), ["START"])
+        self.assertEqual(
+            server.judge_role_checkpoints(profile, "station_1"),
+            ["STATION_1_START"],
+        )
+        self.assertEqual(
+            server.judge_role_checkpoints(profile, "station_5"),
+            ["STATION_5_START", "END"],
+        )
+        self.assertEqual(
+            server.manual_checkpoint_station_ids(profile, "STATION_5_START"),
+            ["STATION_5_START", "END"],
+        )
 
     def test_api_advances_full_race_and_finishes_station_eight(self):
         latest = None
@@ -1284,6 +1583,221 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(response["storage"]["localSaved"])
         self.assertFalse(response["storage"]["supabaseSaved"])
 
+    def test_judge_manual_checkpoint_is_accepted_and_enters_leaderboard(self):
+        self.request_json("/api/timing-events", self.timing_payload(0, "RUN_IN"))
+        checkpoint_time = datetime(2026, 1, 1, 0, 0, 20, tzinfo=timezone.utc)
+        response = self.request_json(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_1_ENTER",
+                "eventTime": checkpoint_time.isoformat().replace("+00:00", "Z"),
+                "reason": "站点 NFC 打卡失败，现场人工核对",
+                "deviceId": "judge-test-01",
+                "adminCode": "test-clear-code-1234",
+            },
+        )
+        self.assertEqual(response["status"], "accepted")
+        self.assertEqual(response["stationId"], "STATION_1_ENTER")
+        self.assertEqual(response["eventTime"], "2026-01-01T00:00:20.000Z")
+        self.assertEqual(response["event"]["source"], "judge-manual-checkpoint")
+
+        result = self.request_json("/api/leaderboard?raceId=auto-test")["leaderboard"][0]
+        self.assertEqual(result["checkpointTimes"]["STATION_1_ENTER"], "2026-01-01T00:00:20.000Z")
+        self.assertEqual(result["latestCheckpoint"], "STATION_1_ENTER")
+
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_1_ENTER",
+                "eventTime": "2026-01-01T00:00:21Z",
+                "reason": "重复人工确认",
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.CONFLICT,
+        )
+
+    def test_judge_manual_checkpoint_rejects_unstarted_invalid_station_and_bad_code(self):
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_1_ENTER",
+                "eventTime": "2026-01-01T00:00:10Z",
+                "reason": "x" * 501,
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.BAD_REQUEST,
+        )
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_1_ENTER",
+                "eventTime": "2026-01-01T00:00:10Z",
+                "reason": "现场核对",
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.CONFLICT,
+        )
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "NOT_A_CHECKPOINT",
+                "eventTime": "2026-01-01T00:00:10Z",
+                "reason": "现场核对",
+                "adminCode": "test-clear-code-1234",
+            },
+            HTTPStatus.BAD_REQUEST,
+        )
+        self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                "raceId": "auto-test",
+                "participantId": 1,
+                "stationId": "STATION_1_ENTER",
+                "eventTime": "2026-01-01T00:00:10Z",
+                "reason": "现场核对",
+                "adminCode": "wrong-code",
+            },
+            HTTPStatus.FORBIDDEN,
+        )
+
+    def test_manual_checkpoint_only_accepts_the_next_race_checkpoint(self):
+        self.request_json(
+            "/api/race-config",
+            {
+                "raceId": "auto-test",
+                "name": "Sequential Checkpoint Test",
+                "mode": "station_checkpoints",
+                "stationCount": 5,
+                "checkpointLayout": "station_starts",
+                "entryType": "team",
+            },
+        )
+        base_payload = {
+            "raceId": "auto-test",
+            "participantId": 1,
+            "reason": "现场人工确认",
+            "adminCode": "test-clear-code-1234",
+        }
+
+        before_start = self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "STATION_1_START",
+                "eventTime": "2026-01-01T00:00:10Z",
+            },
+            HTTPStatus.CONFLICT,
+        )
+        self.assertEqual(before_start["status"], "wrong_checkpoint")
+        self.assertIsNone(before_start["latestCheckpoint"])
+        self.assertEqual(before_start["expectedCheckpoint"], "START")
+
+        self.request_json(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "START",
+                "eventTime": "2026-01-01T00:00:10Z",
+            },
+        )
+        skipped_station = self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "STATION_2_START",
+                "eventTime": "2026-01-01T00:00:30Z",
+            },
+            HTTPStatus.CONFLICT,
+        )
+        self.assertEqual(skipped_station["latestCheckpoint"], "START")
+        self.assertEqual(skipped_station["expectedCheckpoint"], "STATION_1_START")
+
+        self.request_json(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "STATION_1_START",
+                "eventTime": "2026-01-01T00:00:20Z",
+            },
+        )
+        previous_station = self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "START",
+                "eventTime": "2026-01-01T00:00:25Z",
+            },
+            HTTPStatus.CONFLICT,
+        )
+        self.assertEqual(previous_station["latestCheckpoint"], "STATION_1_START")
+        self.assertEqual(previous_station["expectedCheckpoint"], "STATION_2_START")
+
+        accepted = self.request_json(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "STATION_2_START",
+                "eventTime": "2026-01-01T00:00:30Z",
+            },
+        )
+        self.assertEqual(accepted["stationId"], "STATION_2_START")
+
+        for station_number, second in ((3, 40), (4, 50)):
+            self.request_json(
+                "/api/manual-checkpoints",
+                {
+                    **base_payload,
+                    "stationId": f"STATION_{station_number}_START",
+                    "eventTime": f"2026-01-01T00:00:{second:02d}Z",
+                },
+            )
+
+        finish = self.request_json(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "STATION_5_START",
+                "eventTime": "2026-01-01T00:01:00Z",
+            },
+        )
+        self.assertEqual(finish["stationIds"], ["STATION_5_START", "END"])
+        self.assertEqual(
+            [event["station_id"] for event in finish["events"]],
+            ["STATION_5_START", "END"],
+        )
+        self.assertEqual(
+            {event["event_time"] for event in finish["events"]},
+            {"2026-01-01T00:01:00.000Z"},
+        )
+
+        result = self.request_json("/api/leaderboard?raceId=auto-test")["leaderboard"][0]
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(result["latestCheckpoint"], "END")
+        self.assertEqual(
+            result["checkpointTimes"]["STATION_5_START"],
+            result["checkpointTimes"]["END"],
+        )
+        already_finished = self.assert_post_error(
+            "/api/manual-checkpoints",
+            {
+                **base_payload,
+                "stationId": "END",
+                "eventTime": "2026-01-01T00:01:01Z",
+            },
+            HTTPStatus.CONFLICT,
+        )
+        self.assertIsNone(already_finished["expectedCheckpoint"])
+
     def test_participant_entries_support_individual_doubles_and_team(self):
         doubles = self.request_json(
             "/api/participants",
@@ -1404,6 +1918,43 @@ class SupabaseSerializationTests(unittest.TestCase):
         )
 
 
+class DefaultRaceProfileTests(unittest.TestCase):
+    def test_defaults_are_limited_to_public_series_and_test_data(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            original_db_path = server.DB_PATH
+            server.DB_PATH = Path(tempdir) / "timing.sqlite3"
+            try:
+                server.init_db()
+                with server.connect_db() as db:
+                    race_ids = {
+                        row["race_id"]
+                        for row in db.execute("SELECT race_id FROM race_profiles")
+                    }
+                    test_profile = server.race_profile_from_row(
+                        db.execute(
+                            "SELECT * FROM race_profiles WHERE race_id = ?",
+                            ("nfc-test-001",),
+                        ).fetchone()
+                    )
+            finally:
+                server.DB_PATH = original_db_path
+
+        self.assertEqual(
+            race_ids,
+            {
+                "hoka-race-sh",
+                "hoka-race-hz",
+                "hoka-race-final",
+                "nfc-test-001",
+            },
+        )
+        self.assertEqual(test_profile["name"], "HOKA 团队挑战赛 - 测试数据")
+        self.assertEqual(test_profile["mode"], "station_checkpoints")
+        self.assertEqual(test_profile["station_count"], 5)
+        self.assertEqual(test_profile["entry_type"], "team")
+        self.assertEqual(test_profile["checkpoints"], server.build_station_checkpoints(5))
+
+
 class RaceProfileTests(TimingApiTests):
     def setUp(self):
         super().setUp()
@@ -1482,6 +2033,13 @@ class RaceProfileTests(TimingApiTests):
         )
         hoka = self.request_json("/api/race-config?raceId=hoka-race")["race"]
         self.assertEqual(hoka["entryType"], "team")
+        hoka_sh = self.request_json("/api/race-config?raceId=hoka-race-sh")["race"]
+        self.assertEqual(hoka_sh["checkpointLayout"], "station_starts")
+        self.assertEqual(
+            hoka_sh["checkpoints"],
+            ["START", "STATION_1_START", "STATION_2_START", "STATION_3_START",
+             "STATION_4_START", "STATION_5_START", "END"],
+        )
 
     def test_boundary_station_mode_uses_six_devices_and_adjacent_splits(self):
         race_id = "hoka-boundary-test"
@@ -1557,7 +2115,7 @@ class RaceProfileTests(TimingApiTests):
             },
         )
 
-    def test_start_groups_persist_orders_and_expose_waves(self):
+    def test_start_queue_does_not_expose_legacy_orders_or_waves(self):
         race = self.request_json(
             "/api/race-config",
             {
@@ -1596,13 +2154,13 @@ class RaceProfileTests(TimingApiTests):
 
         queue = self.request_json("/api/start-queue?raceId=auto-test")
         entries = {entry["cardCode"]: entry for entry in queue["entries"]}
-        self.assertEqual(queue["summary"]["startGroupSize"], 2)
-        self.assertEqual(entries["SIM-001"]["startOrder"], 1)
-        self.assertEqual(entries["SIM-001"]["startWave"], 1)
-        self.assertEqual(entries["SIM-002"]["startWave"], 1)
-        self.assertEqual(entries["SIM-005"]["startWave"], 3)
+        self.assertNotIn("startGroupSize", queue["summary"])
+        self.assertNotIn("startOrder", entries["SIM-001"])
+        self.assertNotIn("startWave", entries["SIM-001"])
+        self.assertNotIn("startWave", entries["SIM-002"])
+        self.assertNotIn("startWave", entries["SIM-005"])
 
-    def test_judge_start_requires_one_checked_in_wave_and_respects_group_size(self):
+    def test_judge_start_accepts_ready_participants_across_legacy_waves(self):
         self.request_json(
             "/api/race-config",
             {
@@ -1653,42 +2211,36 @@ class RaceProfileTests(TimingApiTests):
             "raceId": "auto-test",
             "deviceId": "judge-console-test",
             "adminCode": "test-clear-code-1234",
+            "startedAt": "2026-08-10T07:30:45.123Z",
         }
-        self.assert_post_error(
-            "/api/start-race",
-            {
-                **base_payload,
-                "participantIds": [first["id"], third["id"]],
-            },
-            HTTPStatus.BAD_REQUEST,
-        )
-        self.assert_post_error(
+        started = self.request_json(
             "/api/start-race",
             {
                 **base_payload,
                 "participantIds": [first["id"], second["id"], third["id"]],
             },
-            HTTPStatus.BAD_REQUEST,
         )
-
-        started = self.request_json(
-            "/api/start-race",
-            {
-                **base_payload,
-                "participantIds": [first["id"], second["id"]],
-            },
+        self.assertNotIn("startWave", started)
+        self.assertEqual(started["startedAt"], base_payload["startedAt"])
+        self.assertEqual(started["startedCount"], 3)
+        self.assertEqual(len(started["participants"]), 3)
+        self.assertEqual(
+            {participant["startedAt"] for participant in started["participants"]},
+            {base_payload["startedAt"]},
         )
-        self.assertEqual(started["startWave"], 1)
-        self.assertEqual(started["startedCount"], 2)
-        self.assertEqual(len(started["participants"]), 2)
 
         queue = self.request_json("/api/start-queue?raceId=auto-test")
         statuses = {
             entry["cardCode"]: entry["status"] for entry in queue["entries"]
         }
+        recorded_start_times = {
+            entry["startedAt"] for entry in queue["entries"]
+            if entry["cardCode"] in {"SIM-001", "SIM-002", "SIM-003"}
+        }
         self.assertEqual(statuses["SIM-001"], "started")
         self.assertEqual(statuses["SIM-002"], "started")
-        self.assertEqual(statuses["SIM-003"], "ready")
+        self.assertEqual(statuses["SIM-003"], "started")
+        self.assertEqual(recorded_start_times, {base_payload["startedAt"]})
 
 
 if __name__ == "__main__":

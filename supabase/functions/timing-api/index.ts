@@ -8,6 +8,18 @@ const CORS_HEADERS = {
 type JsonObject = Record<string, unknown>;
 type DatabaseRow = Record<string, any>;
 
+const JUDGE_ROLES = ["start", "station_1", "station_2", "station_3", "station_4", "station_5"];
+const JUDGE_ROLE_LABELS: Record<string, string> = {
+  start: "开始",
+  station_1: "站点 1",
+  station_2: "站点 2",
+  station_3: "站点 3",
+  station_4: "站点 4",
+  station_5: "站点 5 / 冲线",
+};
+const JUDGE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
+const JUDGE_PASSWORD_ITERATIONS = 240_000;
+
 function jsonResponse(payload: JsonObject, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -33,6 +45,7 @@ function parseKeyMap(value: string | undefined): string[] {
 
 function publicApiKeys(): string[] {
   return [
+    Deno.env.get("TIMING_PUBLIC_KEY") || "",
     ...parseKeyMap(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS")),
     Deno.env.get("SUPABASE_ANON_KEY") || "",
   ].filter(Boolean);
@@ -40,7 +53,35 @@ function publicApiKeys(): string[] {
 
 function serviceApiKey(): string {
   const modernKeys = parseKeyMap(Deno.env.get("SUPABASE_SECRET_KEYS"));
-  return modernKeys[0] || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  return Deno.env.get("DATABASE_REST_SERVICE_KEY")
+    || modernKeys[0]
+    || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+    || "";
+}
+
+function storageProviderName(): string {
+  return Deno.env.get("TIMING_STORAGE_PROVIDER") || "supabase";
+}
+
+function timingEnvironment(): string {
+  return Deno.env.get("TIMING_ENVIRONMENT")
+    || (storageProviderName() === "supabase" ? "production" : "development");
+}
+
+function databaseResourceUrl(resource: string): URL {
+  const configuredRestUrl = Deno.env.get("DATABASE_REST_URL") || "";
+  if (configuredRestUrl) {
+    const baseUrl = configuredRestUrl.endsWith("/")
+      ? configuredRestUrl
+      : `${configuredRestUrl}/`;
+    return new URL(resource, baseUrl);
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  if (!supabaseUrl) {
+    throw new Error("Database REST URL is not configured");
+  }
+  return new URL(`/rest/v1/${resource}`, supabaseUrl);
 }
 
 function isAuthorized(request: Request): boolean {
@@ -70,13 +111,12 @@ async function databaseRequest(
     prefer?: string;
   } = {},
 ): Promise<any> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const secretKey = serviceApiKey();
-  if (!supabaseUrl || !secretKey) {
-    throw new Error("Supabase server credentials are not configured");
+  if (!secretKey) {
+    throw new Error("Database REST credentials are not configured");
   }
 
-  const url = new URL(`/rest/v1/${resource}`, supabaseUrl);
+  const url = databaseResourceUrl(resource);
   for (const [key, value] of Object.entries(options.query || {})) {
     url.searchParams.set(key, value);
   }
@@ -109,10 +149,10 @@ async function databaseRequest(
       await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
       continue;
     }
-    throw new Error(`Supabase HTTP ${response.status}: ${detail}`);
+    throw new Error(`Database REST HTTP ${response.status}: ${detail}`);
   }
 
-  throw new Error("Supabase request retry limit reached");
+  throw new Error("Database REST request retry limit reached");
 }
 
 function requiredRaceId(value: unknown): string {
@@ -121,6 +161,16 @@ function requiredRaceId(value: unknown): string {
     throw new Error("raceId must contain only letters, numbers, hyphens, or underscores");
   }
   return raceId;
+}
+
+function requestedStartTime(value: unknown): string {
+  const raw = String(value || "").trim();
+  if (!raw) return new Date().toISOString();
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new Error("startedAt must be an ISO 8601 timestamp");
+  }
+  return parsed.toISOString();
 }
 
 async function secretsMatch(supplied: string, expected: string): Promise<boolean> {
@@ -136,6 +186,154 @@ async function secretsMatch(supplied: string, expected: string): Promise<boolean
     difference |= suppliedBytes[index] ^ expectedBytes[index];
   }
   return difference === 0;
+}
+
+function base64UrlEncode(value: Uint8Array | string): string {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/")
+    + "=".repeat((4 - (value.length % 4)) % 4);
+  const binary = atob(normalized);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function signJudgeToken(value: string): Promise<string> {
+  const secret = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return base64UrlEncode(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value))));
+}
+
+async function issueJudgeToken(raceId: string, role: string, displayName: string): Promise<string> {
+  const payload = base64UrlEncode(JSON.stringify({
+    raceId,
+    role,
+    displayName,
+    expiresAt: Math.floor(Date.now() / 1000) + JUDGE_TOKEN_TTL_SECONDS,
+  }));
+  return `${payload}.${await signJudgeToken(payload)}`;
+}
+
+async function verifyJudgeToken(token: string, raceId: string): Promise<JsonObject | null> {
+  const [encodedPayload, suppliedSignature] = token.split(".", 2);
+  if (!encodedPayload || !suppliedSignature) return null;
+  const expectedSignature = await signJudgeToken(encodedPayload);
+  if (expectedSignature !== suppliedSignature) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload))) as JsonObject;
+    const expiresAt = Number(payload.expiresAt || 0);
+    if (!JUDGE_ROLES.includes(String(payload.role || "")) && payload.role !== "admin") return null;
+    if (![raceId, "*"].includes(String(payload.raceId || "")) || expiresAt <= Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function deriveJudgePassword(password: string, salt: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: JUDGE_PASSWORD_ITERATIONS },
+    key,
+    256,
+  );
+  return [...new Uint8Array(bits)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function judgeRoleCheckpoints(profile: DatabaseRow, role: string): string[] {
+  if (role === "admin") return [];
+  if (role === "start") return ["START"];
+  const stationNumber = Number(String(role).replace("station_", ""));
+  if (!Number.isInteger(stationNumber) || profile.mode !== "station_checkpoints") return [];
+  const checkpoints = Array.isArray(profile.checkpoints)
+    ? profile.checkpoints.map((checkpoint: unknown) => String(checkpoint))
+    : [];
+  if (checkpoints.includes("STATION_1_START")) {
+    const allowed: string[] = [];
+    const directCheckpoint = `STATION_${stationNumber}_START`;
+    if (checkpoints.includes(directCheckpoint)) allowed.push(directCheckpoint);
+    if (stationNumber >= Number(profile.station_count || 0) && checkpoints.includes("END")) {
+      allowed.push("END");
+    }
+    return allowed;
+  }
+  const boundaryCheckpoint = stationNumber >= Number(profile.station_count || 0)
+    ? "END"
+    : `STATION_${stationNumber + 1}_START`;
+  return checkpoints.includes(boundaryCheckpoint) ? [boundaryCheckpoint] : [];
+}
+
+function judgeRoleCheckpoint(profile: DatabaseRow, role: string): string | null {
+  return judgeRoleCheckpoints(profile, role)[0] || null;
+}
+
+function nextRaceCheckpoint(
+  profile: DatabaseRow,
+  recordedCheckpoints: string[],
+): { latestCheckpoint: string | null; expectedCheckpoint: string | null } {
+  const checkpoints: string[] = Array.isArray(profile.checkpoints)
+    ? profile.checkpoints.map((checkpoint: unknown) => String(checkpoint))
+    : [];
+  const checkpointIndex = new Map<string, number>(
+    checkpoints.map((checkpoint, index) => [checkpoint, index] as const),
+  );
+  let latestCheckpoint: string | null = null;
+  let latestIndex = -1;
+  for (const checkpoint of recordedCheckpoints) {
+    const index = checkpointIndex.get(checkpoint) ?? -1;
+    if (index > latestIndex) {
+      latestCheckpoint = checkpoint;
+      latestIndex = index;
+    }
+  }
+  return {
+    latestCheckpoint,
+    expectedCheckpoint: latestIndex + 1 < checkpoints.length ? checkpoints[latestIndex + 1] : null,
+  };
+}
+
+function manualCheckpointStationIds(profile: DatabaseRow, stationId: string): string[] {
+  const checkpoints = Array.isArray(profile.checkpoints)
+    ? profile.checkpoints.map((checkpoint: unknown) => String(checkpoint))
+    : [];
+  const finalStation = `STATION_${Number(profile.station_count || 0)}_START`;
+  const finalStationIndex = checkpoints.indexOf(finalStation);
+  if (
+    profile.mode === "station_checkpoints"
+    && checkpointLayout(profile) === "station_starts"
+    && stationId === finalStation
+    && finalStationIndex >= 0
+    && checkpoints[finalStationIndex + 1] === "END"
+  ) {
+    return [stationId, "END"];
+  }
+  return [stationId];
+}
+
+async function judgeAuthorization(payload: JsonObject, raceId: string): Promise<JsonObject | null> {
+  const token = await verifyJudgeToken(String(payload.judgeToken || ""), raceId);
+  if (token) return token;
+  const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+  if (configuredCode.length >= 8 && await secretsMatch(String(payload.adminCode || ""), configuredCode)) {
+    return { role: "admin", raceId, displayName: "管理员" };
+  }
+  return null;
 }
 
 function normalizeEntryType(value: unknown): string {
@@ -221,6 +419,25 @@ function checkpointLayout(profile: DatabaseRow): string | null {
   return profile.checkpoints.includes("STATION_1_START")
     ? "station_starts"
     : "station_boundaries";
+}
+
+function checkpointMetadata(checkpoint: string): JsonObject {
+  if (checkpoint === "START") {
+    return { stationLabel: "Race Start", stationNumber: null, checkpointType: "start" };
+  }
+  if (checkpoint === "END") {
+    return { stationLabel: "Race Finish", stationNumber: null, checkpointType: "end" };
+  }
+  const match = checkpoint.match(/^STATION_(\d+)_(ENTER|EXIT|START)$/);
+  if (match) {
+    const checkpointType = match[2].toLowerCase();
+    return {
+      stationLabel: `Station ${match[1]} ${checkpointType[0].toUpperCase()}${checkpointType.slice(1)}`,
+      stationNumber: Number(match[1]),
+      checkpointType,
+    };
+  }
+  return { stationLabel: checkpoint, stationNumber: null, checkpointType: "unknown" };
 }
 
 function defaultRaceProfile(raceId: string): DatabaseRow {
@@ -367,7 +584,6 @@ function buildStartQueue(
   participants: DatabaseRow[],
   checkins: DatabaseRow[],
   startEvents: DatabaseRow[],
-  startGroupSize: number,
 ): JsonObject {
   const checkinByParticipant = new Map(
     checkins.map((checkin) => [Number(checkin.participant_id), checkin]),
@@ -383,15 +599,12 @@ function buildStartQueue(
     const checkin = checkinByParticipant.get(participantId) || null;
     const startEvent = startByParticipant.get(participantId) || null;
     const status = startEvent ? "started" : checkin?.status === "ready" ? "ready" : "not_ready";
-    const startOrder = Number(participant.start_order || 1);
     return {
       participantId,
       athleteName: participant.athlete_name,
       entryType: participant.entry_type || "individual",
       memberNames: Array.isArray(participant.member_names) ? participant.member_names : [],
       cardCode: participant.card_code,
-      startOrder,
-      startWave: Math.floor((startOrder - 1) / startGroupSize) + 1,
       checkInStatus: participant.check_in_status || "not_checked_in",
       status,
       confirmedAt: checkin?.confirmed_at || null,
@@ -402,8 +615,8 @@ function buildStartQueue(
     const statusOrder: Record<string, number> = { ready: 0, not_ready: 1, started: 2 };
     const statusDifference = statusOrder[left.status] - statusOrder[right.status];
     if (statusDifference) return statusDifference;
-    const startOrderDifference = Number(left.startOrder) - Number(right.startOrder);
-    if (startOrderDifference) return startOrderDifference;
+    const confirmedAtDifference = String(left.confirmedAt || "").localeCompare(String(right.confirmedAt || ""));
+    if (confirmedAtDifference) return confirmedAtDifference;
     return String(left.athleteName || "").localeCompare(String(right.athleteName || ""));
   });
 
@@ -414,7 +627,6 @@ function buildStartQueue(
       ready: entries.filter((entry) => entry.status === "ready").length,
       started: entries.filter((entry) => entry.status === "started").length,
       waiting: entries.filter((entry) => entry.status === "not_ready").length,
-      startGroupSize,
     },
   };
 }
@@ -846,10 +1058,12 @@ async function handleGet(route: string, url: URL): Promise<Response> {
     });
     return jsonResponse({
       ok: true,
+      environment: timingEnvironment(),
       time: new Date().toISOString(),
       storage: {
-        primary: "supabase",
-        supabaseConfigured: true,
+        primary: storageProviderName(),
+        databaseConfigured: true,
+        supabaseConfigured: storageProviderName() === "supabase",
         raceProfileProbe: rows.length,
       },
     });
@@ -916,12 +1130,43 @@ async function handleGet(route: string, url: URL): Promise<Response> {
       raceId,
       race: raceResponse(profile),
       generatedAt: new Date().toISOString(),
-      ...buildStartQueue(
-        participants,
-        checkins,
-        startEvents,
-        Number(profile.start_group_size || 1),
-      ),
+      ...buildStartQueue(participants, checkins, startEvents),
+    });
+  }
+
+  if (route === "/judge-station-accounts") {
+    const raceId = requiredRaceId(url.searchParams.get("raceId"));
+    const authorization = await judgeAuthorization({
+      judgeToken: url.searchParams.get("judgeToken") || "",
+      adminCode: url.searchParams.get("adminCode") || "",
+    }, raceId);
+    if (!authorization || authorization.role !== "admin") {
+      return jsonResponse({ ok: false, error: "Administrator authorization is required" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    const rows = await databaseRequest("judge_station_accounts", {
+      query: {
+        select: "id,race_id,role,username,display_name,active,created_at,updated_at",
+        race_id: `eq.${raceId}`,
+        order: "id.asc",
+      },
+    });
+    return jsonResponse({
+      ok: true,
+      raceId,
+      accounts: rows.map((row: DatabaseRow) => ({
+        id: row.id,
+        raceId: row.race_id,
+        role: row.role,
+        roleLabel: JUDGE_ROLE_LABELS[row.role] || row.role,
+        username: row.username,
+        displayName: row.display_name,
+        active: Boolean(row.active),
+        allowedCheckpoint: judgeRoleCheckpoint(profile, row.role),
+        allowedCheckpoints: judgeRoleCheckpoints(profile, row.role),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
     });
   }
 
@@ -992,11 +1237,111 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     if (configuredCode.length < 8) {
       return jsonResponse({ ok: false, error: "Judge authorization is not configured" }, 503);
     }
-    const suppliedCode = String(payload.adminCode || "");
-    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
+    const raceId = String(payload.raceId || "").trim();
+    const username = String(payload.username || "").trim().toLowerCase();
+    const password = String(payload.password || "");
+    let role = "admin";
+    let displayName = "管理员";
+    if (username === "admin") {
+      if (!await secretsMatch(password, configuredCode)) {
+        return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+      }
+      role = "admin";
+      displayName = "全局管理员";
+    } else if (username) {
+      if (!raceId) throw new Error("raceId is required for a station account");
+      const rows = await databaseRequest("judge_station_accounts", {
+        query: { select: "*", race_id: `eq.${raceId}`, username: `eq.${username}`, active: "eq.true", limit: "1" },
+      });
+      const account = rows[0];
+      if (!account) return jsonResponse({ ok: false, error: "Invalid judge account or password" }, 403);
+      const digest = await deriveJudgePassword(password, String(account.password_salt || ""));
+      if (digest !== String(account.password_hash || "")) {
+        return jsonResponse({ ok: false, error: "Invalid judge account or password" }, 403);
+      }
+      role = String(account.role);
+      displayName = String(account.display_name || JUDGE_ROLE_LABELS[role] || role);
+    } else if (!await secretsMatch(String(payload.adminCode || ""), configuredCode)) {
       return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
     }
-    return jsonResponse({ ok: true, authenticated: true });
+    const profile = raceId ? await ensureRaceProfile(raceId) : null;
+    return jsonResponse({
+      ok: true,
+      authenticated: true,
+      role,
+      displayName,
+      raceId: raceId || "*",
+      judgeToken: await issueJudgeToken(
+        role === "admin" && username === "admin" ? "*" : raceId || "*",
+        role,
+        displayName,
+      ),
+      allowedCheckpoint: profile && role !== "admin" ? judgeRoleCheckpoint(profile, role) : null,
+      allowedCheckpoints: profile && role !== "admin" ? judgeRoleCheckpoints(profile, role) : [],
+    });
+  }
+
+  if (route === "/judge-station-accounts") {
+    const raceId = requiredRaceId(payload.raceId);
+    const authorization = await judgeAuthorization(payload, raceId);
+    if (!authorization || authorization.role !== "admin") {
+      return jsonResponse({ ok: false, error: "Administrator authorization is required" }, 403);
+    }
+    const role = String(payload.role || "").trim().toLowerCase();
+    const username = String(payload.username || "").trim().toLowerCase();
+    const password = String(payload.password || "");
+    const displayName = String(payload.displayName || "").trim();
+    const active = payload.active !== false;
+    if (!JUDGE_ROLES.includes(role)) throw new Error("role must be one of the six judge station roles");
+    if (!/^[a-z0-9._-]{2,50}$/.test(username)) throw new Error("username must contain 2-50 letters, numbers, dots, hyphens, or underscores");
+    if (displayName.length > 80) throw new Error("displayName must be 80 characters or fewer");
+    const existingRows = await databaseRequest("judge_station_accounts", {
+      query: { select: "*", race_id: `eq.${raceId}`, role: `eq.${role}`, limit: "1" },
+    });
+    const existing = existingRows[0];
+    if (!existing && password.length < 8) throw new Error("password is required and must be at least 8 characters when creating an account");
+    if (password && (password.length < 8 || password.length > 200)) throw new Error("password must be between 8 and 200 characters");
+    const now = new Date().toISOString();
+    let passwordSalt = String(existing?.password_salt || "");
+    let passwordHash = String(existing?.password_hash || "");
+    if (password) {
+      passwordSalt = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
+      passwordHash = await deriveJudgePassword(password, passwordSalt);
+    }
+    const record = {
+      race_id: raceId,
+      role,
+      username,
+      password_hash: passwordHash,
+      password_salt: passwordSalt,
+      display_name: displayName || existing?.display_name || JUDGE_ROLE_LABELS[role],
+      active,
+      created_at: existing?.created_at || now,
+      updated_at: now,
+    };
+    const rows = await databaseRequest("judge_station_accounts", {
+      method: "POST",
+      query: { on_conflict: "race_id,role" },
+      body: record,
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+    const profile = await ensureRaceProfile(raceId);
+    return jsonResponse({
+      ok: true,
+      account: {
+        id: rows[0].id,
+        raceId,
+        role,
+        roleLabel: JUDGE_ROLE_LABELS[role],
+        username,
+        displayName: record.display_name,
+        active,
+        allowedCheckpoint: judgeRoleCheckpoint(profile, role),
+        allowedCheckpoints: judgeRoleCheckpoints(profile, role),
+        createdAt: rows[0].created_at,
+        updatedAt: rows[0].updated_at,
+      },
+    }, 201);
   }
 
   if (route === "/start-checkins") {
@@ -1111,7 +1456,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       memberNames: Array.isArray(participant.member_names) ? participant.member_names : [],
       confirmedAt: rows[0].confirmed_at,
       receivedAt: now,
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     });
   }
@@ -1123,12 +1468,12 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     }
     const raceId = requiredRaceId(payload.raceId);
     const participantId = Number(payload.participantId);
-    const suppliedCode = String(payload.adminCode || "");
     if (!Number.isSafeInteger(participantId) || participantId <= 0) {
       return jsonResponse({ ok: false, error: "participantId is required" }, 400);
     }
-    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
-      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    const authorization = await judgeAuthorization(payload, raceId);
+    if (!authorization || !["admin", "start"].includes(String(authorization.role))) {
+      return jsonResponse({ ok: false, error: "Start judge authorization is required" }, 403);
     }
     const profile = await ensureRaceProfile(raceId);
     if (profile.is_template || profile.status === "finalized") {
@@ -1165,7 +1510,6 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       return jsonResponse({ ok: false, error: "Judge authorization is not configured" }, 503);
     }
     const raceId = requiredRaceId(payload.raceId);
-    const suppliedCode = String(payload.adminCode || "");
     const deviceId = String(payload.deviceId || "judge-console").trim();
     const requestedIds = Array.isArray(payload.participantIds) ? payload.participantIds : [];
     if (
@@ -1179,8 +1523,9 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     if (!deviceId || deviceId.length > 100) {
       return jsonResponse({ ok: false, error: "deviceId must be between 1 and 100 characters" }, 400);
     }
-    if (!suppliedCode || !(await secretsMatch(suppliedCode, configuredCode))) {
-      return jsonResponse({ ok: false, error: "Invalid administrator code" }, 403);
+    const authorization = await judgeAuthorization(payload, raceId);
+    if (!authorization || !["admin", "start"].includes(String(authorization.role))) {
+      return jsonResponse({ ok: false, error: "Start judge authorization is required" }, 403);
     }
     const profile = await ensureRaceProfile(raceId);
     if (profile.is_template) {
@@ -1197,7 +1542,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     const idFilter = `in.(${participantIds.join(",")})`;
     const [participants, readyCheckins, startEvents, manualResults] = await Promise.all([
       databaseRequest("participants", {
-        query: { select: "id,start_order", race_id: `eq.${raceId}`, id: idFilter },
+        query: { select: "id", race_id: `eq.${raceId}`, id: idFilter },
       }),
       databaseRequest("start_checkins", {
         query: {
@@ -1227,24 +1572,6 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     if (participants.length !== participantIds.length) {
       return jsonResponse({ ok: false, error: "One or more selected participants do not belong to this race" }, 400);
     }
-    const startGroupSize = Number(profile.start_group_size || 1);
-    if (participants.length > startGroupSize) {
-      return jsonResponse({
-        ok: false,
-        error: `This race allows at most ${startGroupSize} participants per start`,
-      }, 400);
-    }
-    const startWaves = new Set(
-      participants.map((participant) => (
-        Math.floor((Number(participant.start_order || 1) - 1) / startGroupSize) + 1
-      )),
-    );
-    if (startWaves.size !== 1) {
-      return jsonResponse({
-        ok: false,
-        error: "Selected participants must belong to the same start wave",
-      }, 400);
-    }
     if (startEvents.length || manualResults.length) {
       return jsonResponse({ ok: false, status: "already_started", error: "One or more selected participants have already started" }, 409);
     }
@@ -1252,12 +1579,13 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       return jsonResponse({ ok: false, status: "start_checkin_required", error: "Every selected participant must pass the start check-in first" }, 409);
     }
 
+    const startedAt = requestedStartTime(payload.startedAt);
     const result = await databaseRequest("rpc/start_race_batch", {
       method: "POST",
       body: {
         p_race_id: raceId,
         p_participant_ids: participantIds,
-        p_started_at: new Date().toISOString(),
+        p_started_at: startedAt,
         p_device_id: deviceId,
       },
     });
@@ -1619,7 +1947,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     return jsonResponse({
       ok: true,
       participant: rows[0],
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     });
   }
@@ -1748,9 +2076,316 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       adjustment: resultAdjustmentResponse(rows[0]),
       totalAdjustmentMs: existingTotalMs + adjustmentMs,
       finalElapsedMs: rawElapsedMs + existingTotalMs + adjustmentMs,
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     }, 201);
+  }
+
+  if (route === "/manual-checkpoints") {
+    const configuredCode = Deno.env.get("LEADERBOARD_CLEAR_CODE") || "";
+    if (configuredCode.length < 8) {
+      return jsonResponse({ ok: false, error: "Manual checkpoint entry is not configured" }, 503);
+    }
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const stationId = String(payload.stationId || "").trim().toUpperCase();
+    const eventTimeInput = String(payload.eventTime || "").trim();
+    const reason = String(payload.reason || "").trim();
+    const auditReason = reason || "现场裁判人工确认";
+    const deviceId = String(payload.deviceId || "judge-console").trim();
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      throw new Error("participantId is required");
+    }
+    if (!stationId) throw new Error("stationId is required");
+    if (deviceId.length > 100) throw new Error("deviceId must be 100 characters or fewer");
+    if (reason.length > 500) throw new Error("reason must be 500 characters or fewer");
+    const authorization = await judgeAuthorization(payload, raceId);
+    if (!authorization) {
+      return jsonResponse({ ok: false, error: "Judge authorization is required" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse({ ok: false, status: "race_finalized", error: "This race has ended" }, 409);
+    }
+    if (!profile.checkpoints.includes(stationId)) {
+      throw new Error("stationId is not part of this race profile");
+    }
+    const allowedCheckpoints = judgeRoleCheckpoints(profile, String(authorization.role || ""));
+    if (authorization.role !== "admin" && !allowedCheckpoints.includes(stationId)) {
+      return jsonResponse({
+        ok: false,
+        status: "checkpoint_not_allowed",
+        error: "This judge account cannot confirm the selected checkpoint",
+        allowedCheckpoint: allowedCheckpoints[0] || null,
+        allowedCheckpoints,
+      }, 403);
+    }
+    if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(eventTimeInput)) {
+      throw new Error("eventTime must be an ISO-8601 timestamp with a timezone");
+    }
+    const eventTimeMs = Date.parse(eventTimeInput);
+    if (!Number.isFinite(eventTimeMs)) throw new Error("eventTime must be ISO-8601");
+    const eventTime = new Date(eventTimeMs).toISOString();
+    const metadata = checkpointMetadata(stationId);
+    const stationIds = manualCheckpointStationIds(profile, stationId);
+    const [participants, checkpointEvents] = await Promise.all([
+      databaseRequest("participants", {
+        query: {
+          select: "id,card_code",
+          race_id: `eq.${raceId}`,
+          id: `eq.${participantId}`,
+          limit: "1",
+        },
+      }),
+      databaseRequest("timing_events", {
+        query: {
+          select: "id,station_id,event_time",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participantId}`,
+          status: "eq.accepted",
+          order: "event_time.asc,id.asc",
+        },
+      }),
+    ]);
+    if (!participants[0]) throw new Error("Participant was not found in this race");
+    const { latestCheckpoint, expectedCheckpoint } = nextRaceCheckpoint(
+      profile,
+      checkpointEvents.map((event) => String(event.station_id || "")),
+    );
+    if (stationId !== expectedCheckpoint) {
+      return jsonResponse({
+        ok: false,
+        status: "wrong_checkpoint",
+        error: "Only the participant's next checkpoint can be confirmed",
+        stationId,
+        latestCheckpoint,
+        expectedCheckpoint,
+      }, 409);
+    }
+    const latestEvent = checkpointEvents.find((event) => event.station_id === latestCheckpoint);
+    if (latestEvent && eventTimeMs < Date.parse(String(latestEvent.event_time || ""))) {
+      throw new Error("eventTime must not be earlier than the previous checkpoint time");
+    }
+    const receivedAt = new Date().toISOString();
+    const eventRows = stationIds.map((recordedStationId) => {
+      const eventId = `judge-manual-checkpoint:${crypto.randomUUID()}`;
+      const recordedMetadata = checkpointMetadata(recordedStationId);
+      return {
+        event_id: eventId,
+        race_id: raceId,
+        device_id: deviceId,
+        station_id: recordedStationId,
+        station_label: recordedMetadata.stationLabel,
+        station_number: recordedMetadata.stationNumber,
+        checkpoint_type: recordedMetadata.checkpointType,
+        card_code: participants[0].card_code,
+        serial_number: null,
+        event_time: eventTime,
+        received_at: receivedAt,
+        source: "judge-manual-checkpoint",
+        timing_mode: "manual",
+        gate_role: null,
+        duplicate_window_seconds: 10,
+        status: "accepted",
+        participant_id: participantId,
+        raw_json: {
+          eventId,
+          raceId,
+          participantId,
+          stationId: recordedStationId,
+          confirmedStationId: stationId,
+          linkedStationIds: stationIds,
+          eventTime,
+          reason: auditReason,
+          deviceId,
+          source: "judge-manual-checkpoint",
+        },
+      };
+    });
+    const rows = await databaseRequest("timing_events", {
+      method: "POST",
+      body: eventRows,
+      prefer: "return=representation",
+    });
+    if (stationId === "START") {
+      await databaseRequest("start_checkins", {
+        method: "POST",
+        query: { on_conflict: "race_id,participant_id" },
+        body: {
+          id: crypto.randomUUID(),
+          race_id: raceId,
+          participant_id: participantId,
+          device_id: deviceId,
+          status: "started",
+          confirmed_at: eventTime,
+          started_at: eventTime,
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "resolution=merge-duplicates,return=minimal",
+      });
+    }
+    return jsonResponse({
+      ok: true,
+      status: "accepted",
+      raceId,
+      participantId,
+      stationId,
+      stationIds,
+      stationLabel: metadata.stationLabel,
+      eventTime,
+      event: rows[0],
+      events: rows,
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
+      cloudError: null,
+    }, 201);
+  }
+
+  if (route === "/rollback-checkpoint") {
+    const raceId = requiredRaceId(payload.raceId);
+    const participantId = Number(payload.participantId);
+    const reason = String(payload.reason || "管理员撤回误触").trim();
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      throw new Error("participantId is required");
+    }
+    if (!reason || reason.length > 500) {
+      throw new Error("reason must be between 1 and 500 characters");
+    }
+    const authorization = await judgeAuthorization(payload, raceId);
+    if (!authorization || authorization.role !== "admin") {
+      return jsonResponse({ ok: false, error: "Administrator authorization is required" }, 403);
+    }
+    const profile = await ensureRaceProfile(raceId);
+    if (profile.is_template) {
+      return jsonResponse({
+        ok: false,
+        status: "race_template_read_only",
+        error: "This Race ID is a read-only template; create a dated race session first",
+      }, 409);
+    }
+    if (profile.status === "finalized") {
+      return jsonResponse({ ok: false, status: "race_finalized", error: "This race has ended" }, 409);
+    }
+
+    const [participants, checkpointEvents] = await Promise.all([
+      databaseRequest("participants", {
+        query: {
+          select: "id",
+          race_id: `eq.${raceId}`,
+          id: `eq.${participantId}`,
+          limit: "1",
+        },
+      }),
+      databaseRequest("timing_events", {
+        query: {
+          select: "*",
+          race_id: `eq.${raceId}`,
+          participant_id: `eq.${participantId}`,
+          status: "eq.accepted",
+          order: "event_time.asc,id.asc",
+        },
+      }),
+    ]);
+    if (!participants[0]) throw new Error("Participant was not found in this race");
+    const { latestCheckpoint } = nextRaceCheckpoint(
+      profile,
+      checkpointEvents.map((event: DatabaseRow) => String(event.station_id || "")),
+    );
+    if (!latestCheckpoint) {
+      return jsonResponse({
+        ok: false,
+        status: "nothing_to_rollback",
+        error: "This participant has no accepted checkpoint to roll back",
+      }, 409);
+    }
+
+    const latestEvent = checkpointEvents
+      .filter((event: DatabaseRow) => event.station_id === latestCheckpoint)
+      .sort((left: DatabaseRow, right: DatabaseRow) => (
+        String(right.event_time).localeCompare(String(left.event_time))
+        || Number(right.id) - Number(left.id)
+      ))[0];
+    const latestRaw = latestEvent?.raw_json && typeof latestEvent.raw_json === "object"
+      ? latestEvent.raw_json
+      : {};
+    const rawLinked = Array.isArray(latestRaw.linkedStationIds)
+      ? latestRaw.linkedStationIds.map((stationId: unknown) => String(stationId))
+      : null;
+    const linkedStationIds = rawLinked
+      && rawLinked.includes(latestCheckpoint)
+      && rawLinked.every((stationId: string) => profile.checkpoints.includes(stationId))
+      ? rawLinked
+      : [latestCheckpoint];
+    const confirmedStationId = String(latestRaw.confirmedStationId || latestCheckpoint);
+    const eventsToRevert = checkpointEvents.filter((event: DatabaseRow) => {
+      if (!linkedStationIds.includes(String(event.station_id))) return false;
+      if (linkedStationIds.length === 1) return event.id === latestEvent.id;
+      const eventRaw = event.raw_json && typeof event.raw_json === "object" ? event.raw_json : {};
+      return event.event_time === latestEvent.event_time
+        && JSON.stringify(eventRaw.linkedStationIds || null) === JSON.stringify(rawLinked)
+        && String(eventRaw.confirmedStationId || "") === confirmedStationId;
+    });
+    const revertedAt = new Date().toISOString();
+    const revertedEvents = await Promise.all(eventsToRevert.map(async (event: DatabaseRow) => {
+      const originalRaw = event.raw_json && typeof event.raw_json === "object"
+        ? event.raw_json
+        : { originalRawJson: event.raw_json };
+      const rows = await databaseRequest("timing_events", {
+        method: "PATCH",
+        query: { id: `eq.${event.id}` },
+        body: {
+          status: "reverted",
+          raw_json: {
+            ...originalRaw,
+            rollback: {
+              reason,
+              revertedAt,
+              revertedBy: authorization.displayName || "全局管理员",
+            },
+          },
+        },
+        prefer: "return=representation",
+      });
+      return rows[0];
+    }));
+
+    if (linkedStationIds.includes("START")) {
+      await databaseRequest("start_checkins", {
+        method: "PATCH",
+        query: { race_id: `eq.${raceId}`, participant_id: `eq.${participantId}` },
+        body: { status: "ready", started_at: null, updated_at: revertedAt },
+        prefer: "return=minimal",
+      });
+    }
+    const remainingEvents = await databaseRequest("timing_events", {
+      query: {
+        select: "station_id",
+        race_id: `eq.${raceId}`,
+        participant_id: `eq.${participantId}`,
+        status: "eq.accepted",
+      },
+    });
+    const { latestCheckpoint: previousCheckpoint } = nextRaceCheckpoint(
+      profile,
+      remainingEvents.map((event: DatabaseRow) => String(event.station_id || "")),
+    );
+    return jsonResponse({
+      ok: true,
+      status: "reverted",
+      raceId,
+      participantId,
+      revertedStationIds: revertedEvents.map((event: DatabaseRow) => event.station_id),
+      previousCheckpoint,
+      events: revertedEvents,
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
+      cloudError: null,
+    });
   }
 
   if (route === "/manual-results") {
@@ -1831,7 +2466,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     return jsonResponse({
       ok: true,
       manualResult: manualResultResponse(rows[0]),
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     }, 201);
   }
@@ -1925,7 +2560,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       ok: true,
       control: timingControlResponse(rows[0]),
       state: ["resume", "restore"].includes(action) ? "active" : action,
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     }, 201);
   }
@@ -1958,7 +2593,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
         ok: true,
         race: raceResponse(existing),
         releasedDeviceBindings: Array.isArray(releasedBindings) ? releasedBindings.length : 0,
-        storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+        storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
         cloudError: null,
       });
     }
@@ -1988,7 +2623,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       ok: true,
       race: raceResponse(rows[0]),
       releasedDeviceBindings: Array.isArray(releasedBindings) ? releasedBindings.length : 0,
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     });
   }
@@ -2043,7 +2678,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
       ok: true,
       race: raceResponse(rows[0]),
       action: actions[0],
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     });
   }
@@ -2123,7 +2758,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     return jsonResponse({
       ok: true,
       race: raceResponse(rows[0]),
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     });
   }
@@ -2220,7 +2855,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     return jsonResponse({
       ok: true,
       participant: rows[0],
-      storage: { localSaved: false, supabaseSaved: true, primary: "supabase" },
+      storage: { localSaved: false, supabaseSaved: true, primary: storageProviderName() },
       cloudError: null,
     });
   }
@@ -2390,7 +3025,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
             athleteName: participants[0].athlete_name,
             stationId: String(payload.stationId || ""),
             receivedAt: new Date().toISOString(),
-            storage: { localSaved: false, supabaseSaved: false, primary: "supabase" },
+            storage: { localSaved: false, supabaseSaved: false, primary: storageProviderName() },
             cloudError: null,
           });
         }
@@ -2422,7 +3057,10 @@ Deno.serve(async (request: Request) => {
     return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    const status = message.startsWith("Supabase HTTP") ? 502 : 400;
+    const status = message.startsWith("Database REST HTTP")
+      || message.startsWith("Supabase HTTP")
+      ? 502
+      : 400;
     return jsonResponse({ ok: false, error: message }, status);
   }
 });

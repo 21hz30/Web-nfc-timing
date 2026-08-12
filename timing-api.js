@@ -11,6 +11,11 @@
     : "";
 
   window.timingApiReadOnly = isReadOnlyCloudPreview;
+  window.timingEnvironment = isReadOnlyCloudPreview
+    ? "production-readonly"
+    : isLocalHost || window.location.protocol === "file:"
+      ? "development"
+      : "production";
 
   window.timingApiFetch = function timingApiFetch(input, init = {}) {
     const headers = new Headers(init.headers || {});

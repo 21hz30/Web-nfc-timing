@@ -46,8 +46,8 @@ The current proof of concept supports:
   (`hoka-race-hz`), and Final (`hoka-race-final`).
 - Separate race-day roles: race setup/binding, judge console, checkpoint phones,
   and branded audience leaderboard.
-- Configurable participants per start wave and explicit per-participant start order.
-- A `START` phone records readiness only; the judge console creates the shared start time.
+- Ready participants can be freely selected together without relying on registration order.
+- A `START` phone records readiness only; the judge console records one shared confirmation-click time.
 
 The current implementation is suitable for controlled rehearsal testing. Strong device/admin
 authentication and offline device retry are still required before handling real participant
@@ -78,6 +78,9 @@ supabase/migrations/20260722080000_add_race_reopen_and_templates.sql
 supabase/migrations/20260727090000_add_manual_results_and_timing_controls.sql
 supabase/migrations/20260729090000_add_start_checkins_and_batch_start.sql
 supabase/migrations/20260730090000_add_start_groups.sql
+supabase/migrations/20260810090000_allow_free_start_selection.sql
+supabase/migrations/20260811090000_add_judge_station_accounts.sql
+supabase/migrations/20260811110000_enable_hoka_full_station_checkpoints.sql
 ```
 
 It creates these RLS-protected tables:
@@ -137,11 +140,12 @@ startup sync retries the full local dataset.
 - Do not expose or commit `.timing-api-key`, a database password, or a service-role
   key.
 
-### Environment Variables
+### Development And Production
 
-No `.env` file is required for the current local setup. The checked-out project
-already has the project URL and publishable key defaults in `server.py`, and the
-ignored `.timing-api-key` file supplies the private server token.
+The local Python server is development by default. It uses SQLite with
+`TIMING_ENVIRONMENT=development` and does not mirror writes to Supabase unless
+`SUPABASE_SYNC_ENABLED=1` is explicitly set. The hosted domain is production and the
+Edge API reports `environment: production` from `/api/health`.
 
 For another Python-server deployment or machine, configure these environment
 variables in the process manager (the Python server does not automatically load a
@@ -156,7 +160,8 @@ TIMING_API_KEY=<the same private token as .timing-api-key>
 Optional variables:
 
 ```
-SUPABASE_SYNC_ENABLED=0       # disable cloud mirroring; default is enabled
+TIMING_ENVIRONMENT=development # development, production, or test
+SUPABASE_SYNC_ENABLED=0        # local default; set 1 only for intentional production mirroring
 TIMING_SERVER_PORT=8788       # default is 8787
 LEADERBOARD_CLEAR_CODE=...    # 8+ characters; required for local race cleanup
 ```
@@ -246,8 +251,8 @@ admin.html
 
 Purpose:
 
-- Create dated race sessions and configure station count and participants per start wave.
-- Register participant details, bind NFC card code, and assign start order.
+- Create dated race sessions and configure station count and timing mode.
+- Register participant details and bind the NFC card code without assigning a start order.
 - Edit an existing participant's Card Code, entry/team name, and member names after
   administrator-code verification. The participant ID stays unchanged so timing history
   remains attached, and duplicate Card Codes are rejected.
@@ -304,7 +309,8 @@ judge.html
 Purpose:
 
 - Show the start queue by ready, racing, finished, unchecked, and withdrawn state.
-- Start checked-in participants from one wave with one shared server timestamp.
+- Start any checked-in participants together with one shared server timestamp, regardless of their legacy registration order.
+- Manually confirm a missing station or finish timestamp from the judge console when an NFC tap fails; the event is accepted into leaderboard timing with an audited reason.
 - Add/subtract time, enter manual start/finish timestamps, and keep a required reason.
 - Confirm or restore DNF and cancel an incorrect start check-in with administrator verification.
 
@@ -392,6 +398,7 @@ POST /api/update-participant
 POST /api/delete-participant
 GET  /api/timing-events?raceId=hyrox-sim-001&limit=100
 POST /api/timing-events
+POST /api/manual-checkpoints
 GET  /api/leaderboard?raceId=hyrox-sim-001
 GET  /api/race-config?raceId=...
 POST /api/race-config

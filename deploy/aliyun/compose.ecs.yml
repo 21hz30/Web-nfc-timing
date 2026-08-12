@@ -1,0 +1,44 @@
+services:
+  migrate:
+    image: postgres:17.6-alpine
+    environment:
+      AUTHENTICATOR_PASSWORD: ${AUTHENTICATOR_PASSWORD}
+      TARGET_DATABASE_URL: ${TARGET_DATABASE_URL}
+    entrypoint: ["/bin/sh", "/deploy/scripts/migrate.sh"]
+    volumes:
+      - ../../supabase/migrations:/migrations:ro
+      - .:/deploy:ro
+
+  postgrest:
+    image: postgrest/postgrest:v14.5
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_URI: ${PGRST_DB_URI}
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+
+  timing-api:
+    build:
+      context: ../..
+      dockerfile: deploy/aliyun/Dockerfile.api
+    depends_on:
+      - postgrest
+    environment:
+      DATABASE_REST_SERVICE_KEY: ${DATABASE_REST_SERVICE_KEY}
+      DATABASE_REST_URL: http://postgrest:3000/
+      LEADERBOARD_CLEAR_CODE: ${LEADERBOARD_CLEAR_CODE}
+      TIMING_PUBLIC_KEY: ${TIMING_PUBLIC_KEY}
+      TIMING_ENVIRONMENT: production
+      TIMING_STORAGE_PROVIDER: aliyun-postgres
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/aliyun/Dockerfile.web
+    depends_on:
+      - timing-api
+    ports:
+      - "8080:8080"

@@ -4,3 +4,7 @@ data/
 supabase/.temp/
 .vercel
 .env*
+.run-local-judge.sh
+.local-judge-secrets
+deploy/aliyun/backups/
+deploy/aliyun/dist/

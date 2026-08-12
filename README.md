@@ -4,8 +4,8 @@ This repo is a minimal timing prototype for a HYROX simulation race.
 
 The operator workflow is split into four pages:
 
-- `admin.html`: create/configure a race, bind NFC cards, and assign start order.
-- `judge.html`: start checked-in waves, adjust times, enter manual times, and confirm withdrawals.
+- `admin.html`: create/configure a race, register entries, and bind NFC cards.
+- `judge.html`: start any set of ready entries together, manually confirm missed station times, adjust results, enter manual times, and confirm withdrawals.
 - `web-nfc-timing-test.html`: bind an Android phone to a race checkpoint and scan NFC cards.
 - `leaderboard.html`: branded live results for venue screens and mobile browsers.
 
@@ -59,8 +59,10 @@ http://localhost:8787/leaderboard.html
 
 The admin page owns race setup and NFC binding. The judge page owns race starts and
 audited timing decisions. The first phone checkpoint (`START`) only confirms that a
-participant is ready; the judge starts one configured wave with a shared server time.
-The leaderboard selector contains browser-only demos and database-backed race profiles.
+participant is ready; the judge freely selects ready entries and starts them with the
+shared confirmation-click time.
+The leaderboard selector is intentionally limited to the Shanghai, Hangzhou, and Final
+HOKA stages plus one browser-only test dataset.
 
 API endpoint:
 
@@ -71,7 +73,7 @@ http://localhost:8787/api/timing-events
 Leaderboard endpoint:
 
 ```text
-http://localhost:8787/api/leaderboard?raceId=hyrox-sim-001
+http://localhost:8787/api/leaderboard?raceId=hoka-race-sh
 ```
 
 SQLite database path:
@@ -80,13 +82,21 @@ SQLite database path:
 data/timing.sqlite3
 ```
 
-## Supabase Cloud Storage
+## Development And Production
 
-The local Python server mirrors participant and timing-event writes to the
-`SRC-timing` Supabase project. SQLite remains the local source used by the local
-timing logic, so a temporary internet outage does not discard a scan. The deployed
-Edge API writes transactionally to Supabase without SQLite. Every API write response
-includes storage details such as:
+Localhost is the development environment. `python3 server.py` uses SQLite and defaults
+to `TIMING_ENVIRONMENT=development` with `SUPABASE_SYNC_ENABLED=0`, so local writes do
+not reach production. The hosted `https://timing.hybridtraining.cn` API is production
+and uses the Edge API with PostgreSQL/Supabase. `GET /api/health` reports the active
+environment.
+
+Cloud mirroring from the Python server is opt-in and must name production explicitly:
+
+```bash
+TIMING_ENVIRONMENT=production SUPABASE_SYNC_ENABLED=1 python3 server.py
+```
+
+Every API write response includes storage details such as:
 
 ```json
 {
@@ -98,8 +108,8 @@ includes storage details such as:
 }
 ```
 
-At startup, the server upserts all existing SQLite records to Supabase. To run only
-that recovery sync:
+When production mirroring is explicitly enabled, the server upserts existing SQLite
+records to Supabase. To run only that recovery sync:
 
 ```bash
 python3 server.py --sync-only
@@ -170,14 +180,20 @@ Ball. Wall Ball is the final segment; there is no run after it.
 Leaderboard race choices:
 
 ```text
-src-hyrox                   browser-only mock data
-hoka-race-demo              browser-only Hoka team demo
-fitmonster-hyrox-single     read-only FitMonster template
-hoka-race                   read-only HOKA template
+hoka-race-demo              browser-only 20-team HOKA test data
 hoka-race-sh                HOKA Shanghai live data
 hoka-race-hz                HOKA Hangzhou live data
 hoka-race-final             HOKA Final live data
 ```
+
+Preview the Final's 20-team card layout without writing any race data:
+
+```text
+http://localhost:8787/leaderboard.html?raceId=hoka-race-final&preview=final-20
+```
+
+Other legacy profiles may remain in the operational database for audit or migration,
+but `leaderboard.html` does not add them to the public screen selector.
 
 Mock races cannot be cleared because they never write to the database. An official
 race requires the administrator clear code and two confirmation clicks before
@@ -202,6 +218,24 @@ Finished results can be adjusted from `judge.html`. Each
 penalty or time credit requires the administrator code and a written reason. The
 system keeps the raw NFC elapsed time unchanged, stores every signed adjustment as
 an audit record, and ranks finished participants by the adjusted final time.
+
+When an NFC station tap fails, `judge.html` can manually confirm only the team's next
+station (including the finish) for a started participant. The selected timestamp is stored as
+an accepted `timing_events` row with the judge reason and device ID, so it immediately
+appears in checkpoint splits and leaderboard progress. Earlier and later checkpoints
+remain locked. Administrators can configure six race-scoped judge accounts in
+`admin.html`: `start`, `station_1` through `station_5`. For HOKA's full-station
+layout these map to `START`, `STATION_1_START` through `STATION_5_START`, and `END`.
+The station 5 account confirms both `STATION_5_START` and the following `END` checkpoint.
+Station accounts receive a short-lived signed token after login and cannot call another
+station's endpoint. The global account uses username `admin` with the configured
+administrator password. In `judge.html`, station accounts are locked to their assigned
+station, while the global administrator can switch the visible station scope, confirm any
+team's next checkpoint, and roll back the latest accepted checkpoint. Rollback uses
+`POST /api/rollback-checkpoint`; the original timing event remains stored with status
+`reverted` and audit metadata. A paired station 5 / finish confirmation is rolled back as
+one operation. The administrator code without a username remains supported for backward
+compatibility.
 
 For exceptional cases, `judge.html` can also record a complete final result using
 either start and finish timestamps or an exact total elapsed time. These entries are
@@ -312,6 +346,23 @@ automatically selects auto/manual mode and the available checkpoints.
 
 In automatic mode, the client sends its fixed physical role. The server assigns the
 real checkpoint from that athlete's latest accepted event.
+
+Judge station recovery uses `POST /api/manual-checkpoints`:
+
+```json
+{
+  "raceId": "hoka-race-20260725-0900",
+  "participantId": 123,
+  "stationId": "STATION_2_START",
+  "eventTime": "2026-07-25T08:20:30.000Z",
+  "reason": "站点 NFC 打卡失败，现场人工核对",
+  "deviceId": "judge-console",
+  "adminCode": "..."
+}
+```
+
+The endpoint rejects templates, finalized races, unstarted participants, invalid or
+duplicate checkpoints, and timestamps earlier than the participant's start event.
 
 ```text
 RUN OUT -> START

@@ -1,0 +1,12 @@
+FROM denoland/deno:alpine-2.4.5
+
+WORKDIR /app
+
+COPY supabase/functions/timing-api/deno.json ./deno.json
+COPY supabase/functions/timing-api/index.ts ./index.ts
+
+RUN deno cache --config=deno.json index.ts
+
+EXPOSE 8000
+
+CMD ["run", "--allow-env", "--allow-net", "--config=deno.json", "index.ts"]

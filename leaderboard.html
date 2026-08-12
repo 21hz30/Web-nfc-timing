@@ -262,6 +262,92 @@
       display: block;
     }
 
+    .responsive-select {
+      position: relative;
+      min-width: 0;
+    }
+
+    .responsive-select-trigger {
+      display: none;
+      width: 100%;
+      min-height: 44px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      padding: 10px 11px;
+      background: var(--input-bg);
+      color: var(--text);
+      font: inherit;
+      font-weight: 800;
+      line-height: 1.3;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .responsive-select-trigger::after {
+      width: 0;
+      height: 0;
+      flex: 0 0 auto;
+      border-right: 5px solid transparent;
+      border-left: 5px solid transparent;
+      border-top: 6px solid currentColor;
+      content: "";
+    }
+
+    .responsive-select-trigger[aria-expanded="true"] {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgb(255 255 255 / 18%);
+    }
+
+    .responsive-select-menu {
+      position: absolute;
+      z-index: 90;
+      top: calc(100% + 6px);
+      right: 0;
+      left: 0;
+      display: grid;
+      max-height: min(46vh, 340px);
+      overflow-y: auto;
+      border: 1px solid var(--input-border);
+      border-radius: 8px;
+      padding: 5px;
+      background: var(--panel);
+      box-shadow: 0 14px 36px rgb(0 0 0 / 36%);
+    }
+
+    .responsive-select-menu[hidden] {
+      display: none;
+    }
+
+    .responsive-select-option {
+      min-height: 50px;
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.3;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .responsive-select-option[aria-selected="true"] {
+      background: color-mix(in srgb, var(--brand-accent) 22%, var(--panel));
+      color: var(--text);
+    }
+
+    .responsive-select-option:active,
+    .responsive-select-option:focus-visible {
+      background: color-mix(in srgb, var(--brand-accent) 32%, var(--panel));
+      outline: 2px solid var(--brand-accent);
+      outline-offset: -2px;
+    }
+
     .toolbar-action {
       display: flex;
       gap: 8px;
@@ -477,11 +563,12 @@
 
     .hoka-mobile-card {
       display: grid;
-      grid-template-rows: auto auto 1fr auto;
-      gap: 10px;
+      grid-template-rows: auto auto auto auto;
+      align-content: start;
+      gap: 8px;
       min-width: 0;
-      min-height: 238px;
-      padding: 14px;
+      min-height: 164px;
+      padding: 12px;
       border: 1px solid #d7e5ee;
       border-left: 4px solid transparent;
       border-radius: 8px;
@@ -572,7 +659,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding-top: 8px;
+      padding-top: 6px;
       border-top: 1px solid #d7e5ee;
     }
 
@@ -596,17 +683,17 @@
     .hoka-mobile-stations {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      align-self: end;
-      gap: 4px;
+      align-self: start;
+      gap: 3px;
     }
 
     .hoka-mobile-station {
       display: grid;
       min-width: 0;
-      min-height: 54px;
+      min-height: 50px;
       place-items: center;
       gap: 4px;
-      padding: 6px 2px;
+      padding: 4px 2px;
       border: 1px solid #cfe0ea;
       border-radius: 6px;
       background: #f5f9fc;
@@ -1524,6 +1611,33 @@
       box-shadow: 0 4px 14px rgba(0, 79, 130, 0.12);
     }
 
+    body[data-race-theme="hoka"] .responsive-select-trigger {
+      border-color: rgba(255, 255, 255, 0.76);
+      background: #ffffff;
+      color: #08253d;
+      box-shadow: 0 4px 14px rgba(0, 79, 130, 0.12);
+    }
+
+    body[data-race-theme="hoka"] .responsive-select-menu {
+      border-color: rgba(8, 37, 61, 0.2);
+      background: #ffffff;
+    }
+
+    body[data-race-theme="hoka"] .responsive-select-option {
+      color: #08253d;
+    }
+
+    body[data-race-theme="hoka"] .responsive-select-option[aria-selected="true"] {
+      background: #e0ff05;
+      color: #08253d;
+    }
+
+    body[data-race-theme="hoka"] .responsive-select-option:active,
+    body[data-race-theme="hoka"] .responsive-select-option:focus-visible {
+      background: #f2fbd0;
+      outline-color: #d8f000;
+    }
+
     body[data-race-theme="hoka"] .metric {
       border-color: rgba(255, 255, 255, 0.54);
       background: rgba(0, 89, 153, 0.2);
@@ -1606,6 +1720,32 @@
       }
     }
 
+    @media (min-width: 1800px) and (max-width: 2299px) and (min-height: 1000px) {
+      body[data-team-layout="20-team"] .scoreboard-layout.station-mode .hoka-mobile-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      body[data-team-layout="20-team"] .hoka-mobile-card {
+        min-height: 164px;
+        gap: 7px;
+        padding: 10px;
+      }
+
+      body[data-team-layout="20-team"] .hoka-mobile-head {
+        gap: 8px;
+      }
+
+      body[data-team-layout="20-team"] .hoka-mobile-stations {
+        gap: 3px;
+      }
+
+      body[data-team-layout="20-team"] .hoka-mobile-station {
+        min-height: 48px;
+        padding: 4px 1px;
+      }
+    }
+
     @media (min-width: 2300px) {
       body[data-race-theme="hoka"] header {
         padding-block: 12px;
@@ -1639,7 +1779,7 @@
       }
 
       .hoka-mobile-card {
-        min-height: 232px;
+        min-height: 172px;
         gap: 8px;
         padding: 12px;
       }
@@ -1676,6 +1816,23 @@
       .toolbar > .toolbar-toggle {
         grid-column: 2;
         grid-row: 1;
+      }
+
+      .responsive-select > select {
+        display: none;
+      }
+
+      .responsive-select-trigger {
+        display: flex;
+        min-height: 56px;
+        padding: 12px 14px;
+        font-size: 16px;
+      }
+
+      .responsive-select-option {
+        min-height: 54px;
+        padding: 12px 14px;
+        font-size: 16px;
       }
 
       body[data-race-theme="hoka"] header {
@@ -1799,14 +1956,16 @@
       <label>
         <span data-i18n="raceId">选择比赛</span>
         <span class="race-select-row">
-          <select id="raceId" autocomplete="off">
-            <optgroup label="展示预览 / 测试 / 模板">
-              <option value="src-hyrox">SRC Hyrox Simulation · Preview</option>
-              <option value="hoka-race-demo">Hoka 团队赛演示</option>
-              <option value="fitmonster-hyrox-single" selected>SRC Hyrox Simulation · 模板（只读）</option>
-              <option value="hoka-race">Hoka 团队赛 · 模板（只读）</option>
-            </optgroup>
-          </select>
+          <span class="responsive-select">
+            <select id="raceId" autocomplete="off">
+              <option value="hoka-race-sh" selected>HOKA 团队挑战赛 - 上海站</option>
+              <option value="hoka-race-hz">HOKA 团队挑战赛 - 杭州站</option>
+              <option value="hoka-race-final">HOKA 团队挑战赛 - 决赛</option>
+              <option value="hoka-race-demo">HOKA 团队挑战赛 - 测试数据</option>
+            </select>
+            <button class="responsive-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="raceIdMenu"></button>
+            <div class="responsive-select-menu" id="raceIdMenu" role="listbox" hidden></div>
+          </span>
         </span>
       </label>
       <div class="toolbar-action">
@@ -2111,43 +2270,41 @@
       String(pageParams.get("demo") || pageParams.get("mock") || "").toLowerCase()
     );
     const requestedRaceId = String(pageParams.get("raceId") || pageParams.get("race") || "").trim();
+    const finalTwentyTeamPreview = requestedRaceId === "hoka-race-final"
+      && String(pageParams.get("preview") || "").toLowerCase() === "final-20";
+    const leaderboardRaceIds = new Set([
+      "hoka-race-sh",
+      "hoka-race-hz",
+      "hoka-race-final"
+    ]);
     const raceCatalog = [
-      {
-        raceId: "src-hyrox",
-        kind: "mock",
-        zh: "SRC Hyrox Simulation · 预览",
-        en: "SRC Hyrox Simulation · Preview"
-      },
       {
         raceId: "hoka-race-demo",
         kind: "mock",
-        zh: "Hoka 团队赛演示",
-        en: "Hoka Team Race Demo"
+        zh: "HOKA 团队挑战赛 - 测试数据",
+        en: "HOKA Team Challenge - Test Data"
       },
       {
-        raceId: "fitmonster-hyrox-single",
-        kind: "live",
-        isTemplate: true,
-        zh: "SRC Hyrox Simulation",
-        en: "SRC Hyrox Simulation"
+        raceId: "hoka-race-sh",
+        kind: "session",
+        status: "finalized",
+        zh: "HOKA 团队挑战赛 - 上海站",
+        en: "HOKA Team Challenge - Shanghai"
       },
       {
-        raceId: "hoka-race",
-        kind: "live",
-        isTemplate: true,
-        zh: "Hoka 团队赛",
-        en: "Hoka Team Race"
+        raceId: "hoka-race-hz",
+        kind: "session",
+        status: "active",
+        zh: "HOKA 团队挑战赛 - 杭州站",
+        en: "HOKA Team Challenge - Hangzhou"
+      },
+      {
+        raceId: "hoka-race-final",
+        kind: "session",
+        status: "active",
+        zh: "HOKA 团队挑战赛 - 决赛",
+        en: "HOKA Team Challenge - Final"
       }
-    ];
-    const testRaceIdPrefixes = [
-      "cloud-api-e2e-",
-      "cloud-auto-e2e-",
-      "hyrox-sim-",
-      "nfc-test-",
-      "result-adjustment-demo-",
-      "saturday-sim-",
-      "sunday-sim-",
-      "supabase-e2e-"
     ];
     const fitMonsterStationNames = {
       zh: ["滑雪机", "推雪橇", "拉雪橇", "波比跳远", "划船机", "农夫行走", "沙袋弓步", "墙球"],
@@ -2156,8 +2313,8 @@
     const hokaDemoAnchorMs = Date.now();
     const knownRaceIds = new Set(raceCatalog.map((race) => race.raceId));
     const initialRaceId = forceDemoData
-      ? "src-hyrox"
-      : requestedRaceId || "fitmonster-hyrox-single";
+      ? "hoka-race-demo"
+      : knownRaceIds.has(requestedRaceId) ? requestedRaceId : "hoka-race-sh";
 
     const i18n = {
       zh: {
@@ -2496,7 +2653,12 @@
     }
 
     function isDemoRaceId(raceId) {
-      return raceCatalog.some((race) => race.raceId === raceId && race.kind === "mock");
+      return raceCatalog.some((race) => race.raceId === raceId && race.kind === "mock")
+        || isFinalTwentyTeamPreview(raceId);
+    }
+
+    function isFinalTwentyTeamPreview(raceId) {
+      return finalTwentyTeamPreview && raceId === "hoka-race-final";
     }
 
     function isFitMonsterRaceId(raceId) {
@@ -2518,7 +2680,7 @@
     }
 
     function isTestRaceId(raceId) {
-      return testRaceIdPrefixes.some((prefix) => String(raceId || "").startsWith(prefix));
+      return raceId === "hoka-race-demo";
     }
 
     function raceGroupKind(race) {
@@ -2533,9 +2695,64 @@
       return label;
     }
 
+    function syncResponsiveSelect(select) {
+      const wrapper = select?.closest(".responsive-select");
+      if (!wrapper) return;
+      const trigger = wrapper.querySelector(".responsive-select-trigger");
+      const menu = wrapper.querySelector(".responsive-select-menu");
+      if (!trigger || !menu) return;
+      if (!wrapper.dataset.ready) {
+        wrapper.dataset.ready = "true";
+        trigger.addEventListener("click", () => {
+          const isOpen = trigger.getAttribute("aria-expanded") === "true";
+          document.querySelectorAll(".responsive-select-menu:not([hidden])").forEach((openMenu) => {
+            openMenu.hidden = true;
+            openMenu.previousElementSibling?.setAttribute("aria-expanded", "false");
+          });
+          menu.hidden = isOpen;
+          trigger.setAttribute("aria-expanded", String(!isOpen));
+          if (!isOpen) menu.querySelector('[aria-selected="true"]')?.focus();
+        });
+        select.addEventListener("change", () => syncResponsiveSelect(select));
+      }
+      const selected = select.options[select.selectedIndex];
+      trigger.textContent = selected?.textContent || t("raceId");
+      menu.replaceChildren(...Array.from(select.options).map((option) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "responsive-select-option";
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", String(option.value === select.value));
+        item.textContent = option.textContent;
+        item.addEventListener("click", () => {
+          select.value = option.value;
+          menu.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        return item;
+      }));
+    }
+
+    document.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".responsive-select")) return;
+      document.querySelectorAll(".responsive-select-menu:not([hidden])").forEach((menu) => {
+        menu.hidden = true;
+        menu.previousElementSibling?.setAttribute("aria-expanded", "false");
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      document.querySelectorAll(".responsive-select-menu:not([hidden])").forEach((menu) => {
+        menu.hidden = true;
+        menu.previousElementSibling?.setAttribute("aria-expanded", "false");
+      });
+    });
+
     function selectedRace() {
       return raceCatalog.find((race) => race.raceId === raceIdInput.value)
-        || raceCatalog.find((race) => race.raceId === "fitmonster-hyrox-single");
+        || raceCatalog.find((race) => race.raceId === "hoka-race-sh");
     }
 
     function buildRaceOptions() {
@@ -2551,18 +2768,11 @@
         races.forEach((race) => {
           group.append(new Option(raceOptionText(race), race.raceId));
         });
-        if (!races.length && kind !== "showcase") {
-          const emptyOption = new Option(
-            t(kind === "active" ? "noActiveRaces" : "noFinishedRaces"),
-            ""
-          );
-          emptyOption.disabled = true;
-          group.append(emptyOption);
-        }
         return group;
-      });
+      }).filter((group) => group.children.length);
       raceIdInput.replaceChildren(...groups);
       raceIdInput.value = knownRaceIds.has(selectedId) ? selectedId : initialRaceId;
+      syncResponsiveSelect(raceIdInput);
     }
 
     async function timedLeaderboardFetch(input, timeoutMs = 10000) {
@@ -2592,7 +2802,7 @@
       }
       const catalogById = new Map(raceCatalog.map((race) => [race.raceId, race]));
       payload.races.forEach((race) => {
-        if (!race?.raceId) return;
+        if (!race?.raceId || !leaderboardRaceIds.has(race.raceId)) return;
         const existing = catalogById.get(race.raceId);
         if (existing) {
           existing.isTemplate = Boolean(race.isTemplate) || existing.isTemplate;
@@ -2618,7 +2828,7 @@
 
     function updateRaceControls(updateUrl = true) {
       const race = selectedRace();
-      const isMock = race.kind === "mock";
+      const isMock = race.kind === "mock" || isFinalTwentyTeamPreview(race.raceId);
       const isTemplate = Boolean(race.isTemplate) || isOfficialRaceId(race.raceId);
       const isReadOnlyPreview = Boolean(window.timingApiReadOnly);
       const readOnlyTitle = language === "zh" ? "本地实时预览为只读模式" : "Local live preview is read-only";
@@ -2658,6 +2868,11 @@
     function updateRaceBranding(raceId) {
       const usesHokaTheme = usesHokaSeriesTheme(raceId);
       const usesHokaLogo = isHokaRaceId(raceId);
+      if (["hoka-race-demo", "hoka-race-final"].includes(raceId)) {
+        document.body.dataset.teamLayout = "20-team";
+      } else {
+        delete document.body.dataset.teamLayout;
+      }
       const brandEyebrow = document.querySelector(".brand-eyebrow");
       const title = document.querySelector("h1");
       const subtitle = document.querySelector(".sub");
@@ -3290,100 +3505,92 @@
     }
 
     function mockHokaLeaderboardPayload(raceId) {
-      const finishedDurations = [250000, 300000, 275000, 310000, 345000];
-      const stationFiveDurations = [285000, 320000, 290000, 340000, null];
-      const stationThreeDurations = [310000, 340000, null, null, null];
-      const stationTwoDurations = [295000, null, null, null, null];
-      const finishedTotal = finishedDurations.reduce((total, duration) => total + duration, 0);
-      const stationFiveStartOffset = stationFiveDurations.slice(0, 4)
-        .reduce((total, duration) => total + duration, 0) + 130000;
-      const stationThreeStartOffset = stationThreeDurations.slice(0, 2)
-        .reduce((total, duration) => total + duration, 0) + 210000;
-      const stationTwoStartOffset = stationTwoDurations[0] + 100000;
-      const rows = [
-        {
-          participantId: 9501,
-          athleteName: "Weekend Warriors",
+      return mockHokaTwentyTeamLeaderboardPayload(
+        raceId,
+        "HOKA 团队挑战赛 - 测试数据"
+      );
+    }
+
+    function mockHokaTwentyTeamLeaderboardPayload(raceId, raceName) {
+      const teamNames = [
+        "浦江飞翼", "西湖逐风", "城市疾速", "陆家嘴跑团", "钱塘破浪",
+        "星火联盟", "山海同行", "云端加速", "飞跃地平线", "追光小队",
+        "凌云四人组", "风暴前线", "勇往直前", "超能搭档", "无界奔跑",
+        "极速方程式", "晨曦联盟", "热力全开", "终点见", "最后一公里"
+      ];
+      const memberNames = [
+        ["陈曦", "林然", "周野", "叶宁"], ["顾川", "沈悦", "韩松", "唐果"],
+        ["吴越", "徐朗", "乔安", "陆遥"], ["程飞", "许言", "苏晴", "江舟"],
+        ["方拓", "宋一", "梁夏", "袁野"], ["赵晨", "何川", "白露", "罗宁"],
+        ["邵峰", "金妍", "陶然", "魏哲"], ["孙嘉", "戴维", "毛雨", "秦朗"],
+        ["严冬", "夏木", "蒋欣", "谢飞"], ["冯越", "石磊", "庞晓", "康宁"],
+        ["孟远", "邱晨", "傅言", "雷佳"], ["施洋", "侯杰", "曹悦", "熊安"],
+        ["潘晨", "范舟", "龚雪", "彭越"], ["任飞", "卢阳", "姚晴", "常青"],
+        ["孔越", "段然", "郝宁", "万里"], ["章远", "武桐", "贺风", "汤晨"],
+        ["黎夏", "易扬", "安琪", "赖川"], ["姜帆", "卓然", "裴宁", "纪航"],
+        ["蓝天", "路遥", "莫凡", "温宁"], ["池野", "简宁", "童飞", "欧阳"]
+      ];
+      const rows = teamNames.map((athleteName, index) => {
+        const stationDurations = Array.from(
+          { length: 5 },
+          (_, stationIndex) => 225000 + ((index * 37000 + stationIndex * 29000) % 120000)
+        );
+        const base = {
+          participantId: 9701 + index,
+          athleteName,
           entryType: "team",
-          memberNames: ["Mia", "Leo", "Nina", "Kai"],
-          bibNumber: "H101",
-          status: "finished",
-          current: "Finished",
-          progressIndex: 5,
-          latestCheckpoint: "END",
-          startTime: demoIsoFrom(hokaDemoAnchorMs, finishedTotal + 300000),
-          finishTime: demoIsoFrom(hokaDemoAnchorMs, 300000),
-          rawElapsedMs: finishedTotal,
-          adjustmentMs: 45000,
-          adjustments: [
-            { adjustmentMs: 60000, reason: "站点违规罚时" },
-            { adjustmentMs: -15000, reason: "裁判复核减时" }
-          ],
-          elapsedMs: finishedTotal + 45000,
-          checkpointTimes: {
-            ...hokaDemoCheckpointTimes(finishedTotal + 300000, finishedDurations, 5),
-            END: demoIsoFrom(hokaDemoAnchorMs, 300000)
-          },
-          stationSplits: demoSplits(finishedDurations),
+          memberNames: memberNames[index],
+          bibNumber: `F${String(index + 1).padStart(2, "0")}`,
+          rank: index + 1,
           segmentSplits: []
-        },
-        {
-          participantId: 9502,
-          athleteName: "Sunrise Crew",
-          entryType: "team",
-          memberNames: ["Amy", "Bo", "Chris", "Dora"],
-          bibNumber: "H102",
-          status: "racing",
-          current: "Station 5",
-          progressIndex: 4,
-          latestCheckpoint: "STATION_5_START",
-          startTime: demoIsoFrom(hokaDemoAnchorMs, stationFiveStartOffset),
-          finishTime: null,
-          elapsedMs: stationFiveStartOffset,
-          checkpointTimes: hokaDemoCheckpointTimes(stationFiveStartOffset, stationFiveDurations, 5),
-          stationSplits: demoSplits(stationFiveDurations),
-          segmentSplits: []
-        },
-        {
-          participantId: 9503,
-          athleteName: "Fast Friends",
-          entryType: "team",
-          memberNames: ["Eva", "Finn", "Grace", "Hugo"],
-          bibNumber: "H103",
-          status: "racing",
-          current: "Station 3",
-          progressIndex: 2,
-          latestCheckpoint: "STATION_3_START",
-          startTime: demoIsoFrom(hokaDemoAnchorMs, stationThreeStartOffset),
-          finishTime: null,
-          elapsedMs: stationThreeStartOffset,
-          checkpointTimes: hokaDemoCheckpointTimes(stationThreeStartOffset, stationThreeDurations, 3),
-          stationSplits: demoSplits(stationThreeDurations),
-          segmentSplits: []
-        },
-        {
-          participantId: 9504,
-          athleteName: "Hoka Run Club",
-          entryType: "team",
-          memberNames: ["Ivy", "Jack", "Kira", "Liam"],
-          bibNumber: "H104",
-          status: "racing",
-          current: "Station 2",
-          progressIndex: 1,
-          latestCheckpoint: "STATION_2_START",
-          startTime: demoIsoFrom(hokaDemoAnchorMs, stationTwoStartOffset),
-          finishTime: null,
-          elapsedMs: stationTwoStartOffset,
-          checkpointTimes: hokaDemoCheckpointTimes(stationTwoStartOffset, stationTwoDurations, 2),
-          stationSplits: demoSplits(stationTwoDurations),
-          segmentSplits: []
-        },
-        {
-          participantId: 9505,
-          athleteName: "City Striders",
-          entryType: "team",
-          memberNames: ["Mona", "Noah", "Owen", "Pia"],
-          bibNumber: "H105",
+        };
+
+        if (index < 4) {
+          const elapsedMs = stationDurations.reduce((total, duration) => total + duration, 0);
+          const finishOffsetMs = 60000 + index * 45000;
+          return {
+            ...base,
+            status: "finished",
+            current: "Finished",
+            progressIndex: 5,
+            latestCheckpoint: "END",
+            startTime: demoIsoFrom(hokaDemoAnchorMs, elapsedMs + finishOffsetMs),
+            finishTime: demoIsoFrom(hokaDemoAnchorMs, finishOffsetMs),
+            elapsedMs,
+            checkpointTimes: {
+              ...hokaDemoCheckpointTimes(elapsedMs + finishOffsetMs, stationDurations, 5),
+              END: demoIsoFrom(hokaDemoAnchorMs, finishOffsetMs)
+            },
+            stationSplits: demoSplits(stationDurations)
+          };
+        }
+
+        if (index < 17) {
+          const stationNumber = ((index - 4) % 5) + 1;
+          const currentStationMs = 70000 + ((index * 23000) % 110000);
+          const completedDurations = stationDurations.slice(0, stationNumber - 1);
+          const elapsedMs = completedDurations.reduce((total, duration) => total + duration, 0)
+            + currentStationMs;
+          return {
+            ...base,
+            status: "racing",
+            current: `Station ${stationNumber}`,
+            progressIndex: stationNumber - 1,
+            latestCheckpoint: stationNumber === 1 ? "START" : `STATION_${stationNumber}_START`,
+            startTime: demoIsoFrom(hokaDemoAnchorMs, elapsedMs),
+            finishTime: null,
+            elapsedMs,
+            checkpointTimes: hokaDemoCheckpointTimes(
+              elapsedMs,
+              stationDurations,
+              stationNumber
+            ),
+            stationSplits: demoSplits([...completedDurations, currentStationMs])
+          };
+        }
+
+        return {
+          ...base,
           status: "not_started",
           current: "Waiting",
           progressIndex: -1,
@@ -3392,13 +3599,8 @@
           finishTime: null,
           elapsedMs: null,
           checkpointTimes: {},
-          stationSplits: demoSplits([]),
-          segmentSplits: []
-        }
-      ];
-
-      rows.forEach((row, index) => {
-        row.rank = index + 1;
+          stationSplits: demoSplits([])
+        };
       });
 
       return {
@@ -3406,10 +3608,11 @@
         raceId,
         race: {
           raceId,
-          name: "Hoka Team Race Demo",
+          name: raceName,
           mode: "station_checkpoints",
           stationCount: 5,
-          checkpointLayout: "station_boundaries"
+          checkpointLayout: "station_boundaries",
+          status: "active"
         },
         generatedAt: new Date().toISOString(),
         checkpoints: ["START", "STATION_2_START", "STATION_3_START", "STATION_4_START", "STATION_5_START", "END"],
@@ -3418,6 +3621,12 @@
     }
 
     function mockLeaderboardPayload(raceId) {
+      if (isFinalTwentyTeamPreview(raceId)) {
+        return mockHokaTwentyTeamLeaderboardPayload(
+          raceId,
+          "HOKA 团队挑战赛 - 决赛"
+        );
+      }
       if (raceId === "hoka-race-demo") {
         return mockHokaLeaderboardPayload(raceId);
       }
@@ -3642,7 +3851,7 @@
     }
 
     function ensureRequestedRaceCatalogItem(raceId) {
-      if (!raceId || knownRaceIds.has(raceId)) return;
+      if (!raceId || knownRaceIds.has(raceId) || !leaderboardRaceIds.has(raceId)) return;
       const cached = readLeaderboardCache(raceId);
       const cachedRace = cached?.payload?.race;
       const name = cachedRace?.name || (isHokaRaceId(raceId) ? "HOKA 团队挑战赛" : raceId);
@@ -4192,7 +4401,7 @@
       applyLanguage(language);
       raceIdInput.value = knownRaceIds.has(initialRaceId)
         ? initialRaceId
-        : "fitmonster-hyrox-single";
+        : "hoka-race-sh";
       updateRaceControls();
       renderCachedLeaderboard(raceIdInput.value);
       try {
@@ -4203,7 +4412,7 @@
       buildRaceOptions();
       raceIdInput.value = knownRaceIds.has(initialRaceId)
         ? initialRaceId
-        : "fitmonster-hyrox-single";
+        : "hoka-race-sh";
       updateRaceControls();
       renderCachedLeaderboard(raceIdInput.value);
       await refreshLoop(true);
