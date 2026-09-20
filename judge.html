@@ -126,6 +126,14 @@
       background: #ffffff;
       box-shadow: 0 14px 36px rgb(10 17 24 / 28%);
     }
+    .responsive-select-menu.is-floating {
+      position: fixed;
+      z-index: 200;
+      right: auto;
+      left: 0;
+      width: min(420px, calc(100vw - 24px));
+      max-height: min(46dvh, 340px);
+    }
     .responsive-select-menu[hidden] { display: none; }
     .responsive-select-option {
       min-height: 50px;
@@ -834,6 +842,7 @@
           });
           menu.hidden = isOpen;
           trigger.setAttribute("aria-expanded", String(!isOpen));
+          if (!isOpen) positionResponsiveSelectMenu(trigger, menu);
           if (!isOpen) menu.querySelector('[aria-selected="true"]')?.focus();
         });
         select.addEventListener("change", () => syncResponsiveSelect(select));
@@ -857,6 +866,51 @@
       }));
     }
 
+    function positionResponsiveSelectMenu(trigger, menu) {
+      if (menu.hidden || window.matchMedia("(min-width: 681px)").matches) {
+        menu.classList.remove("is-floating");
+        menu.style.removeProperty("top");
+        menu.style.removeProperty("left");
+        menu.style.removeProperty("width");
+        menu.style.removeProperty("max-height");
+        return;
+      }
+      const margin = 12;
+      const gap = 6;
+      const rect = trigger.getBoundingClientRect();
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      const viewportWidth = window.visualViewport?.width || window.innerWidth;
+      const availableBelow = Math.max(0, viewportHeight - rect.bottom - margin - gap);
+      const availableAbove = Math.max(0, rect.top - margin - gap);
+      const openAbove = availableBelow < 170 && availableAbove > availableBelow;
+      const available = Math.max(120, openAbove ? availableAbove : availableBelow);
+      const width = Math.min(420, viewportWidth - margin * 2, rect.width);
+      const left = Math.min(Math.max(margin, rect.left), Math.max(margin, viewportWidth - margin - width));
+      menu.classList.add("is-floating");
+      menu.style.left = `${left}px`;
+      menu.style.width = `${width}px`;
+      menu.style.maxHeight = `${Math.min(340, available)}px`;
+      menu.style.top = openAbove
+        ? `${Math.max(margin, rect.top - Math.min(340, available) - gap)}px`
+        : `${Math.min(viewportHeight - margin - Math.min(340, available), rect.bottom + gap)}px`;
+    }
+
+    function repositionOpenResponsiveSelectMenus() {
+      document.querySelectorAll(".responsive-select-menu:not([hidden])").forEach((menu) => {
+        if (window.matchMedia("(min-width: 681px)").matches) {
+          menu.hidden = true;
+          menu.previousElementSibling?.setAttribute("aria-expanded", "false");
+          menu.classList.remove("is-floating");
+          menu.style.removeProperty("top");
+          menu.style.removeProperty("left");
+          menu.style.removeProperty("width");
+          menu.style.removeProperty("max-height");
+          return;
+        }
+        positionResponsiveSelectMenu(menu.previousElementSibling, menu);
+      });
+    }
+
     document.addEventListener("pointerdown", (event) => {
       if (event.target.closest(".responsive-select")) return;
       document.querySelectorAll(".responsive-select-menu:not([hidden])").forEach((menu) => {
@@ -871,6 +925,9 @@
         menu.previousElementSibling?.setAttribute("aria-expanded", "false");
       });
     });
+    window.addEventListener("resize", repositionOpenResponsiveSelectMenus, { passive: true });
+    window.visualViewport?.addEventListener("resize", repositionOpenResponsiveSelectMenus, { passive: true });
+    window.visualViewport?.addEventListener("scroll", repositionOpenResponsiveSelectMenus, { passive: true });
 
     function isHokaRace(raceId) {
       return raceId === "hoka-race"
