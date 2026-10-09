@@ -206,11 +206,14 @@ body.presentation-mode .presentation {
 }
 .presentation-time {
   margin-top: clamp(14px, 2vh, 22px);
+  margin-bottom: clamp(-18px, -1.4vh, -8px);
   color: var(--white);
-  font: 700 clamp(80px, min(16vw, 29vh), 300px)/1 "Arial Narrow", var(--font);
+  font: 700 clamp(64px, min(13vw, 24vh), 250px)/1 "Arial Narrow", var(--font);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   white-space: nowrap;
+  transform: scaleY(.9);
+  transform-origin: left top;
 }
 .presentation-accent {
   width: clamp(72px, 14vw, 260px);
@@ -218,21 +221,37 @@ body.presentation-mode .presentation {
   margin-top: clamp(14px, 2.5vh, 28px);
   background: var(--accent);
 }
-.presentation-pfizer {
-  display: block;
-  width: min(100%, 360px);
-  height: auto;
+.presentation-powered {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(10px, 2vh, 22px);
+  width: min(100%, 400px);
+  color: var(--white);
+  line-height: 1;
+}
+.presentation-powered-label {
+  font-size: clamp(18px, 1.5vw, 30px);
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.presentation-powered-name {
+  font-size: clamp(60px, 5.2vw, 100px);
+  font-weight: 800;
+  letter-spacing: -.03em;
+  transform: scaleX(1.18);
+  transform-origin: left center;
 }
 .presentation-brand {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-self: end;
-  gap: clamp(10px, 2vh, 22px);
-  width: min(100%, 400px);
+  gap: clamp(18px, 3vh, 34px);
+  width: min(100%, 440px);
 }
-.presentation-247 { display: block; width: 78%; height: auto; }
-.presentation-hyrox { display: block; width: 92%; height: auto; }
+.presentation-brand-logo { display: block; width: 100%; height: auto; }
 .presentation-exit { position: fixed; top: 24px; right: 24px; z-index: 30; min-height: 36px; padding: 7px 13px; border: 1px solid #555; border-radius: 0; background: transparent; color: var(--muted); font-weight: 900; }
 .presentation-exit:hover { border-color: var(--white); color: var(--white); }
 @media (min-width: 1600px) and (min-height: 900px) {
@@ -323,10 +342,13 @@ body.presentation-mode .presentation {
         <div id="presentationTime" class="presentation-time">--:--:--</div>
         <div class="presentation-accent" aria-hidden="true"></div>
       </div>
-      <img class="presentation-pfizer" src="./assets/oct11-pfizer-logo.png" alt="辉瑞减重">
-      <div class="presentation-brand" aria-label="24/7 FITNESS 与 HYROX">
-        <img class="presentation-247" src="./assets/oct11-247-logo.png" alt="24/7 FITNESS">
-        <img class="presentation-hyrox" src="./assets/oct11-hyrox-logo.png" alt="HYROX">
+      <div class="presentation-powered" aria-label="Powered by amazfit">
+        <span class="presentation-powered-label">Powered by</span>
+        <span class="presentation-powered-name">amazfit</span>
+      </div>
+      <div class="presentation-brand" aria-label="辉瑞减重 与 24/7 FITNESS">
+        <img class="presentation-brand-logo" src="./assets/oct11-pfizer-logo.png" alt="辉瑞减重">
+        <img class="presentation-brand-logo" src="./assets/oct11-247-logo.png" alt="24/7 FITNESS">
       </div>
     </div>
   </section>
