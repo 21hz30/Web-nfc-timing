@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>SRC 10·11 · 完赛成绩卡</title>
+  <style>
+:root {
+  --bg: #000000;
+  --ink: #ffffff;
+  --panel: #111111;
+  --panel-soft: #1d1d1d;
+  --white: #ffffff;
+  --muted: #b0b0b0;
+  --line: #444444;
+  --line-dark: #444444;
+  --accent: #ffed00;
+  --font: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--white);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; }
+button { cursor: pointer; }
+main { width: min(1810px, 100%); margin: 0 auto; padding: 34px 44px 54px; }
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 30px;
+  margin-bottom: 24px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+header > div { display: flex; align-items: center; gap: 14px; letter-spacing: 0; }
+#clock { font-variant-numeric: tabular-nums; }
+header button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid #686868;
+  border-radius: 0;
+  background: transparent;
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 900;
+}
+header button:hover { border-color: var(--white); background: var(--white); color: var(--bg); }
+.brand-lockup {
+  display: block;
+  width: 100%;
+  margin: 0 0 28px;
+  line-height: 0;
+  background: var(--bg);
+}
+.brand-lockup img { display: block; width: 100%; height: auto; }
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .48fr);
+  align-items: end;
+  gap: 36px;
+  padding: 24px 0 26px;
+  border-top: 1px solid #373737;
+  border-bottom: 1px solid #373737;
+}
+h1 {
+  margin: 0;
+  color: var(--white);
+  font-size: clamp(58px, 7vw, 116px);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: .86;
+}
+.intro p { max-width: 440px; margin: 0; color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.65; }
+form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  margin: 26px 0 10px;
+}
+input, form button {
+  min-height: 58px;
+  border-radius: 0;
+  font-weight: 900;
+}
+input {
+  min-width: 0;
+  padding: 0 17px;
+  border: 1px solid #646464;
+  outline: none;
+  background: #101010;
+  color: var(--white);
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  text-transform: uppercase;
+}
+input::placeholder { color: #6f6f6f; }
+input:focus { border-color: var(--white); }
+form button { padding: 0 23px; border: 1px solid var(--white); background: var(--white); color: var(--bg); font-size: 14px; }
+form button:hover { background: var(--bg); border-color: var(--white); color: var(--white); }
+form #demoButton { border-color: #646464; background: transparent; color: var(--muted); }
+form #demoButton:hover { border-color: var(--white); color: var(--white); }
+.hint, .message { color: var(--muted); font-size: 13px; font-weight: 700; line-height: 1.5; }
+.message { min-height: 22px; margin: 14px 0 0; }
+.message.error { color: var(--white); }
+.card {
+  display: none;
+  margin-top: 24px;
+  border: 0;
+  background: var(--panel);
+  color: var(--ink);
+}
+.card.visible { display: block; }
+.card-top {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 30px 26px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.label {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.card h2 {
+  margin: 10px 0 8px;
+  color: var(--ink);
+  font-size: clamp(34px, 5vw, 72px);
+  font-weight: 700;
+  letter-spacing: -.025em;
+  line-height: .9;
+}
+.members { max-width: 940px; margin: 0; color: var(--muted); font-size: 16px; font-weight: 700; line-height: 1.5; }
+.bib {
+  color: var(--ink);
+  font: 700 24px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.overall-time { padding: 26px 30px 28px; background: var(--panel-soft); }
+.overall-time strong {
+  display: block;
+  margin-top: 14px;
+  color: var(--ink);
+  font: 700 clamp(48px, 7vw, 104px)/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.splits { padding: 24px 30px 26px; background: var(--panel); }
+.splits h3 { margin: 0 0 14px; color: var(--ink); font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+.workout-summary { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 1fr); border-top: 1px solid var(--ink); border-bottom: 1px solid var(--line); }
+.split-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 0; }
+.split { min-height: 94px; padding: 13px 10px 12px; border-right: 1px solid var(--line); }
+.split:last-child { border-right: 0; }
+.split-adjustment { border-left: 1px solid var(--line); }
+.split b { display: block; color: var(--muted); font-size: 10px; font-weight: 700; line-height: 1.35; }
+.split span { display: block; margin-top: 16px; color: var(--ink); font: 700 21px/1 var(--font); font-variant-numeric: tabular-nums; }
+.stamp { margin-top: 17px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.presentation { display: none; }
+body.presentation-mode { overflow: hidden; }
+body.presentation-mode > main { display: none; }
+body.presentation-mode .presentation {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: clamp(40px, 7vh, 80px) clamp(24px, 7vw, 140px);
+  background: var(--bg);
+}
+.presentation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, .72fr);
+  align-items: center;
+  width: min(100%, 1600px);
+  column-gap: clamp(20px, 8vw, 150px);
+  row-gap: clamp(30px, 7vh, 76px);
+}
+.presentation-finish {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.presentation-finish-label {
+  color: var(--white);
+  font-family: Arial, var(--font);
+  font-size: clamp(26px, min(3.6vw, 6.3vh), 68px);
+  font-weight: 700;
+  letter-spacing: .23em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.presentation-time {
+  margin-top: clamp(14px, 2vh, 22px);
+  color: var(--white);
+  font: 700 clamp(80px, min(16vw, 29vh), 300px)/1 "Arial Narrow", var(--font);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.presentation-accent {
+  width: clamp(72px, 14vw, 260px);
+  height: clamp(3px, .3vw, 5px);
+  margin-top: clamp(14px, 2.5vh, 28px);
+  background: var(--accent);
+}
+.presentation-pfizer {
+  display: block;
+  width: min(100%, 360px);
+  height: auto;
+}
+.presentation-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-self: end;
+  gap: clamp(10px, 2vh, 22px);
+  width: min(100%, 400px);
+}
+.presentation-247 { display: block; width: 78%; height: auto; }
+.presentation-hyrox { display: block; width: 92%; height: auto; }
+.presentation-exit { position: fixed; top: 24px; right: 24px; z-index: 30; min-height: 36px; padding: 7px 13px; border: 1px solid #555; border-radius: 0; background: transparent; color: var(--muted); font-weight: 900; }
+.presentation-exit:hover { border-color: var(--white); color: var(--white); }
+@media (min-width: 1600px) and (min-height: 900px) {
+  main { padding: 44px 56px 72px; }
+  .brand-lockup { margin-bottom: 34px; }
+  .intro { padding: 32px 0; }
+  form { margin-top: 32px; }
+  .card-top { padding: 36px 40px 32px; }
+  .overall-time { padding: 30px 40px 34px; }
+  .splits { padding: 30px 40px 34px; }
+  .split { min-height: 116px; padding: 16px 14px; }
+  .split span { margin-top: 20px; font-size: 25px; }
+}
+/* Once a result is found, keep the complete score card inside a 16:9 TV viewport. */
+@media (min-width: 1200px) and (min-height: 800px) {
+  body.result-visible > main { padding-top: 22px; padding-bottom: 24px; }
+  body.result-visible header { min-height: 24px; margin-bottom: 12px; }
+  body.result-visible .brand-lockup { margin-bottom: 14px; }
+  body.result-visible .intro { gap: 24px; padding: 16px 0 18px; }
+  body.result-visible h1 { font-size: clamp(54px, 5vw, 82px); }
+  body.result-visible .intro p { font-size: 12px; line-height: 1.45; }
+  body.result-visible form { margin-top: 16px; margin-bottom: 6px; }
+  body.result-visible input, body.result-visible form button { min-height: 48px; }
+  body.result-visible .hint, body.result-visible .message { font-size: 11px; line-height: 1.3; }
+  body.result-visible .message { min-height: 16px; margin-top: 8px; }
+  body.result-visible .card { margin-top: 14px; }
+  body.result-visible .card-top { padding: 18px 24px 16px; }
+  body.result-visible .card h2 { margin-top: 7px; margin-bottom: 6px; font-size: clamp(28px, 4vw, 56px); }
+  body.result-visible .members { font-size: 13px; }
+  body.result-visible .bib { font-size: 20px; }
+  body.result-visible .overall-time { padding: 20px 24px 22px; }
+  body.result-visible .overall-time strong { margin-top: 12px; font-size: clamp(56px, 6vw, 96px); }
+  body.result-visible .splits { padding: 16px 24px 18px; }
+  body.result-visible .split { min-height: 72px; padding: 10px 8px; }
+  body.result-visible .split span { margin-top: 10px; font-size: 20px; }
+  body.result-visible .stamp { margin-top: 10px; font-size: 10px; }
+}
+@media (max-width: 900px) {
+  main { padding: 24px 20px 42px; }
+  .intro { display: block; }
+  .intro p { margin-top: 18px; }
+  .workout-summary { grid-template-columns: minmax(0, 1fr); }
+  .split-grid { grid-template-columns: repeat(4, 1fr); }
+  .split:nth-child(4n) { border-right: 0; }
+  .split-grid .split:nth-child(-n+4) { border-bottom: 1px solid var(--line); }
+  .split-adjustment { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; border-left: 0; border-top: 1px solid var(--line); }
+  .split-adjustment span { margin-top: 0; }
+}
+@media (max-width: 520px) {
+  main { padding: 18px 14px 32px; }
+  header { margin-bottom: 18px; font-size: 9px; }
+  .brand-lockup { margin-bottom: 20px; }
+  h1 { font-size: 52px; }
+  form { grid-template-columns: 1fr; gap: 8px; }
+  form button { width: 100%; }
+  .card-top { display: block; padding: 20px 18px; }
+  .bib { margin-top: 18px; font-size: 19px; }
+  .overall-time { padding: 20px 18px; }
+  .overall-time strong { margin-top: 10px; font-size: 48px; }
+  .splits { padding: 18px; }
+  .split { min-height: 74px; padding: 10px 7px; }
+  .split span { margin-top: 10px; font-size: 15px; }
+  .split b { font-size: 9px; }
+  .split-adjustment { min-height: 46px; }
+  .split-adjustment span { margin-top: 0; }
+}
+</style>
+</head>
+<body>
+  <main>
+    <header><span>FINISH RESULT CARD · SRC 10·11</span><div><span id="clock"></span><button id="fullscreenButton" type="button">全屏展示</button></div></header>
+    <div class="brand-lockup"><img src="./assets/oct11-brand-lockup.png" alt="辉瑞减重 · 24/7 FITNESS · HYROX"></div>
+    <section class="intro"><h1>完赛成绩</h1><p>输入队伍查询号、选手号码或任意成员号码，即可查询已完赛的八站成绩。墙球完成后生成最终成绩卡。</p></section>
+    <form id="lookupForm"><input id="bibInput" autocomplete="off" placeholder="例如 G-001、G-001-1 或 BAND-G-001" aria-label="队伍或成员号码"><button type="submit">查询成绩</button><button id="demoButton" type="button">查看演示</button></form>
+    <p id="lookupHint" class="hint">支持四人接力、男单、女单、混双、女双、男双；成员号码可直接查询整队。</p>
+    <p id="message" class="message" role="status"></p>
+    <article id="resultCard" class="card" aria-live="polite">
+      <div class="card-top"><div><div id="eventLabel" class="label"></div><h2 id="entryName"></h2><p id="memberNames" class="members"></p></div><div id="bibLabel" class="bib"></div></div>
+      <div class="overall-time"><div class="label">OVERALL TIME · 总用时</div><strong id="totalTime">--</strong></div>
+      <div class="splits"><h3>WORKOUT SUMMARY · 八站分段 · 无跑步</h3><div class="workout-summary"><div id="splitGrid" class="split-grid"></div><div class="split split-adjustment"><b>调整时间</b><span id="adjustment">--</span></div></div><div id="stamp" class="stamp"></div></div>
+    </article>
+  </main>
+  <section id="presentation" class="presentation" aria-label="全屏成绩">
+    <button id="presentationExit" class="presentation-exit" type="button">退出全屏</button>
+    <div class="presentation-layout">
+      <div class="presentation-finish">
+        <div class="presentation-finish-label">FINISH TIME</div>
+        <div id="presentationTime" class="presentation-time">--:--:--</div>
+        <div class="presentation-accent" aria-hidden="true"></div>
+      </div>
+      <img class="presentation-pfizer" src="./assets/oct11-pfizer-logo.png" alt="辉瑞减重">
+      <div class="presentation-brand" aria-label="24/7 FITNESS 与 HYROX">
+        <img class="presentation-247" src="./assets/oct11-247-logo.png" alt="24/7 FITNESS">
+        <img class="presentation-hyrox" src="./assets/oct11-hyrox-logo.png" alt="HYROX">
+      </div>
+    </div>
+  </section>
+  <script src="./timing-api.js?v=20261006-1"></script>
+  <script src="./nanxi.js?v=20261006-1"></script>
+  <script src="./oct11.js?v=20261006-1"></script>
+  <script>
+  (() => {
+    const $ = (selector) => document.querySelector(selector);
+    const raceId = SrcOct11.raceId;
+    let lastRow = null;
+    let lastPayload = null;
+    let requestVersion = 0;
+    let requestController = null;
+    const params = new URLSearchParams(location.search);
+    const formatDuration = (ms) => {
+      if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return "--:--:--";
+      const total = Math.max(0, Math.round(Number(ms) / 1000));
+      return [Math.floor(total / 3600), Math.floor(total / 60) % 60, total % 60].map((value) => String(value).padStart(2, "0")).join(":");
+    };
+    const normalizeBib = (value) => String(value || "").normalize("NFKC").trim().toUpperCase().replace(/[‐‑–—−]/g, "-").replace(/\s+/g, "");
+    function showMessage(text, error = false) { $("#message").textContent = text; $("#message").classList.toggle("error", error); }
+    function memberText(row) {
+      const names = Array.isArray(row.memberNames) ? row.memberNames : [];
+      const bibs = Array.isArray(row.memberBibNumbers) ? row.memberBibNumbers : [];
+      if (row.entryType === "individual" || names.length <= 1) return "个人参赛";
+      return names.map((name, index) => `${bibs[index] || "号码待补录"} · ${name}`).join("　/　");
+    }
+    function render(row, payload, demo = false) {
+      document.body.classList.add("result-visible");
+      lastRow = row; lastPayload = payload;
+      const stationNames = Array.isArray(payload.race?.stationNames) ? payload.race.stationNames : SrcOct11.stations;
+      const adjustment = Number(row.adjustmentMs || 0) - Number(row.deductionMs || 0);
+      $("#eventLabel").textContent = `${demo ? "演示成绩 · " : ""}${payload.race?.name || SrcOct11.name} · ${row.categoryLabel || "赛事成绩"}`;
+      $("#entryName").textContent = row.athleteName || "未命名参赛单位";
+      $("#memberNames").textContent = memberText(row);
+      $("#bibLabel").textContent = row.bibNumber || "--";
+      $("#totalTime").textContent = formatDuration(row.elapsedMs);
+      $("#adjustment").textContent = adjustment === 0 ? "00:00" : `${adjustment > 0 ? "+" : "−"}${formatDuration(Math.abs(adjustment)).slice(3)}`;
+      const splits = row.stationSplits || {};
+      $("#splitGrid").replaceChildren(...stationNames.map((name, index) => {
+        const cell = document.createElement("div"); cell.className = "split";
+        const label = document.createElement("b"); label.textContent = `${String(index + 1).padStart(2, "0")} · ${name}`;
+        const value = document.createElement("span"); value.textContent = formatDuration(splits[`station${index + 1}Ms`]).slice(3);
+        cell.append(label, value); return cell;
+      }));
+      $("#stamp").textContent = `状态：${row.status === "finished" ? "已完赛" : row.status}`;
+      $("#presentationTime").textContent = formatDuration(row.elapsedMs).replace(/^0(?=\d:)/, "");
+      $("#resultCard").classList.add("visible");
+    }
+    function resetLookup() { requestVersion += 1; requestController?.abort(); document.body.classList.remove("result-visible"); $("#resultCard").classList.remove("visible"); }
+    async function lookup(event) {
+      event?.preventDefault(); resetLookup();
+      const bib = normalizeBib($("#bibInput").value); $("#bibInput").value = bib;
+      if (!bib) { showMessage("请输入队伍查询号、选手号码或成员号码。", true); return; }
+      showMessage("正在查询…");
+      const version = requestVersion;
+      try {
+        const demo = params.get("source") === "demo" || params.get("demo") === "1" || $("#bibInput").dataset.demo === "1";
+        let payload;
+        if (demo) payload = SrcOct11.mock();
+        else {
+          const controller = new AbortController(); requestController = controller;
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await window.timingApiFetch(`/api/leaderboard?raceId=${encodeURIComponent(raceId)}`, {cache:"no-store", signal:controller.signal});
+            if (!response.ok) throw new Error(`成绩服务返回 HTTP ${response.status}`);
+            payload = await response.json();
+          } finally { clearTimeout(timeout); }
+        }
+        if (version !== requestVersion) return;
+        if (!payload?.ok || !Array.isArray(payload.leaderboard)) throw new Error("成绩服务返回的数据不完整");
+        const row = payload.leaderboard.find((item) => Nanxi.matchesBib(item, bib));
+        if (!row) throw new Error(`没有找到 ${bib}，请检查号码或报名信息。`);
+        if (row.status !== "finished") throw new Error(`${bib} 尚未完成八站，完成墙球后再查询最终成绩。`);
+        render(row, payload, demo); showMessage(demo ? "演示成绩已显示，仅用于确认成绩卡版式。" : "查询成功，可直接用于现场展示。");
+      } catch (error) {
+        if (version !== requestVersion) return;
+        showMessage(error.name === "AbortError" ? "查询超时，请重试。" : error.message || "无法连接成绩服务。", true);
+      }
+    }
+    async function toggleFullscreen() {
+      if (!lastRow) { showMessage("请先查询一条完赛成绩，再进入全屏。", true); return; }
+      if (document.fullscreenElement || document.body.classList.contains("presentation-mode")) {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          try { await document.exitFullscreen(); } catch {}
+        }
+        document.body.classList.remove("presentation-mode"); $("#fullscreenButton").textContent = "全屏展示"; return;
+      }
+      document.body.classList.add("presentation-mode"); $("#fullscreenButton").textContent = "退出全屏";
+      // Keep this as an in-page presentation mode. Calling the browser's native
+      // Fullscreen API can hide the browser controls and make the work surface
+      // difficult to recover during an event setup session.
+    }
+    $("#lookupForm").addEventListener("submit", lookup);
+    $("#demoButton").addEventListener("click", () => { $("#bibInput").value = "G-001"; $("#bibInput").dataset.demo = "1"; lookup(); });
+    $("#bibInput").addEventListener("input", () => { delete $("#bibInput").dataset.demo; resetLookup(); });
+    $("#fullscreenButton").addEventListener("click", toggleFullscreen);
+    $("#presentationExit").addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) document.body.classList.remove("presentation-mode"); $("#fullscreenButton").textContent = document.body.classList.contains("presentation-mode") ? "退出全屏" : "全屏展示"; });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && document.body.classList.contains("presentation-mode")) toggleFullscreen(); });
+    const requestedBib = normalizeBib(params.get("bib"));
+    if (requestedBib) { $("#bibInput").value = requestedBib; if (params.get("source") === "demo" || params.get("demo") === "1") $("#bibInput").dataset.demo = "1"; lookup(); }
+    function updateClock() { $("#clock").textContent = new Date().toLocaleTimeString("zh-CN", {hour12:false}); }
+    updateClock(); setInterval(updateClock, 1000);
+  })();
+  </script>
+</body>
+</html>

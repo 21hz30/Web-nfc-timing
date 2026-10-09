@@ -1,4 +1,5 @@
 import { NANXI_RACES, NANXI_CATEGORIES, nanxiRegistration, rankNanxiCategories } from "./nanxi.ts";
+import { OCT11_RACE_ID, OCT11_NAME, OCT11_METADATA } from "./oct11.ts";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
@@ -473,11 +474,11 @@ function defaultRaceProfile(raceId: string): DatabaseRow {
   if (HOKA_BOUNDARY_RACE_IDS.has(raceId) || NANXI_RACES[raceId]) {
     return {
       race_id: raceId,
-      name: NANXI_RACES[raceId] ? `Nanxi · 9 月 ${raceId.slice(-2)} 日` : raceId,
+      name: raceId === OCT11_RACE_ID ? OCT11_NAME : NANXI_RACES[raceId] ? `Nanxi · 9 月 ${raceId.slice(-2)} 日` : raceId,
       mode: "station_checkpoints",
-      station_count: NANXI_RACES[raceId] ? 7 : 5,
+      station_count: raceId === OCT11_RACE_ID ? 8 : NANXI_RACES[raceId] ? 7 : 5,
       start_group_size: 1,
-      checkpoints: buildStationBoundaryCheckpoints(NANXI_RACES[raceId] ? 7 : 5),
+      checkpoints: buildStationBoundaryCheckpoints(raceId === OCT11_RACE_ID ? 8 : NANXI_RACES[raceId] ? 7 : 5),
       entry_type: NANXI_RACES[raceId] ? "individual" : "team",
       status: "active",
       finalized_at: null,
@@ -512,7 +513,8 @@ function raceResponse(profile: DatabaseRow): JsonObject {
     checkpoints: profile.checkpoints,
     checkpointLayout: checkpointLayout(profile),
     entryType: profile.entry_type || "individual",
-    brand: NANXI_RACES[profile.race_id] ? "nanxi" : null,
+    brand: profile.race_id === OCT11_RACE_ID ? "src" : NANXI_RACES[profile.race_id] ? "nanxi" : null,
+    ...(profile.race_id === OCT11_RACE_ID ? OCT11_METADATA : {}),
     categories: Array.from(NANXI_RACES[profile.race_id] || "").map(code => ({code, label: NANXI_CATEGORIES[code][0]})),
     status: profile.status || "active",
     finalizedAt: profile.finalized_at || null,
@@ -1029,7 +1031,7 @@ function buildLeaderboard(
       : null;
     const baseElapsedMs = latestManualResult ? Number(latestManualResult.elapsed_ms) : rawElapsedMs;
     const categoryCode = NANXI_RACES[profile.race_id] ? participant.category_code || String(participant.bib_number || "")[0] : null;
-    const deductionMs = categoryCode && "FG".includes(categoryCode) ? Math.min(Number(participant.female_count || 0), 2) * 300000 : 0;
+    const deductionMs = profile.race_id === "nanxi-race-20260920" && categoryCode && "FG".includes(categoryCode) ? Math.min(Number(participant.female_count || 0), 2) * 300000 : 0;
     const elapsedMs = status === "finished" && baseElapsedMs !== null
       ? Math.max(0, baseElapsedMs + adjustmentMs - deductionMs)
       : baseElapsedMs;
@@ -1041,6 +1043,7 @@ function buildLeaderboard(
       participantId: participant.id,
       athleteName: participant.athlete_name,
       bibNumber: participant.bib_number,
+      startBatch: participant.start_batch ?? null,
       cardCode: participant.card_code,
       entryType: participant.entry_type || "individual",
       memberNames: normalizeMemberNames(
@@ -2194,6 +2197,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     const raceId = requiredRaceId(payload.raceId);
     const participantId = Number(payload.participantId);
     const stationId = String(payload.stationId || "").trim().toUpperCase();
+    if (raceId === OCT11_RACE_ID && stationId === "START") throw new Error("起点仅签到，请先完成起点签到，再由裁判台发枪");
     const eventTimeInput = String(payload.eventTime || "").trim();
     const reason = String(payload.reason || "").trim();
     const auditReason = reason || "现场裁判人工确认";
@@ -2806,6 +2810,7 @@ async function handlePost(route: string, request: Request): Promise<Response> {
     if (NANXI_RACES[raceId]) {
       const auth = await judgeAuthorization(payload, raceId);
       if (!auth || auth.role !== 'admin') return jsonResponse({ok: false, error: 'Administrator authorization is required'},403);
+      if (raceId === OCT11_RACE_ID && Number(payload.stationCount ?? 8) !== 8) throw new Error('10·11 比赛固定为八站');
       payload.mode = 'station_checkpoints'; payload.checkpointLayout = 'station_boundaries';
       const previous = await findRaceProfile(raceId);
       if (previous && Number(payload.stationCount) !== Number(previous.station_count)) {
@@ -3122,6 +3127,9 @@ async function handlePost(route: string, request: Request): Promise<Response> {
 
   if (route === "/timing-events") {
     const raceId = requiredRaceId(payload.raceId);
+    if (raceId === OCT11_RACE_ID && String(payload.stationId || "").trim().toUpperCase() === "START") {
+      throw new Error("起点仅签到，请先完成起点签到，再由裁判台发枪");
+    }
     const profile = await ensureRaceProfile(raceId);
     if (profile.is_template) {
       return jsonResponse({

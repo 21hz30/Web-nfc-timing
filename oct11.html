@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>SRC 10·11 八站挑战赛 · 实时排名</title>
+  <link rel="icon" href="./assets/src-logo.png">
+  <style>
+:root {
+  --bg: #000000;
+  --surface: #111111;
+  --surface-2: #1d1d1d;
+  --line: #444444;
+  --ink: #ffffff;
+  --muted: #b0b0b0;
+  --table-head: #262626;
+  --accent: #ffed00;
+  --font: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; }
+button { cursor: pointer; }
+.screen {
+  width: 100%;
+  max-width: 1920px;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0 auto;
+  padding: 22px 34px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.topbar {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.topbar a {
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: .03em;
+  font-weight: 900;
+  text-decoration: none;
+}
+.live { display: flex; align-items: center; gap: 9px; color: var(--ink); }
+.live::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+.brand {
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.brand-lockup {
+  width: 100%;
+  margin: 0 0 14px;
+  background: var(--bg);
+  line-height: 0;
+}
+.brand-lockup img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0 13px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.heading h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(28px, 2.45vw, 44px);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: .95;
+}
+.group-switch {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0;
+  flex-shrink: 0;
+}
+.group-switch button {
+  min-height: 34px;
+  padding: 7px 13px;
+  border: 1px solid #565656;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+.group-switch button:hover,
+.group-switch button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+.search {
+  width: 238px;
+  min-height: 34px;
+  margin-left: auto;
+  padding: 7px 11px;
+  border: 1px solid #565656;
+  border-radius: 0;
+  outline: none;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+.search:focus { border-color: var(--ink); }
+.board {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.board-head,
+.row {
+  display: grid;
+  grid-template-columns: 82px minmax(300px, 1.3fr) 140px 205px 100px;
+  align-items: center;
+  column-gap: 18px;
+}
+.board-head {
+  min-height: 46px;
+  padding: 0 20px;
+  background: var(--table-head);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.board-head span:nth-child(4), .board-head span:nth-child(5) { text-align: right; }
+#rows {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  overflow-anchor: none;
+}
+#rows::-webkit-scrollbar { display: none; }
+.row {
+  min-height: 128px;
+  grid-template-rows: minmax(62px, auto) auto;
+  padding: 13px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.row:nth-child(even) { background: var(--surface-2); }
+.rank {
+  color: var(--ink);
+  font: 700 36px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.row:first-child .rank { color: var(--accent); }
+.id, .time, .station span {
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.id { color: var(--muted); font-size: 15px; font-weight: 800; overflow-wrap: anywhere; }
+.name {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.group-label {
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.members { display: block; margin-top: 7px; color: var(--muted); font-size: 13px; font-weight: 700; line-height: 1.35; }
+.time {
+  justify-self: end;
+  color: var(--ink);
+  font-size: 30px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.penalty, .deduction {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink);
+  font: 800 11px/1.2 Arial, "PingFang SC", sans-serif;
+}
+.status { justify-self: end; color: var(--muted); font-size: 12px; font-weight: 900; }
+.station-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(var(--station-count, 8), minmax(0, 1fr));
+  gap: 5px;
+}
+.station {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 9px 6px;
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+.station strong {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.station span { color: var(--ink); font-size: 14px; font-weight: 900; }
+.station.done { border-top-color: var(--ink); }
+.station.done span { color: var(--ink); }
+.station.next { border-top-color: var(--accent); background: var(--accent); }
+.station.next strong, .station.next span { color: var(--bg); }
+.empty { padding: 32px 20px; color: var(--muted); font-size: 15px; line-height: 1.8; }
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 32px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.scroll-control {
+  min-height: 27px;
+  padding: 4px 9px;
+  border: 1px solid #565656;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+.scroll-control:hover { border-color: var(--ink); color: var(--ink); }
+.footer .error { color: var(--ink); }
+[hidden] { display: none !important; }
+@media (min-width: 1600px) and (min-height: 880px) {
+  .screen { padding: 28px 50px 20px; }
+  .brand { padding-bottom: 18px; }
+  .brand-lockup { margin-bottom: 16px; }
+  .board-head { min-height: 52px; font-size: 12px; }
+  .row { min-height: 142px; padding-left: 24px; padding-right: 24px; }
+  .name { font-size: 26px; }
+  .members { font-size: 15px; }
+  .time { font-size: 35px; }
+  .station strong { font-size: 11px; }
+  .station span { font-size: 16px; }
+}
+@media (max-width: 1100px) {
+  .screen { padding: 18px 18px 14px; }
+  .board-head, .row { grid-template-columns: 55px minmax(220px, 1fr) 100px 150px 75px; column-gap: 11px; }
+  .name { font-size: 19px; }
+  .time { font-size: 23px; }
+  .station { padding-left: 5px; padding-right: 5px; }
+}
+@media (max-width: 700px) {
+  .screen { height: auto; min-height: 100dvh; padding: 12px; overflow: visible; }
+  .topbar { font-size: 10px; letter-spacing: .04em; }
+  .brand { padding-bottom: 13px; }
+  .brand-lockup { margin-bottom: 11px; }
+  .heading { align-items: flex-start; flex-direction: column; padding: 10px 0; }
+  .heading h1 { font-size: 27px; }
+  .group-switch { margin: 9px 0; }
+  .group-switch button { min-height: 30px; padding: 6px 8px; font-size: 10px; }
+  .search { width: 100%; margin-left: 0; }
+  .board-head, .row { grid-template-columns: 32px minmax(0, 1fr) 105px; column-gap: 8px; }
+  .board-head { min-height: 36px; padding: 0 9px; font-size: 9px; letter-spacing: 0; }
+  .board-head span:nth-child(3), .board-head span:nth-child(5) { display: none; }
+  .row { min-height: 122px; grid-template-rows: auto auto auto; row-gap: 6px; padding: 10px 9px; }
+  .rank { grid-column: 1; grid-row: 1 / span 2; font-size: 22px; }
+  .name { grid-column: 2; grid-row: 1; font-size: 15px; }
+  .time { grid-column: 3; grid-row: 1; font-size: 17px; }
+  .id { grid-column: 2; grid-row: 2; font-size: 11px; }
+  .status { grid-column: 3; grid-row: 2; font-size: 10px; }
+  .members { margin-top: 4px; font-size: 11px; }
+  .station-strip { grid-row: 3; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .station { padding: 5px 4px; }
+  .station strong { font-size: 9px; }
+  .station span { font-size: 11px; }
+  .board { min-height: 360px; }
+  #rows { max-height: 66vh; }
+  .footer { flex-wrap: wrap; gap: 6px; margin-top: 7px; font-size: 10px; }
+}
+</style>
+</head>
+<body>
+  <main class="screen">
+    <div class="topbar"><span class="live" id="modeLabel">LIVE RANKING · 实时排名</span><div><a href="./oct11-finish-result.html">最终成绩查询 ↗</a> <time class="clock" id="clock"></time></div></div>
+    <div class="brand"><div class="brand-lockup"><img src="./assets/oct11-brand-lockup.png" alt="辉瑞减重 · 24/7 FITNESS · HYROX"></div></div>
+    <section class="heading"><h1 id="title">全部组别</h1></section>
+    <div class="group-switch" id="groups" aria-label="比赛组别"></div>
+    <section class="board" aria-label="实时排行榜">
+      <div class="board-head"><span>组内名次</span><span>选手 / 队伍</span><span>选手号</span><span>总用时</span><span>状态</span></div>
+      <div id="rows" aria-live="off"></div>
+    </section>
+    <div class="footer"><span id="entryCount">等待成绩</span><button id="scrollToggle" class="scroll-control" aria-pressed="true">暂停滚动</button><span id="connection" role="status">正在读取成绩…</span></div>
+  </main>
+  <script src="./timing-api.js?v=20260919-2" defer></script>
+  <script src="./nanxi.js?v=20260920-1" defer></script>
+  <script src="./oct11.js?v=20261006-1" defer></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const $ = selector => document.querySelector(selector);
+      if (!window.Nanxi || !window.SrcOct11 || !window.timingApiFetch) { $('#connection').textContent='成绩脚本未加载成功，请刷新页面。'; return; }
+      const E = SrcOct11, N = Nanxi, params = new URLSearchParams(location.search), demo = params.get('demo') === '1' || (location.protocol === 'file:' && params.get('live') !== '1');
+      let group = E.codes.includes(params.get('group')) ? params.get('group') : 'all', query = '', payload = null, loading = false;
+      const scroller = $('#rows'), labels = {finished:'已完赛', racing:'比赛中', not_started:'未开始', paused:'已暂停', dnf:'退赛', dns:'未出发'};
+      let autoScroll=true, scrollPosition=0, lastFrame=0, holdUntil=performance.now()+2500, atEnd=false;
+      $('#modeLabel').textContent=demo?'DEMO · 演示数据':'LIVE RANKING · 实时排名';
+      function controls() {
+        $('#title').textContent=group==='all'?'全部组别':N.groups[group].label;
+        $('#groups').innerHTML=[`<button data-group="all" class="${group==='all'?'active':''}" aria-pressed="${group==='all'}">全部</button>`, ...E.codes.map(code=>`<button data-group="${code}" class="${group===code?'active':''}" aria-pressed="${group===code}">${N.groups[code].label}</button>`), '<input id="search" class="search" aria-label="查找选手或队伍" placeholder="选手号 / 姓名 / 队伍" autocomplete="off">'].join('');
+        $('#search').value=query;
+        $('#search').addEventListener('input',event=>{query=event.target.value.trim();render();resetScroll();});
+      }
+      function render() {
+        const entries=(payload?.leaderboard||[]).filter(row=>(group==='all'||row.categoryCode===group)&&(!query||N.matchesBib(row,query)||[row.athleteName,...(row.memberNames||[])].join(' ').toLowerCase().includes(query.toLowerCase())));
+        entries.sort((a,b)=>E.codes.indexOf(a.categoryCode)-E.codes.indexOf(b.categoryCode)||(a.status==='finished'?0:1)-(b.status==='finished'?0:1)||(a.status==='finished' ? a.elapsedMs-b.elapsedMs : (b.progressIndex??-1)-(a.progressIndex??-1))||String(a.bibNumber).localeCompare(String(b.bibNumber)));
+        $('#entryCount').textContent=`${demo?'演示 · ':''}已显示 ${entries.length} 个 · 完赛 ${entries.filter(row=>row.status==='finished').length} 个`;
+        const markup=entries.length?entries.map(row=>`<div class="row">
+          <span class="rank">${row.status==='finished'?row.categoryRank??'—':'—'}</span>
+          <span class="name"><span class="group-label">${N.escape(N.groups[row.categoryCode]?.label||'组别待确认')}</span>${N.escape(row.athleteName)}${N.memberRoster(row).length?`<small class="members">${N.escape(N.rosterText(row))}</small>`:''}</span>
+          <span class="id">${N.escape(row.bibNumber||'—')}</span>
+          <span class="time">${N.duration(row.elapsedMs)}${row.penaltyMs?`<small class="penalty">罚时 +${N.duration(row.penaltyMs)}</small>`:''}</span>
+          <span class="status">${labels[row.status]||'待确认'}</span>
+          <div class="station-strip" style="--station-count:8">${E.stations.map((name,i)=>{const ms=row.stationSplits?.[`station${i+1}Ms`],done=ms!=null,next=!done&&row.status==='racing'&&Number(row.progressIndex)===i;return `<div class="station ${done?'done':next?'next':''}"><strong>${String(i+1).padStart(2,'0')} ${name}</strong><span>${done?N.duration(ms):next?'进行中':'—'}</span></div>`;}).join('')}</div>
+        </div>`).join(''):`<div class="empty">${payload?(query?'没有匹配的选手或队伍。':'该组别尚无报名或成绩，完成登记后会自动显示。'):'正在读取比赛数据…'}</div>`;
+        const top=scroller.scrollTop;if(scroller.innerHTML!==markup)scroller.innerHTML=markup;scroller.scrollTop=top;scrollPosition=scroller.scrollTop;
+      }
+      function resetScroll(){scroller.scrollTop=0;scrollPosition=0;atEnd=false;holdUntil=performance.now()+2500;}
+      function frame(now){const dt=Math.min(now-(lastFrame||now),100);lastFrame=now;const end=Math.max(0,scroller.scrollHeight-scroller.clientHeight);if(autoScroll&&document.visibilityState==='visible'&&now>=holdUntil&&end>1){if(atEnd)resetScroll();else{scrollPosition=Math.min(end,scrollPosition+dt*.025);scroller.scrollTop=scrollPosition;if(scrollPosition>=end){atEnd=true;holdUntil=now+2500;}}}requestAnimationFrame(frame);}
+      $('#scrollToggle').addEventListener('click',()=>{autoScroll=!autoScroll;$('#scrollToggle').textContent=autoScroll?'暂停滚动':'继续滚动';$('#scrollToggle').setAttribute('aria-pressed',String(autoScroll));scrollPosition=scroller.scrollTop;atEnd=false;holdUntil=performance.now()+1000;});
+      scroller.addEventListener('scroll',()=>{if(Math.abs(scroller.scrollTop-scrollPosition)>2){scrollPosition=scroller.scrollTop;atEnd=false;holdUntil=performance.now()+5000;}});
+      $('#groups').addEventListener('click',event=>{const button=event.target.closest('[data-group]');if(!button)return;group=button.dataset.group;controls();render();resetScroll();const url=new URL(location.href);url.searchParams.set('group',group);history.replaceState({},'',url);});
+      async function refresh(){if(loading)return;loading=true;const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);try{const next=demo?E.mock():await E.fetchResults(controller.signal);payload=next;render();$('#connection').classList.remove('error');$('#connection').textContent=`${demo?'演示':'已更新'} ${new Date(next.generatedAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})}`;}catch(error){$('#connection').classList.add('error');$('#connection').textContent=`${N.resultError(error)} · ${payload?'保留上次成绩，':''}正在重试`;if(!payload)scroller.innerHTML='<div class="empty">暂时无法读取比赛成绩，请检查连接或赛事配置。</div>';}finally{clearTimeout(timeout);loading=false;}}
+      function clock(){const now=new Date();$('#clock').textContent=now.toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});$('#clock').dateTime=now.toISOString();}
+      controls();render();refresh();clock();requestAnimationFrame(frame);setInterval(clock,1000);setInterval(()=>{if(document.visibilityState==='visible')refresh();},3000);
+    });
+  </script>
+</body>
+</html>

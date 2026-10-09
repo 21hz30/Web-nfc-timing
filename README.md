@@ -6,6 +6,7 @@ The operator workflow is split into four pages:
 
 - `admin.html`: create/configure a race, register entries, and bind NFC cards.
 - `judge.html`: start any set of ready entries together, manually confirm missed station times, adjust results, enter manual times, and confirm withdrawals.
+- `oct11-finish-result.html`: query a finished SRC October 11 entry by team or member bib and show the full eight-station finish card.
 - `web-nfc-timing-test.html`: bind an Android phone to a race checkpoint and scan NFC cards.
 - `leaderboard.html`: branded live results for venue screens and mobile browsers.
 
@@ -26,8 +27,11 @@ serves the static frontend from Vercel and rewrites `/api/*` to the Supabase
 
 The timing phone page no longer exposes an editable API URL. All scanner and admin
 requests use the fixed `/api/*` routes, so operators only need to select the race and
-device role. A `file://` page now falls back to the hosted HTTPS API for testing, but
-Web NFC itself still requires the HTTPS site on Android.
+device role. A `file://` judge page connects to the local service at
+`http://localhost:8787` so the local station accounts work; start it with
+`python3 server.py`. Other `file://` pages fall back to the hosted HTTPS API for
+read-only testing. Add `?livePreview=1` to the judge page when you intentionally want
+the hosted read-only preview. Web NFC itself still requires the HTTPS site on Android.
 
 Live health check:
 
@@ -64,6 +68,28 @@ http://localhost:8787/web-nfc-timing-test.html
 http://localhost:8787/leaderboard.html
 ```
 
+## SRC October 11, 2026
+
+The new event is `src-race-20261011`, with eight station finishes and no running:
+SkiErg, sled push, sled pull, burpees, rowing, farmer's carry, lunges, wall balls.
+Start NFC/manual check-in only makes an entry ready; the judge's gun-start starts
+the clock. Every station then accepts either NFC or manual confirmation in order,
+and wall balls finish the entry. Six divisions rank independently, with no Nanxi
+relay gender deduction. There are 84 planned entries representing 168 people;
+relay registration supports four waves of four teams.
+
+Open `/oct11.html` for live results or `/oct11.html?demo=1` for the SRC color preview.
+The admin, judge and NFC pages accept `?raceId=src-race-20261011`.
+The admin CSV template contains the planned 84 entries and relay wave assignments.
+See [OCT11_EVENT.md](OCT11_EVENT.md) for the Chinese operator guide and cloud setup.
+Apply `20261006090000_add_src_oct11_eight_stations.sql` and
+`20261006100000_seed_src_oct11_judge_accounts.sql`, publish the updated Edge
+Function and static frontend, and verify the nine cloud judge accounts before
+using this event online. The seeded station passwords are `station1` through
+`station8` (start is `station0`); existing custom accounts are preserved.
+
+Regression check: `python3 -m unittest test_oct11.Oct11Tests test_nanxi.NanxiTests test_server.TimingApiTests test_server.AutoTransitionTests`.
+
 The Nanxi mobile ranking is `http://localhost:8787/nanxi.html`, the venue screen is
 `http://localhost:8787/nanxi-leaderboard-preview.html`, and the finish photo card is
 `http://localhost:8787/finish-result.html`. Nanxi chooses divisions explicitly:
@@ -89,9 +115,12 @@ it keeps the original single-column layout and automatically scrolls through the
 full ranking; mobile uses the same single-column flow.
 
 The admin page owns race setup and NFC binding. The judge page owns race starts and
-audited timing decisions. The first phone checkpoint (`START`) only confirms that a
-participant is ready; the judge freely selects ready entries and starts them with the
-shared confirmation-click time.
+audited timing decisions. For SRC October 11, a logged-in station judge can start
+NFC directly inside the judge console: the station card maps to the next checkpoint
+and submits the authenticated manual-checkpoint action. The start judge's in-console
+NFC writes the ready check-in; the judge freely selects ready entries and starts them
+with the shared confirmation-click time. If Web NFC is unavailable, the same rows
+keep their manual confirmation buttons.
 For Nanxi, the judge page links each station account directly to its NFC checkpoint.
 The NFC link opens a separate top-level tab: Web NFC cannot scan from an iframe,
 even on an NFC-capable Android phone. Use Android Chrome over HTTPS. Other phones

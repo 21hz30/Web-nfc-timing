@@ -639,8 +639,8 @@
         <div class="actions"><button type="button" id="nanxiLookupButton">查找选手 / 绑定手环</button><button type="button" id="nanxiScanButton" class="secondary">读取 NFC 手环号码</button></div>
         <p>组别由工作人员选择，与号码前缀无关。双人/四人各有自己的选手号，全队共用一个计时手环。</p>
         <details class="bulk-binding">
-          <summary>批量登记 / 绑定（适合 200+ 人）</summary>
-          <p>上传 CSV 后自动逐条登记。表头：<code>categoryCode,bibNumber,athleteName,member1,member1Bib,member2,member2Bib,member3,member3Bib,member4,member4Bib,cardCode,femaleCount</code>。categoryCode 填所选组别 A–G；每位成员填写姓名和 Bib 选手号。bibNumber 为队伍查询号，可使用成员 1 的选手号；cardCode 为全队唯一手环号。</p>
+          <summary>批量登记 / 绑定</summary>
+          <p>上传 CSV 后自动逐条登记。表头：<code>categoryCode,bibNumber,athleteName,member1,member1Bib,member2,member2Bib,member3,member3Bib,member4,member4Bib,cardCode,femaleCount,startBatch</code>。categoryCode 填所选组别 A–G；每位成员填写姓名和 Bib 选手号。bibNumber 为队伍查询号，可使用成员 1 的选手号；cardCode 为全队唯一手环号。10·11 四人接力的 startBatch 填 1–4（每轮 4 队）。</p>
           <div class="actions"><button type="button" id="downloadNanxiTemplate" class="secondary">下载当前日期模板</button><button type="button" id="createNanxiTestData" class="secondary">生成 test1 / test2 测试数据</button><button type="button" id="deleteNanxiTestData" class="danger">一键删除测试数据</button><label class="file-button">选择 CSV<input id="nanxiBulkFile" type="file" accept=".csv,text/csv"></label></div>
           <div id="nanxiBulkStatus" class="status" role="status">尚未选择文件。</div>
         </details>
@@ -773,7 +773,7 @@
 
     <section id="judgeAccountConfiguration">
       <h2>裁判台账号</h2>
-      <p>为当前比赛配置起点及各站点独立账号。Nanxi 七站赛默认账号为 <code>station_1</code>–<code>station_7</code>，密码对应 <code>station1</code>–<code>station7</code>；密码只保存为不可逆哈希，留空表示沿用原密码。</p>
+      <p>为当前比赛配置起点及各站点独立账号。SRC 10·11 默认站点账号为 <code>station_1</code>–<code>station_8</code>，密码对应 <code>station1</code>–<code>station8</code>；起点账号为 <code>station_0</code> / <code>station0</code>。Nanxi 七站赛默认账号为 <code>station_1</code>–<code>station_7</code>。密码只保存为不可逆哈希，留空表示沿用原密码。</p>
       <div id="judgeAccountsRows" class="grid"></div>
       <div class="actions">
         <button id="saveJudgeAccountsButton" type="button">保存裁判账号</button>
@@ -936,6 +936,7 @@
 
   <script src="./timing-api.js"></script>
   <script src="./nanxi.js?v=20260920-1"></script>
+  <script src="./oct11.js?v=20261006-1"></script>
   <script>
     const accessBackdrop = document.querySelector("#accessBackdrop");
     const accessForm = document.querySelector("#accessForm");
@@ -1082,7 +1083,7 @@
     let judgeAccountRoles = [];
     function configureJudgeRoles(count) {
       judgeAccountRoles = [["start", "起点 / 发枪", "START"], ...Array.from({length: count}, (_, i) =>
-        [`station_${i+1}`, `站点 ${i+1}${i+1===count?' / 冲线':''}`, `站点 ${i+1} 结束`])];
+        [`station_${i+1}`, `站点 ${i+1}${SrcOct11.isRace(selectedRaceId()) ? " · " + SrcOct11.stations[i] : ""}${i+1===count?' / 冲线':''}`, `站点 ${i+1} 结束`])];
     }
     configureJudgeRoles(5);
     const knownRaceIds = new Set(officialRaces.map((race) => race.raceId));
@@ -1187,7 +1188,7 @@
     }
 
     function currentMemberBibs() {
-      return Array.from(memberFields.querySelectorAll("input[data-member-bib]"), input => Nanxi.normalizeBib(input.value));
+      return Array.from(memberFields.querySelectorAll("input[data-member-bib]"), input => RaceEvents.normalizeBib(input.value));
     }
 
     function renderMemberFields(count, preferredNames = [], preferredBibs = []) {
@@ -1204,7 +1205,7 @@
             autocomplete="off"
             required>
         </label>
-        ${Nanxi.isRace(selectedRaceId()) ? `<label>成员 ${index + 1} 选手号<input data-member-bib value="${escapeHtml(bibs[index] || '')}" maxlength="20" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,19}" placeholder="例如 1001" autocomplete="off" required></label>` : ""}
+        ${RaceEvents.isRace(selectedRaceId()) ? `<label>成员 ${index + 1} 选手号<input data-member-bib value="${escapeHtml(bibs[index] || '')}" maxlength="20" pattern="[A-Za-z0-9](?:[A-Za-z0-9_]|-){0,19}" placeholder="例如 1001" autocomplete="off" required></label>` : ""}
       `).join("");
     }
 
@@ -1326,7 +1327,7 @@
         memberCountInput.value = String(Math.max(2, memberNames.length));
         renderMemberFields(Math.max(2, memberNames.length), memberNames);
       }
-      document.querySelector("#nanxiCategoryCode").value = Nanxi.categoryForRow(participant) || '';
+      document.querySelector("#nanxiCategoryCode").value = RaceEvents.categoryForRow(participant) || '';
       applyNanxiEntry();
       if (entryType !== 'individual') renderMemberFields(memberNames.length, memberNames, participant.member_bib_numbers || []);
       document.querySelector("#nanxiFemaleCount").value = participant.female_count == null ? "" : String(participant.female_count);
@@ -1677,10 +1678,10 @@
     });
 
     function raceOptionLabel(race) {
-      if (Nanxi.isRace(race.raceId)) {
-        const codes = Nanxi.codes(Nanxi.dayForRace(race.raceId));
-        const groups = codes.map((code) => Nanxi.groups[code]?.label).filter(Boolean).join(" / ");
-        return `${race.name || race.raceId} · ${groups} · ${race.stationCount || Nanxi.stationCountForDay(Nanxi.dayForRace(race.raceId))} 站`;
+      if (RaceEvents.isRace(race.raceId)) {
+        const codes = RaceEvents.codes(RaceEvents.dayForRace(race.raceId));
+        const groups = codes.map((code) => RaceEvents.groups[code]?.label).filter(Boolean).join(" / ");
+        return `${race.name || race.raceId} · ${groups} · ${race.stationCount || RaceEvents.stationCountForDay(RaceEvents.dayForRace(race.raceId))} 站`;
       }
       const official = officialRaces.find((item) => item.raceId === race.raceId);
       const category = entryTypeLabel(race.entryType || official?.entryType || "individual");
@@ -1716,7 +1717,7 @@
     }
 
     function updateRaceLinks(raceId) {
-      const page = Nanxi.isRace(raceId) ? "nanxi-leaderboard-preview.html" : "leaderboard.html";
+      const page = SrcOct11.isRace(raceId) ? "oct11.html" : Nanxi.isRace(raceId) ? "nanxi-leaderboard-preview.html" : "leaderboard.html";
       leaderboardLink.href = `./${page}?raceId=${encodeURIComponent(raceId)}`;
       document.querySelector("#navLeaderboardLink").href = leaderboardLink.href;
     }
@@ -1742,8 +1743,9 @@
       const datedRaces = (payload.races || [])
         .filter((race) => !primaryRaceIds.includes(race.raceId) && isDatedRaceSession(race.raceId))
         .sort((left, right) => right.raceId.localeCompare(left.raceId));
+      const oct11Races = (payload.races || []).filter(race => SrcOct11.isRace(race.raceId));
       const nanxiRaces = (payload.races || []).filter(race => Nanxi.isRace(race.raceId));
-      const groups = [buildRaceGroup("HOKA 比赛", primaryRaces), buildRaceGroup("Nanxi", nanxiRaces)];
+      const groups = [buildRaceGroup("SRC 10·11", oct11Races), buildRaceGroup("HOKA 比赛", primaryRaces), buildRaceGroup("Nanxi", nanxiRaces)];
       if (datedRaces.length) groups.push(buildRaceGroup("新建比赛场次", datedRaces));
       raceIdSelect.replaceChildren(...groups);
 
@@ -1752,7 +1754,7 @@
         || pageParams.get("race")
         || datedRaces[0]?.raceId
         || "hoka-race-final";
-      const visibleRaceIds = new Set([...primaryRaces, ...datedRaces, ...nanxiRaces].map((race) => race.raceId));
+      const visibleRaceIds = new Set([...oct11Races, ...primaryRaces, ...datedRaces, ...nanxiRaces].map((race) => race.raceId));
       raceIdSelect.value = visibleRaceIds.has(requestedRaceId)
         ? requestedRaceId
         : primaryRaces[0]?.raceId || "";
@@ -1882,9 +1884,9 @@
           : [participant.athlete_name];
         const memberSummary = entryType === "individual"
           ? escapeHtml(participant.athlete_name)
-          : escapeHtml(Nanxi.isRace(raceId) ? Nanxi.rosterText(participant) : memberNames.join(" / "));
-        const categoryCode = Nanxi.categoryForRow(participant);
-        const category = Nanxi.isRace(raceId) && Nanxi.groups[categoryCode] ? Nanxi.groups[categoryCode] : null;
+          : escapeHtml(RaceEvents.isRace(raceId) ? RaceEvents.rosterText(participant) : memberNames.join(" / "));
+        const categoryCode = RaceEvents.categoryForRow(participant);
+        const category = RaceEvents.isRace(raceId) && RaceEvents.groups[categoryCode] ? RaceEvents.groups[categoryCode] : null;
         return `
           <tr>
             <td><strong>${escapeHtml(participant.bib_number || "-")}</strong></td>
@@ -1930,18 +1932,25 @@
     }
 
     function applyNanxiEntry() {
-      const isNanxi = Nanxi.isRace(selectedRaceId());
+      const isNanxi = RaceEvents.isRace(selectedRaceId());
       const category = document.querySelector('#nanxiCategoryCode');
-      const allowed = Nanxi.codes(Nanxi.dayForRace(selectedRaceId()));
+      const allowed = RaceEvents.codes(RaceEvents.dayForRace(selectedRaceId()));
       const selected = category.value;
-      category.replaceChildren(new Option('请选择组别', ''), ...allowed.map(code => new Option(Nanxi.groups[code].label, code)));
+      category.replaceChildren(new Option('请选择组别', ''), ...allowed.map(code => new Option(RaceEvents.groups[code].label, code)));
       category.value = allowed.includes(selected) ? selected : '';
       category.required = isNanxi; category.disabled = !isNanxi;
       document.querySelector('#nanxiCategoryField').hidden = !isNanxi;
       document.querySelector('#nanxiBindingTools').hidden = !isNanxi;
       const code = category.value;
-      const config = isNanxi ? Nanxi.groups[code] : null;
-      const relay = isNanxi && ['F','G'].includes(code);
+      const config = isNanxi ? RaceEvents.groups[code] : null;
+      const oct11 = SrcOct11.isRace(selectedRaceId());
+      document.querySelector('#raceSession').hidden = oct11;
+      document.querySelector('#createNanxiTestData').hidden = oct11;
+      document.querySelector('#deleteNanxiTestData').hidden = oct11;
+      document.querySelector('#raceStationCount').readOnly = oct11;
+      startBatchInput.max = oct11 && code === 'G' ? '4' : '100000';
+      startBatchInput.placeholder = oct11 && code === 'G' ? '第 1–4 轮，每轮 4 队' : '留空不分配批次';
+      const relay = Nanxi.isRace(selectedRaceId()) && ['F','G'].includes(code);
       document.querySelector('#bindingIntro').textContent = isNanxi
         ? '先选择比赛组别，再填写号码。双人 / 四人各有独立选手号，全队共用一个手环、一份计时成绩。'
         : '一张 NFC 卡对应一个参赛单位；HOKA 队伍编号使用 01-01 格式，出发批次可留空。';
@@ -1957,7 +1966,7 @@
       if (isNanxi) {
         const individual = !config || config.type === 'individual';
         bibNumberInput.required = individual;
-        bibNumberInput.pattern = '[A-Za-z0-9][A-Za-z0-9_-]{0,19}';
+        bibNumberInput.pattern = '[A-Za-z0-9](?:[A-Za-z0-9_]|-){0,19}';
         bibNumberInput.placeholder = individual ? '例如 1001 / A-001' : '留空使用成员 1 的选手号';
         bibNumberInput.readOnly = false;
         bibNumberLabel.textContent = individual ? '选手号' : '队伍查询号（选填）';
@@ -1966,6 +1975,8 @@
         individualFields.forEach(field => { field.classList.add('field-hidden'); field.querySelectorAll('input,select').forEach(input=>input.disabled=true); });
       } else { bibNumberInput.readOnly = false; }
       const females = document.querySelector('#nanxiFemaleCount');
+      if (oct11) females.value = '';
+      document.querySelector('#downloadNanxiTemplate').textContent = oct11 ? '下载 84 个计时单位报名模板' : '下载当前日期模板';
       document.querySelector('#nanxiFemaleField').hidden = !relay; females.disabled = !relay; females.required = relay;
       [...females.options].forEach(option => { option.disabled = relay && option.value !== '' && Number(option.value) > config.size; });
       if (relay && Number(females.value) > config.size) females.value = '';
@@ -1973,11 +1984,11 @@
     document.querySelector('#nanxiCategoryCode').addEventListener('change', applyNanxiEntry);
     document.querySelector('#nanxiLookupButton').addEventListener('click', async () => {
       try {
-        const bib = Nanxi.normalizeBib(document.querySelector('#nanxiLookupBib').value);
+        const bib = RaceEvents.normalizeBib(document.querySelector('#nanxiLookupBib').value);
         const raceId = selectedRaceId();
         const payload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
         if (raceId !== selectedRaceId()) return;
-        const participant = payload.participants.find(row=>Nanxi.matchesBib(row, bib));
+        const participant = payload.participants.find(row=>RaceEvents.matchesBib(row, bib));
         if (!participant) { resetParticipantForm('该编号尚未登记，请选择组别并补充姓名、成员选手号和手环号码。'); bibNumberInput.value = bib; applyNanxiEntry(); return; }
         editParticipant(participant); cardCodeInput.focus(); cardCodeInput.select();
       } catch(error) { setStatus(error.message,true); }
@@ -2022,40 +2033,41 @@
     function csvCell(value) { return `"${String(value ?? "").replaceAll('"', '""')}"`; }
     document.querySelector('#downloadNanxiTemplate').addEventListener('click', () => {
       const raceId = selectedRaceId();
-      if (!Nanxi.isRace(raceId)) return;
-      const codes = Nanxi.codes(Nanxi.dayForRace(raceId));
-      const lines = [['categoryCode','bibNumber','athleteName','member1','member1Bib','member2','member2Bib','member3','member3Bib','member4','member4Bib','cardCode','femaleCount']];
-      codes.forEach(code => { for (let number = 1; number <= 20; number += 1) lines.push([code,`${code}-${String(number).padStart(3,'0')}`,'','','','','','','','','','','']); });
+      if (!RaceEvents.isRace(raceId)) return;
+      const codes = RaceEvents.codes(RaceEvents.dayForRace(raceId));
+      const oct11 = SrcOct11.isRace(raceId);
+      const lines = [['categoryCode','bibNumber','athleteName','member1','member1Bib','member2','member2Bib','member3','member3Bib','member4','member4Bib','cardCode','femaleCount','startBatch']];
+      codes.forEach(code => { for (let number = 1; number <= (oct11 ? SrcOct11.counts[code] : 20); number += 1) { const bib = `${code}-${String(number).padStart(3,'0')}`, size = RaceEvents.groups[code].size; lines.push([code,bib,'','',oct11?`${bib}-1`:'','',oct11&&size>1?`${bib}-2`:'','',oct11&&size>2?`${bib}-3`:'','',oct11&&size>3?`${bib}-4`:'','','',oct11&&code==='G'?Math.floor((number-1)/4)+1:'']); } });
       const blob = new Blob([lines.map(row => row.map(csvCell).join(',')).join('\n')], {type:'text/csv;charset=utf-8'});
-      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `nanxi-${Nanxi.dayForRace(raceId)}-binding-template.csv`; link.click(); URL.revokeObjectURL(link.href);
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = oct11 ? "src-20261011-binding-template.csv" : `nanxi-${RaceEvents.dayForRace(raceId)}-binding-template.csv`; link.click(); URL.revokeObjectURL(link.href);
     });
 
     document.querySelector('#nanxiBulkFile').addEventListener('change', async (event) => {
       const input = event.target; const status = document.querySelector('#nanxiBulkStatus');
-      if (!input.files?.[0] || !Nanxi.isRace(selectedRaceId())) return;
+      if (!input.files?.[0] || !RaceEvents.isRace(selectedRaceId())) return;
       const rows = parseNanxiCsv(await input.files[0].text());
       if (!rows.length) { status.textContent = 'CSV 没有可导入的行。'; return; }
       const raceId = selectedRaceId();
       const existingPayload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
-      const existing = new Map((existingPayload.participants || []).map(row => [Nanxi.normalizeBib(row.bib_number), row]));
+      const existing = new Map((existingPayload.participants || []).map(row => [RaceEvents.normalizeBib(row.bib_number), row]));
       let success = 0; const failures = [];
       for (let index = 0; index < rows.length; index += 1) {
-        const row = rows[index]; const bib = Nanxi.normalizeBib(row.bibnumber || row.bib || row['选手号']);
-        const code = String(row.categorycode || row['组别'] || '').trim().toUpperCase(); const config = Nanxi.groups[code];
+        const row = rows[index]; const bib = RaceEvents.normalizeBib(row.bibnumber || row.bib || row['选手号']);
+        const code = String(row.categorycode || row['组别'] || '').trim().toUpperCase(); const config = RaceEvents.groups[code];
         try {
-          if (!config || !Nanxi.codes(Nanxi.dayForRace(raceId)).includes(code)) throw new Error('请填写该日期的 categoryCode 组别');
+          if (!config || !RaceEvents.codes(RaceEvents.dayForRace(raceId)).includes(code)) throw new Error('请填写该日期的 categoryCode 组别');
           const cardCode = String(row.cardcode || row.card || row['手环号码'] || '').trim().toUpperCase();
           if (!cardCode) throw new Error('缺少 cardCode');
           const memberNames = config.size === 1
             ? [String(row.athletename || row.name || row['选手姓名'] || '').trim()]
             : Array.from({length: config.size}, (_, memberIndex) => String(row[`member${memberIndex + 1}`] || row[`成员${memberIndex + 1}`] || '').trim());
           if (memberNames.some(name => !name)) throw new Error(`需要填写 ${config.size} 名成员`);
-          const memberBibNumbers = config.size === 1 ? [bib] : Array.from({length:config.size}, (_, i) => Nanxi.normalizeBib(row[`member${i+1}bib`]));
+          const memberBibNumbers = config.size === 1 ? [bib] : Array.from({length:config.size}, (_, i) => RaceEvents.normalizeBib(row[`member${i+1}bib`]));
           if (memberBibNumbers.some(value => !value)) throw new Error('请填写每位成员的选手号');
-          const relay = code === 'F' || code === 'G';
+          const relay = Nanxi.isRace(raceId) && (code === 'F' || code === 'G');
           const femaleValue = relay ? Number(row.femalecount || row['女性人数'] || 0) : null;
           if (relay && (!Number.isInteger(femaleValue) || femaleValue < 0 || femaleValue > config.size)) throw new Error('女性人数无效');
-          const payload = {raceId, bibNumber: bib, cardCode, athleteName: config.size === 1 ? memberNames[0] : String(row.athletename || row.teamname || row['队伍名称'] || '').trim(), entryType: config.type, memberNames, memberBibNumbers, categoryCode: code, femaleCount: femaleValue, checkInStatus: 'checked_in'};
+          const payload = {raceId, bibNumber: bib, cardCode, athleteName: config.size === 1 ? memberNames[0] : String(row.athletename || row.teamname || row['队伍名称'] || '').trim(), entryType: config.type, memberNames, memberBibNumbers, categoryCode: code, femaleCount: femaleValue, startBatch: row.startbatch ? Number(row.startbatch) : null, checkInStatus: 'checked_in'};
           const old = existing.get(bib); let result;
           if (old) result = await requestJson('/api/update-participant', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...payload, participantId: old.id, confirmation: 'UPDATE_PARTICIPANT', adminCode: adminAuthCode})});
           else result = await requestJson('/api/participants', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
@@ -2070,20 +2082,20 @@
     document.querySelector('#createNanxiTestData').addEventListener('click', async () => {
       const status = document.querySelector('#nanxiBulkStatus');
       const button = document.querySelector('#createNanxiTestData');
-      if (!Nanxi.isRace(selectedRaceId())) {
+      if (!RaceEvents.isRace(selectedRaceId())) {
         status.textContent = '请先切换到 Nanxi 的正式比赛场次。';
         return;
       }
       const raceId = selectedRaceId();
-      const codes = Nanxi.codes(Nanxi.dayForRace(raceId));
+      const codes = RaceEvents.codes(RaceEvents.dayForRace(raceId));
       button.disabled = true;
       status.textContent = '正在生成 test1 / test2 测试参赛单位...';
       try {
         const existingPayload = await requestJson(`/api/participants?raceId=${encodeURIComponent(raceId)}`);
-        const existing = new Map((existingPayload.participants || []).map(row => [Nanxi.normalizeBib(row.bib_number), row]));
+        const existing = new Map((existingPayload.participants || []).map(row => [RaceEvents.normalizeBib(row.bib_number), row]));
         let created = 0; let updated = 0;
         for (const code of codes) {
-          const config = Nanxi.groups[code];
+          const config = RaceEvents.groups[code];
           for (let testIndex = 1; testIndex <= 2; testIndex += 1) {
             const bib = `${code}-${String(900 + testIndex).padStart(3, '0')}`;
             const displayName = `test${testIndex}`;
@@ -2115,7 +2127,7 @@
     document.querySelector('#deleteNanxiTestData').addEventListener('click', async () => {
       const status = document.querySelector('#nanxiBulkStatus');
       const button = document.querySelector('#deleteNanxiTestData');
-      if (!Nanxi.isRace(selectedRaceId())) {
+      if (!RaceEvents.isRace(selectedRaceId())) {
         status.textContent = '请先切换到 Nanxi 的正式比赛场次。';
         return;
       }
@@ -2154,7 +2166,7 @@
           raceId: selectedRaceId(),
           cardCode: cardCodeInput.value.trim().toUpperCase(),
           athleteName: displayName,
-          bibNumber: Nanxi.normalizeBib(bibNumberInput.value) || (Nanxi.isRace(selectedRaceId()) ? currentMemberBibs()[0] : ""),
+          bibNumber: RaceEvents.normalizeBib(bibNumberInput.value) || (RaceEvents.isRace(selectedRaceId()) ? currentMemberBibs()[0] : ""),
           entryType,
           memberNames,
           phone: entryType === "individual" ? document.querySelector("#phone").value.trim() : "",
@@ -2162,8 +2174,8 @@
           division: entryType === "individual" ? document.querySelector("#division").value : "",
           checkInStatus: document.querySelector("#checkInStatus").value,
           startBatch: startBatchInput.value ? Number(startBatchInput.value) : null,
-          ...(Nanxi.isRace(selectedRaceId()) ? {categoryCode: document.querySelector("#nanxiCategoryCode").value,
-            memberBibNumbers: entryType === "individual" ? [Nanxi.normalizeBib(bibNumberInput.value)] : currentMemberBibs(),
+          ...(RaceEvents.isRace(selectedRaceId()) ? {categoryCode: document.querySelector("#nanxiCategoryCode").value,
+            memberBibNumbers: entryType === "individual" ? [RaceEvents.normalizeBib(bibNumberInput.value)] : currentMemberBibs(),
             femaleCount: document.querySelector("#nanxiFemaleCount").value === "" ? null : Number(document.querySelector("#nanxiFemaleCount").value)} : {}),
         };
         const isEditing = Number.isInteger(editingParticipantId) && editingParticipantId > 0;
@@ -2215,7 +2227,7 @@
             mode: document.querySelector("#raceMode").value,
             entryType: raceEntryTypeSelect.value,
             stationCount: Number(document.querySelector("#raceStationCount").value),
-            ...(Nanxi.isRace(selectedRaceId()) ? {checkpointLayout: "station_boundaries", adminCode: adminAuthCode} : {})
+            ...(RaceEvents.isRace(selectedRaceId()) ? {checkpointLayout: "station_boundaries", adminCode: adminAuthCode} : {})
           })
         });
         await loadRaceOptions(payload.race.raceId);
@@ -2254,7 +2266,7 @@
             entryType: template.entryType,
             stationCount: template.stationCount,
             checkpointLayout: template.checkpointLayout,
-            ...(Nanxi.isRace(session.raceId) ? { adminCode: adminAuthCode } : {})
+            ...(RaceEvents.isRace(session.raceId) ? { adminCode: adminAuthCode } : {})
           })
         });
         await loadRaceOptions(payload.race.raceId);

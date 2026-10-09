@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import nanxi_rules
+import oct11_rules
 import os
 import re
 import base64
@@ -173,6 +174,10 @@ NANXI_CATEGORY_LABELS = {
 
 def is_nanxi_race_id(race_id: str) -> bool:
     return str(race_id or "") in NANXI_RACE_IDS
+
+
+def is_category_race_id(race_id: str) -> bool:
+    return str(race_id or "") in nanxi_rules.RACES
 
 
 def nanxi_category_code(race_id: str, bib_number: str | None) -> str | None:
@@ -454,9 +459,12 @@ def ensure_device_binding_constraints(db: sqlite3.Connection) -> None:
             UNIQUE (race_id, device_id))""")
         db.execute("INSERT INTO device_bindings SELECT * FROM device_bindings_legacy")
         db.execute("DROP TABLE device_bindings_legacy")
+    existing_index = db.execute("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'device_bindings_exclusive_assignment'").fetchone()
+    if existing_index and oct11_rules.RACE_ID not in existing_index["sql"]:
+        db.execute("DROP INDEX device_bindings_exclusive_assignment")
     db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS device_bindings_exclusive_assignment
         ON device_bindings(race_id, assignment)
-        WHERE NOT (race_id IN ('nanxi-race-20260919','nanxi-race-20260920') AND assignment = 'END')""")
+        WHERE NOT (race_id IN ('nanxi-race-20260919','nanxi-race-20260920','src-race-20261011') AND assignment = 'END')""")
 
 
 def ensure_participant_columns(db: sqlite3.Connection) -> None:
@@ -523,6 +531,9 @@ def ensure_participant_columns(db: sqlite3.Connection) -> None:
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS participants_nanxi_bib_unique "
                "ON participants(race_id, bib_number) WHERE race_id IN "
                "('nanxi-race-20260919', 'nanxi-race-20260920')")
+
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS participants_oct11_bib_unique "
+               "ON participants(race_id, bib_number) WHERE race_id = 'src-race-20261011'")
 
 
 def ensure_race_profile_columns(db: sqlite3.Connection) -> None:
@@ -625,6 +636,9 @@ def make_race_profile(
 
 
 def default_race_profile(race_id: str) -> dict:
+    if race_id == oct11_rules.RACE_ID:
+        return make_race_profile(race_id, oct11_rules.NAME, "station_checkpoints", 8,
+                                 checkpoints=build_station_boundary_checkpoints(8), entry_type="individual")
     if race_id in NANXI_TEMPLATE_IDS:
         return make_race_profile(
             race_id,
@@ -666,6 +680,8 @@ def default_race_profile(race_id: str) -> dict:
 
 def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
     for race_id, name, mode, station_count, checkpoints, entry_type in (
+        (oct11_rules.RACE_ID, oct11_rules.NAME, "station_checkpoints", 8,
+         build_station_boundary_checkpoints(8), "individual"),
         (
             "nfc-test-001",
             "Peoplearth Simulation · 001",
@@ -801,9 +817,9 @@ def ensure_default_race_profiles(db: sqlite3.Connection) -> None:
 
 
 def ensure_default_judge_station_accounts(db: sqlite3.Connection) -> None:
-    """Provision the standard Nanxi station logins without overwriting custom accounts."""
+    """Provision standard station logins without overwriting custom accounts."""
     now = utc_now()
-    for race_id in sorted(NANXI_RACE_IDS):
+    for race_id in sorted(nanxi_rules.RACES):
         count = db.execute("SELECT station_count FROM race_profiles WHERE race_id = ?", (race_id,)).fetchone()[0]
         for station_number in range(count + 1):
             role = "start" if station_number == 0 else f"station_{station_number}"
@@ -825,7 +841,7 @@ def ensure_default_judge_station_accounts(db: sqlite3.Connection) -> None:
                     username,
                     password_hash,
                     salt,
-                    "待发区 / 发枪" if station_number == 0 else f"站点 {station_number}",
+                    "待发区 / 发枪" if station_number == 0 else (f"站点 {station_number} · {oct11_rules.STATIONS[station_number - 1]}" if race_id == oct11_rules.RACE_ID else f"站点 {station_number}"),
                     now,
                     now,
                 ),
@@ -873,7 +889,8 @@ def race_profile_response(profile: dict) -> dict:
         "checkpoints": profile["checkpoints"],
         "checkpointLayout": checkpoint_layout,
         "entryType": profile.get("entry_type") or "individual",
-        "brand": "nanxi" if is_nanxi_race_id(profile["race_id"]) else None,
+        "brand": "src" if race_id == oct11_rules.RACE_ID else "nanxi" if is_nanxi_race_id(race_id) else None,
+        **(oct11_rules.metadata() if race_id == oct11_rules.RACE_ID else {}),
         "categories": [{"code": code, "label": NANXI_CATEGORY_LABELS[code]}
                        for code in nanxi_rules.RACES.get(profile["race_id"], "")],
         "status": profile.get("status") or "active",
@@ -1075,7 +1092,7 @@ def participant_identity(row: sqlite3.Row | dict | None) -> dict:
 
 
 def validate_nanxi_member_bibs(db, race_id, bib_number, member_bibs, participant_id=None):
-    if not is_nanxi_race_id(race_id):
+    if not is_category_race_id(race_id):
         return
     requested = {bib_number, *member_bibs} - {None, ""}
     for row in db.execute("SELECT id, bib_number, member_bib_numbers FROM participants WHERE race_id = ?", (race_id,)):
@@ -2749,7 +2766,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                         "memberBibNumbers": payload.get("memberBibNumbers", parse_member_names(existing["member_bib_numbers"])),
                     }, entry)
                     validate_nanxi_member_bibs(db, race_id, bib_number, nanxi_entry.get("member_bib_numbers", []), participant_id)
-                    if (entry_type != "individual" or is_nanxi_race_id(race_id)) and bib_number and db.execute(
+                    if (entry_type != "individual" or is_category_race_id(race_id)) and bib_number and db.execute(
                         "SELECT 1 FROM participants WHERE race_id = ? AND bib_number = ? "
                         "AND id <> ? LIMIT 1",
                         (race_id, bib_number, participant_id),
@@ -2862,7 +2879,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.CONFLICT,
                 )
                 return
-            if is_nanxi_race_id(race_id) and assignment not in profile["checkpoints"]:
+            if is_category_race_id(race_id) and assignment not in profile["checkpoints"]:
                 raise ValueError("This checkpoint is not part of the current course")
             now = utc_now()
             with connect_db() as db:
@@ -2892,7 +2909,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "WHERE race_id = ? AND assignment = ?",
                     (race_id, assignment),
                 ).fetchone()
-                shared_finish = is_nanxi_race_id(race_id) and assignment == "END"
+                shared_finish = is_category_race_id(race_id) and assignment == "END"
                 if not shared_finish and occupied and occupied["device_id"] != device_id:
                     self.send_json(
                         {"ok": False, "error": "This role is already bound to another device", "binding": row_to_dict(occupied)},
@@ -3015,11 +3032,13 @@ class TimingHandler(SimpleHTTPRequestHandler):
             if existing and existing.get("is_template"):
                 self.send_json(template_race_error(existing), HTTPStatus.CONFLICT)
                 return
-            if is_nanxi_race_id(race_id):
+            if is_category_race_id(race_id):
                 authorization = judge_request_authorization(payload, race_id)
                 if not authorization or authorization.get("role") != "admin":
                     self.send_json({"ok": False, "error": "Administrator authorization is required"}, HTTPStatus.FORBIDDEN)
                     return
+                if race_id == oct11_rules.RACE_ID and int(payload.get("stationCount", 8)) != 8:
+                    raise ValueError("10·11 比赛固定为八站")
                 payload = {**payload, "mode": "station_checkpoints", "checkpointLayout": "station_boundaries"}
                 if existing and int(payload.get("stationCount", existing["station_count"])) != existing["station_count"]:
                     with connect_db() as db:
@@ -3868,6 +3887,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.CONFLICT,
                 )
                 return
+            if race_id == oct11_rules.RACE_ID and station_id == "START":
+                raise ValueError("起点仅签到，请先完成起点签到，再由裁判台发枪")
             if station_id not in profile["checkpoints"]:
                 raise ValueError("stationId is not part of this race profile")
             allowed_checkpoints = judge_role_checkpoints(profile, authorization.get("role"))
@@ -3902,7 +3923,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 ).fetchone()
                 if not participant:
                     raise ValueError("Participant was not found in this race")
-                if is_nanxi_race_id(race_id):
+                if is_category_race_id(race_id):
                     controls = db.execute("SELECT * FROM participant_timing_controls WHERE race_id = ? "
                                           "AND participant_id = ? ORDER BY created_at, id", (race_id, participant_id)).fetchall()
                     if timing_control_summary(controls, received_at)["state"] in {"pause", "dnf"}:
@@ -4529,6 +4550,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                     "participantId": participant["id"],
                     "athleteName": participant["athlete_name"],
                     "bibNumber": participant["bib_number"],
+                    "startBatch": participant_data.get("start_batch"),
                     "cardCode": participant["card_code"],
                     "entryType": participant_data["entry_type"],
                     "memberNames": participant_data["member_names"],
@@ -4888,7 +4910,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 with connect_db() as db:
                     db.execute("BEGIN IMMEDIATE")
                     validate_nanxi_member_bibs(db, race_id, bib_number, nanxi_entry.get("member_bib_numbers", []))
-                    if (entry_type != "individual" or is_nanxi_race_id(race_id)) and bib_number and db.execute(
+                    if (entry_type != "individual" or is_category_race_id(race_id)) and bib_number and db.execute(
                         "SELECT 1 FROM participants WHERE race_id = ? AND bib_number = ? "
                         "LIMIT 1",
                         (race_id, bib_number),
@@ -4992,6 +5014,8 @@ class TimingHandler(SimpleHTTPRequestHandler):
                 return
             save_race_profile(profile)
             normalized = self.normalize_timing_payload(payload, profile)
+            if race_id == oct11_rules.RACE_ID and normalized["station_id"] == "START":
+                raise ValueError("起点仅签到，请先完成起点签到，再由裁判台发枪")
         except (json.JSONDecodeError, ValueError) as error:
             self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
             return
@@ -5123,7 +5147,7 @@ class TimingHandler(SimpleHTTPRequestHandler):
                             "AND station_id = ? AND status = 'accepted' ORDER BY id DESC LIMIT 1",
                             (race_id, participant["id"], latest_checkpoint),
                         ).fetchone()
-                        status = "invalid_progress" if (is_nanxi_race_id(race_id) and previous_time
+                        status = "invalid_progress" if (is_category_race_id(race_id) and previous_time
                             and parse_iso(normalized["event_time"]) < parse_iso(previous_time["event_time"])) else "accepted"
             elif normalized["timing_mode"] == "auto":
                 expected_sequence = profile["checkpoints"]

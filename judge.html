@@ -406,6 +406,8 @@
     body.nanxi { --accent:#d1ba00; --primary:#e5cc00; --brand:#fff04f; --brand-ink:#15202b; --accent-ink:#15202b; }
     body.nanxi .race-name, body.nanxi .header-status { color:#354351; }
     body.nanxi .team-code { color:#665900; }
+    body.oct11 .nanxi-category-tabs button { border-color:#8ab84f; background:#f7faf0; color:#385222; }
+    body.oct11 .nanxi-category-tabs button[aria-pressed="true"] { background:#8ab84f; color:#111820; }
     body.nanxi .brand-logo { width:160px; object-fit:contain; border-radius:3px; }
   </style>
 </head>
@@ -472,7 +474,8 @@
           <button class="tab-button" type="button" data-filter="not_ready" aria-pressed="false">未核验 <strong id="waitingCount">0</strong></button>
           <button class="tab-button" type="button" data-filter="dnf" aria-pressed="false">退赛 <strong id="dnfCount">0</strong></button>
         </div>
-        <div id="nanxiCategoryTabs" class="nanxi-category-tabs" hidden aria-label="Nanxi 赛事组别"></div>
+        <div id="nanxiCategoryTabs" class="nanxi-category-tabs" hidden aria-label="赛事组别"></div>
+        <div id="oct11WaveTabs" class="nanxi-category-tabs" hidden aria-label="接力出发轮次"></div>
         <div class="queue-toolbar">
           <input id="judgeParticipantQuery" name="judge-participant-query" type="text" placeholder="搜索成员号码牌、姓名、队伍或手环号" autocomplete="off" spellcheck="false" readonly>
           <div class="batch-copy"><span id="batchScopeText">待发参赛单位可自由多选</span> · 当前显示 <strong id="visibleCount">0</strong> 个</div>
@@ -541,8 +544,9 @@
     </form>
   </div>
 
-  <script src="./timing-api.js"></script>
+  <script src="./timing-api.js?v=20261006-2"></script>
   <script src="./nanxi.js?v=20260920-1"></script>
+  <script src="./oct11.js?v=20261006-1"></script>
   <script>
     const elements = {
       adjustmentDirection: document.querySelector("#adjustmentDirection"),
@@ -665,6 +669,8 @@
     let judgeNfcReader = null;
     let judgeNfcAbortController = null;
     let judgeNfcStarting = false;
+    let judgeNfcSubmitQueue = Promise.resolve();
+    const judgeNfcRecentScans = new Map();
     let nfcFocusedParticipantId = null;
     let demoEntries = createDemoEntries();
 
@@ -940,7 +946,7 @@
     }
 
     function isManagedRaceId(raceId) {
-      if (primaryRaceIds.has(raceId) || Nanxi.isRace(raceId)) return true;
+      if (primaryRaceIds.has(raceId) || RaceEvents.isRace(raceId)) return true;
       const match = /^hoka-race-(\d{8})-\d{4}$/.exec(raceId);
       if (!match) return false;
       const today = new Date();
@@ -961,6 +967,7 @@
 
     function mergeRaceCatalog(races = []) {
       const merged = new Map((races || []).map((race) => [race.raceId, race]));
+      if (!merged.has(SrcOct11.raceId)) merged.set(SrcOct11.raceId, {raceId: SrcOct11.raceId, name: SrcOct11.name, stationCount: 8, checkpoints: SrcOct11.checkpoints, mode: "station_checkpoints", checkpointLayout: "station_boundaries"});
       nanxiRaceCatalog.forEach((race) => {
         if (!merged.has(race.raceId)) merged.set(race.raceId, { ...race, mode: "station_checkpoints", checkpointLayout: "station_boundaries" });
       });
@@ -976,7 +983,7 @@
         const stationNumber = Number(option.role.replace("station_", ""));
         return stationNumber <= stationCount;
       });
-      elements.authUsername.replaceChildren(...options.map((option) => new Option(option.label, option.role)));
+      elements.authUsername.replaceChildren(...options.map((option) => new Option(SrcOct11.isRace(elements.authRaceId.value) && option.role.startsWith("station_") ? `${option.label} · ${SrcOct11.stations[Number(option.role.split("_")[1])-1]}` : option.label, option.role)));
       elements.authUsername.value = options.some((option) => option.role === current)
         ? current
         : options.find((option) => option.role === "admin")?.role || options[0]?.role || "";
@@ -1058,7 +1065,39 @@
       ].filter(Boolean).join(" · ");
     }
 
-    function focusEntryFromNfc(cardCode) {
+    function judgeNfcMode() {
+      const scope = currentJudgeScope();
+      if (isStationJudge() && allowedJudgeCheckpoints().length) return "checkpoint";
+      if (scope === "start") return "checkin";
+      return "locate";
+    }
+
+    function updateJudgeNfcControl({ resetStatus = true } = {}) {
+      const mode = judgeNfcMode();
+      if (mode === "checkpoint") {
+        const checkpoint = allowedJudgeCheckpoints()[0];
+        elements.judgeNfcButton.textContent = judgeNfcReader || judgeNfcStarting
+          ? "停止本站 NFC"
+          : "启动本站 NFC 打卡";
+        if (resetStatus) elements.judgeNfcStatus.textContent = judgeNfcReader || judgeNfcStarting
+          ? `贴卡后直接确认${checkpointLabel(checkpoint)}`
+          : `贴卡后直接确认${checkpointLabel(checkpoint)}，人工按钮仍可使用`;
+      } else if (mode === "checkin") {
+        elements.judgeNfcButton.textContent = judgeNfcReader || judgeNfcStarting
+          ? "停止起点 NFC"
+          : "启动起点 NFC 核验";
+        if (resetStatus) elements.judgeNfcStatus.textContent = judgeNfcReader || judgeNfcStarting
+          ? "贴卡后写入待发队列，发枪后才开始计时"
+          : "贴卡后写入待发队列，人工核验仍可使用";
+      } else {
+        elements.judgeNfcButton.textContent = judgeNfcReader || judgeNfcStarting
+          ? "停止 NFC 定位"
+          : "启动 NFC 定位";
+        if (resetStatus) elements.judgeNfcStatus.textContent = "刷卡后自动定位队伍";
+      }
+    }
+
+    function focusEntryFromNfc(cardCode, { message = true } = {}) {
       const entry = entries.find((candidate) => nfcEntryMatches(candidate, cardCode));
       if (!entry) {
         setMessage(`NFC ${cardCode} 未在当前比赛中找到，请检查比赛日期或报名信息。`, "error");
@@ -1091,7 +1130,100 @@
         : "，请查看当前状态";
       elements.judgeNfcStatus.textContent = `${cardCode} · 已定位`;
       elements.judgeNfcStatus.dataset.tone = "success";
-      setMessage(`${entryIdentityText(entry)} · ${statusDetail(entry)}${actionHint}`, "success");
+      if (message) setMessage(`${entryIdentityText(entry)} · ${statusDetail(entry)}${actionHint}`, "success");
+      return entry;
+    }
+
+    async function confirmJudgeNfcCard(cardCode) {
+      const entry = focusEntryFromNfc(cardCode, { message: false });
+      if (!entry) return;
+      const mode = judgeNfcMode();
+      const eventTime = new Date().toISOString();
+      const checkpoint = mode === "checkpoint" ? confirmableCheckpointForEntry(entry) : null;
+      if (mode === "checkpoint" && !checkpoint) {
+        setMessage(`${entryIdentityText(entry)} 当前没有可确认的本站进度，请刷新后重试。`, "error");
+        elements.judgeNfcStatus.textContent = `${cardCode} · 无需确认`;
+        elements.judgeNfcStatus.dataset.tone = "error";
+        return;
+      }
+      if (mode === "locate") {
+        focusEntryFromNfc(cardCode);
+        return;
+      }
+      elements.judgeNfcStatus.textContent = `${cardCode} · 正在保存…`;
+      elements.judgeNfcStatus.dataset.tone = "success";
+      try {
+        let response;
+        if (isDemoMode) {
+          applyDemoOperation(mode === "checkin" ? "checkin" : "checkpoint", entry,
+            mode === "checkpoint" ? { stationId: checkpoint, eventTime } : {});
+          response = { ok: true, status: mode === "checkin" ? "start_ready" : "accepted" };
+        } else if (mode === "checkin") {
+          response = await readJson(await window.timingApiFetch("/api/start-checkins", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              raceId: elements.raceId.value,
+              cardCode: entry.cardCode,
+              deviceId,
+              judgeToken,
+              adminCode: judgeAdminCode,
+              source: "judge-nfc-checkin"
+            })
+          }));
+        } else {
+          response = await readJson(await window.timingApiFetch("/api/manual-checkpoints", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              raceId: elements.raceId.value,
+              participantId: entry.participantId,
+              stationId: checkpoint,
+              eventTime,
+              deviceId,
+              judgeToken,
+              adminCode: judgeAdminCode,
+              reason: "裁判台 NFC 现场确认"
+            })
+          }));
+        }
+        if (response.status !== (mode === "checkin" ? "start_ready" : "accepted")) {
+          throw new Error(response.error || (mode === "checkin" ? "该手环未绑定待发选手" : "本站已确认或进度已变化，请刷新"));
+        }
+        await loadData({ silent: true });
+        const refreshed = entries.find((candidate) => candidate.participantId === entry.participantId) || entry;
+        nfcFocusedParticipantId = refreshed.participantId;
+        renderEntries();
+        updateCounts();
+        updateDock();
+        const savedLabel = mode === "checkin" ? "起点核验成功，等待发枪" : `${checkpointLabel(checkpoint)}已记录`;
+        elements.judgeNfcStatus.textContent = `${cardCode} · ${savedLabel}`;
+        elements.judgeNfcStatus.dataset.tone = "success";
+        setMessage(`${entryIdentityText(refreshed)} · ${savedLabel}`, "success");
+      } catch (error) {
+        elements.judgeNfcStatus.textContent = `${cardCode} · 保存失败`;
+        elements.judgeNfcStatus.dataset.tone = "error";
+        setMessage(`NFC 打卡未记录：${error.message}`, "error");
+      }
+    }
+
+    function queueJudgeNfcCard(cardCode) {
+      const normalized = String(cardCode || "").trim().toUpperCase();
+      if (!normalized) return;
+      const mode = judgeNfcMode();
+      const checkpoint = mode === "checkpoint" ? (allowedJudgeCheckpoints()[0] || "") : mode;
+      const duplicateKey = `${checkpoint}:${normalized}`;
+      const now = Date.now();
+      const previous = judgeNfcRecentScans.get(duplicateKey) || 0;
+      if (now - previous < 2500) {
+        elements.judgeNfcStatus.textContent = `${normalized} · 重复刷卡已忽略`;
+        elements.judgeNfcStatus.dataset.tone = "error";
+        return;
+      }
+      judgeNfcRecentScans.set(duplicateKey, now);
+      judgeNfcSubmitQueue = judgeNfcSubmitQueue
+        .then(() => confirmJudgeNfcCard(normalized))
+        .catch((error) => setMessage(`NFC 打卡未记录：${error.message}`, "error"));
     }
 
     async function stopJudgeNfcScan() {
@@ -1100,8 +1232,7 @@
       judgeNfcReader = null;
       judgeNfcStarting = false;
       elements.judgeNfcButton.dataset.scanning = "false";
-      elements.judgeNfcButton.textContent = "启动 NFC 定位";
-      elements.judgeNfcStatus.textContent = "刷卡后自动定位队伍";
+      updateJudgeNfcControl({ resetStatus: !(judgeNfcReader || judgeNfcStarting) });
       elements.judgeNfcStatus.dataset.tone = "";
     }
 
@@ -1130,17 +1261,30 @@
             setMessage("读到了 NFC，但没有找到卡号文本。", "error");
             return;
           }
-          focusEntryFromNfc(cardCode);
+          if (judgeNfcMode() === "locate") focusEntryFromNfc(cardCode);
+          else queueJudgeNfcCard(cardCode);
         });
         judgeNfcReader.addEventListener("readingerror", () => {
           setMessage("NFC 读取失败，请将卡片移开后重新贴卡。", "error");
         });
         await scanStarted;
         elements.judgeNfcButton.dataset.scanning = "true";
-        elements.judgeNfcButton.textContent = "停止 NFC 定位";
-        elements.judgeNfcStatus.textContent = "正在等待 NFC 卡…";
+        updateJudgeNfcControl({ resetStatus: !(judgeNfcReader || judgeNfcStarting) });
+        elements.judgeNfcStatus.textContent = judgeNfcMode() === "checkpoint"
+          ? `正在等待 NFC 卡 · ${checkpointLabel(allowedJudgeCheckpoints()[0])}`
+          : judgeNfcMode() === "checkin"
+            ? "正在等待 NFC 卡 · 起点核验"
+            : "正在等待 NFC 卡…";
         elements.judgeNfcStatus.dataset.tone = "success";
-        setMessage("NFC 定位已启动，刷卡后会自动定位队伍。", "success");
+        const mode = judgeNfcMode();
+        setMessage(
+          mode === "checkpoint"
+            ? `本站 NFC 已启动，贴卡后直接确认${checkpointLabel(allowedJudgeCheckpoints()[0])}。`
+            : mode === "checkin"
+              ? "起点 NFC 已启动，贴卡后写入待发核验。"
+              : "NFC 定位已启动，刷卡后会自动定位队伍。",
+          "success",
+        );
       } catch (error) {
         await stopJudgeNfcScan();
         const detail = error.name === "NotAllowedError"
@@ -1239,7 +1383,8 @@
       const query = elements.searchInput.value.trim().toLowerCase();
       return entries.filter((entry) => {
         const categoryCode = Nanxi.categoryForRow(entry) || String(entry.bibNumber || "").charAt(0).toUpperCase();
-        if (Nanxi.isRace(elements.raceId.value) && activeCategory !== "all" && categoryCode !== activeCategory) return false;
+        if (RaceEvents.isRace(elements.raceId.value) && activeCategory !== "all" && categoryCode !== activeCategory) return false;
+        if (SrcOct11.isRace(elements.raceId.value) && activeCategory === "G" && oct11Wave !== "all" && Number(entry.startBatch) !== Number(oct11Wave)) return false;
         if (filterStatus(entry) !== activeFilter) return false;
         if (isStationJudge() && !confirmableCheckpointForEntry(entry)) return false;
         if (!query) return true;
@@ -1266,6 +1411,7 @@
 
     function roleLabel(role) {
       const label = judgeRoleOptions.find((option) => option.role === role)?.label || role;
+      if (SrcOct11.isRace(elements.raceId.value) && role.startsWith('station_')) return `${label} · ${SrcOct11.stations[Number(role.split('_')[1])-1]}${role === 'station_8' ? ' / 完赛' : ''}`;
       return role === `station_${activeRace?.stationCount || 5}` ? `${label} / 冲线` : label;
     }
 
@@ -1365,6 +1511,7 @@
       updateNanxiCategoryTabs();
       updateBatchScopeText();
       updateNfcLink();
+      updateJudgeNfcControl();
       elements.raceId.disabled = false;
       [elements.bindingLink, elements.demoLink].forEach((link) => { link.hidden = !isAdminJudge(); });
       elements.nfcLink.hidden = isDemoMode;
@@ -1372,21 +1519,30 @@
       selectedIds.clear();
     }
 
+    let oct11Wave = "all";
+    function updateOct11Waves() {
+      const tabs = document.querySelector('#oct11WaveTabs');
+      tabs.hidden = !SrcOct11.isRace(elements.raceId.value) || activeCategory !== 'G';
+      if (tabs.hidden) return;
+      tabs.innerHTML = [['all','全部轮次'], ...Array.from({length:4},(_,i)=>[String(i+1), `第 ${i+1} 轮 · 4 队`])].map(([wave,label])=>`<button type="button" data-wave="${wave}" aria-pressed="${wave===oct11Wave}">${label}</button>`).join('');
+      tabs.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>{oct11Wave=button.dataset.wave;selectedIds.clear();updateOct11Waves();renderEntries();updateDock();}));
+    }
     function updateNanxiCategoryTabs() {
+      updateOct11Waves();
       const raceId = elements.raceId.value;
-      const isNanxi = Nanxi.isRace(raceId);
+      const isNanxi = RaceEvents.isRace(raceId);
       elements.nanxiCategoryTabs.hidden = !isNanxi;
       if (!isNanxi) { activeCategory = "all"; elements.nanxiCategoryTabs.replaceChildren(); return; }
-      const codes = Nanxi.codes(Nanxi.dayForRace(raceId));
+      const codes = RaceEvents.codes(RaceEvents.dayForRace(raceId));
       if (activeCategory !== "all" && !codes.includes(activeCategory)) activeCategory = "all";
       elements.nanxiCategoryTabs.replaceChildren(...[
         new Option("全部组别", "all"),
-        ...codes.map((code) => new Option(Nanxi.groups[code].label, code))
+        ...codes.map((code) => new Option(RaceEvents.groups[code].label, code))
       ].map((option) => {
         const button = document.createElement("button");
         button.type = "button"; button.textContent = option.text; button.value = option.value;
         button.setAttribute("aria-pressed", String(option.value === activeCategory));
-        button.addEventListener("click", () => { activeCategory = button.value; updateNanxiCategoryTabs(); renderEntries(); });
+        button.addEventListener("click", () => { activeCategory = button.value; if (SrcOct11.isRace(raceId)) selectedIds.clear(); oct11Wave = "all"; updateNanxiCategoryTabs(); renderEntries(); updateDock(); });
         return button;
       }));
     }
@@ -1491,10 +1647,10 @@
         main.append(teamCode);
       }
       const categoryCode = Nanxi.categoryForRow(entry) || String(entry.bibNumber || "").charAt(0).toUpperCase();
-      if (Nanxi.isRace(elements.raceId.value) && Nanxi.groups[categoryCode]) {
+      if (RaceEvents.isRace(elements.raceId.value) && RaceEvents.groups[categoryCode]) {
         const category = document.createElement("span");
         category.className = "entry-category";
-        category.textContent = Nanxi.groups[categoryCode].label;
+        category.textContent = RaceEvents.groups[categoryCode].label;
         main.append(category);
       }
       const name = document.createElement("h2");
@@ -1747,6 +1903,7 @@
     }
 
     function updateBranding() {
+      document.body.classList.toggle("oct11", SrcOct11.isRace(elements.raceId.value));
       const hoka = isHokaRace(elements.raceId.value);
       const nanxi = Nanxi.isRace(elements.raceId.value);
       document.body.classList.toggle('nanxi',nanxi);
@@ -1762,6 +1919,7 @@
       const raceId = encodeURIComponent(elements.raceId.value);
       elements.bindingLink.href = `./admin.html?raceId=${raceId}`;
       updateNfcLink();
+      updateJudgeNfcControl({ resetStatus: !(judgeNfcReader || judgeNfcStarting) });
     }
 
     function updateUrl() {
@@ -1843,8 +2001,9 @@
         updateBranding();
         updateBatchScopeText();
         updateNfcLink();
+        updateJudgeNfcControl({ resetStatus: !(judgeNfcReader || judgeNfcStarting) });
         entries = (queuePayload.entries || []).map((entry) => ({ ...entry, result: results.get(Number(entry.participantId)) || null }));
-        const entryUnit = Nanxi.isRace(activeRace.raceId) ? "个参赛单位" : activeRace.entryType === "team" ? "支队伍" : "人";
+        const entryUnit = RaceEvents.isRace(activeRace.raceId) ? "个参赛单位" : activeRace.entryType === "team" ? "支队伍" : "人";
         elements.raceName.textContent = `${raceDisplayName({ raceId: activeRace.raceId || elements.raceId.value, name: activeRace.name })} · ${entries.length} ${entryUnit}`;
         updateCounts();
         renderEntries();
@@ -1877,6 +2036,7 @@
     }
 
     function checkpointLabel(checkpoint) {
+      if (SrcOct11.isRace(elements.raceId.value)) return SrcOct11.checkpointLabel(checkpoint);
       if (checkpoint === "START") return "起点核验 / 等待发枪";
       if (checkpoint === "END") return "终点";
       const match = String(checkpoint).match(/^STATION_(\d+)_(ENTER|EXIT|START)$/);
@@ -1900,6 +2060,10 @@
     function openStartModal() {
       const selected = selectedEntries();
       if (!selected.length) return;
+      if (SrcOct11.isRace(elements.raceId.value)) {
+        const categories = new Set(selected.map(Nanxi.categoryForRow));
+        if (categories.has('G') && (selected.length > 4 || new Set(selected.map(row => row.startBatch).filter(value => value != null)).size > 1)) { setMessage("四人接力每轮最多 4 队，请选择同一轮的队伍。", "error"); return; }
+      }
       elements.startModalTitle.textContent = "确认发枪";
       elements.startDescription.textContent = isDemoMode
         ? "确认后，所选参赛单位会立即使用同一个模拟开始时间。"

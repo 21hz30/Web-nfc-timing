@@ -875,6 +875,7 @@
 
   <script src="./timing-api.js"></script>
   <script src="./nanxi.js?v=20260920-1"></script>
+  <script src="./oct11.js?v=20261006-1"></script>
   <script>
     const embeddedMode = new URLSearchParams(window.location.search).get("embedded") === "1";
     if (embeddedMode) document.body.classList.add("embedded");
@@ -1008,6 +1009,7 @@
     }
 
     function checkpointLabel(checkpoint) {
+      if (SrcOct11.isRace(elements.raceId.value)) return SrcOct11.checkpointLabel(checkpoint);
       if (checkpoint === "START") {
         return usesStationBoundaries() ? "起点核验 / 等待发枪" : "开始第 1 圈跑步";
       }
@@ -1161,11 +1163,13 @@
           (templateId) => race.raceId.startsWith(`${templateId}-`)
         ))
         .sort((left, right) => right.raceId.localeCompare(left.raceId));
+      const oct11Races = activeRaces.filter(race => SrcOct11.isRace(race.raceId));
       const nanxiRaces = activeRaces.filter(race => Nanxi.isRace(race.raceId));
       const otherRaces = activeRaces
-        .filter((race) => !datedRaces.includes(race) && !nanxiRaces.includes(race))
+        .filter((race) => !datedRaces.includes(race) && !nanxiRaces.includes(race) && !oct11Races.includes(race))
         .sort((left, right) => raceOptionLabel(left).localeCompare(raceOptionLabel(right)));
       const groups = [];
+      if (oct11Races.length) groups.push(createRaceOptionGroup("SRC 10·11", oct11Races));
       if (nanxiRaces.length) groups.push(createRaceOptionGroup("Nanxi", nanxiRaces));
       if (datedRaces.length) {
         groups.push(createRaceOptionGroup("可计时比赛场次", datedRaces));
@@ -1248,7 +1252,7 @@
     }
 
     function isSharedFinish(assignment) {
-      return Nanxi.isRace(elements.raceId.value.trim()) && assignment === "END";
+      return RaceEvents.isRace(elements.raceId.value.trim()) && assignment === "END";
     }
 
     function assignmentLabel(assignment) {

@@ -2093,6 +2093,7 @@ class DefaultRaceProfileTests(unittest.TestCase):
                 "nfc-test-001",
                 "nanxi-race-20260919",
                 "nanxi-race-20260920",
+                "src-race-20261011",
             },
         )
         self.assertEqual(test_profile["name"], "Peoplearth Simulation · 001")

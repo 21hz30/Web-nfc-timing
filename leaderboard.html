@@ -6,6 +6,7 @@
   <title>SRC Hyrox Simulation Live Timing</title>
   <script>
     { const query = new URLSearchParams(location.search);
+      if (query.get("raceId") === "src-race-20261011") location.replace(`./oct11.html${location.search}`);
       if (["nanxi-race-20260919", "nanxi-race-20260920"].includes(query.get("raceId")) || query.get("brand") === "nanxi")
         location.replace(`./nanxi.html?${query}`); }
   </script>
