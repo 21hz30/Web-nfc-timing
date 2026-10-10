@@ -1484,7 +1484,7 @@
 
     function updateNfcLink() {
       const raceId = elements.raceId.value;
-      if (!raceId || isDemoMode) {
+      if (!raceId || isDemoMode || SrcOct11.isRace(raceId)) {
         elements.nfcLink.hidden = true;
         return;
       }
@@ -1514,7 +1514,7 @@
       updateJudgeNfcControl();
       elements.raceId.disabled = false;
       [elements.bindingLink, elements.demoLink].forEach((link) => { link.hidden = !isAdminJudge(); });
-      elements.nfcLink.hidden = isDemoMode;
+      elements.nfcLink.hidden = isDemoMode || SrcOct11.isRace(elements.raceId.value);
       elements.judgeNfcButton.hidden = isDemoMode;
       selectedIds.clear();
     }

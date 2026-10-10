@@ -37,7 +37,7 @@
 - 样式演示：`/oct11.html?demo=1`。明确显示「演示数据」，包含 84 个模拟计时单位、168 位成员；不会写入正式名单。
 - 前台登记：`/admin.html?raceId=src-race-20261011`。
 - 裁判台：`/judge.html?raceId=src-race-20261011`。
-- NFC／手动打卡：`/web-nfc-timing-test.html?raceId=src-race-20261011`。
+- 裁判台内 NFC／手动打卡：`/judge.html?raceId=src-race-20261011`。10·11 的正常现场流程不再从独立 NFC 页面进入；起点和八个站点都在裁判台内按岗位操作。独立 `/web-nfc-timing-test.html` 页面保留给旧赛事和设备故障排查。
 - 最终成绩查询：`/oct11-finish-result.html`。可输入队伍查询号、个人号码或任意成员号码；只有完成墙球并进入 `finished` 状态的参赛单位会显示成绩卡，支持全屏展示。
 
 如果直接打开本地 `judge.html` 文件，先运行 `python3 server.py`；本地文件版裁判台会自动连接 `http://localhost:8787`，使用本地的 `station_1 / station1` 等账号。需要查看线上只读预览时再加 `?livePreview=1`。
