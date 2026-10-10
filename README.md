@@ -82,11 +82,18 @@ Open `/oct11.html` for live results or `/oct11.html?demo=1` for the SRC color pr
 The admin, judge and NFC pages accept `?raceId=src-race-20261011`.
 The admin CSV template contains the planned 84 entries and relay wave assignments.
 See [OCT11_EVENT.md](OCT11_EVENT.md) for the Chinese operator guide and cloud setup.
-Apply `20261006090000_add_src_oct11_eight_stations.sql` and
+Apply `20261006080000_prepare_existing_src_oct11.sql`,
+`20261006090000_add_src_oct11_eight_stations.sql` and
 `20261006100000_seed_src_oct11_judge_accounts.sql`, publish the updated Edge
 Function and static frontend, and verify the nine cloud judge accounts before
 using this event online. The seeded station passwords are `station1` through
 `station8` (start is `station0`); existing custom accounts are preserved.
+The preparation migration repairs a generic October 11 profile created by an
+older API and restores compatible legacy fixed-prefix divisions before the
+registration constraint is applied. It preserves entry identities and stops for
+review if the old course already has results, obsolete device assignments, or
+unconfirmed divisions/relay composition. Git pushes deploy the static frontend;
+they do not apply these database migrations or publish the Supabase Edge Function.
 
 Regression check: `python3 -m unittest test_oct11.Oct11Tests test_nanxi.NanxiTests test_server.TimingApiTests test_server.AutoTransitionTests`.
 
